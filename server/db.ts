@@ -1,20 +1,38 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import { Pool } from "pg";
-import postgres from "postgres";
+// This is a placeholder db.ts that doesn't try to connect to a real database
+// Use this for development until ready to integrate with actual PostgreSQL database
 import * as schema from "@shared/schema";
 
-// Create connection string
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not defined");
-}
+// Dummy pool object for session store
+export const pool = {
+  query: async () => ({ rows: [] }),
+  connect: () => ({ release: () => {} }),
+};
 
-// Create PostgreSQL connection pool for session store
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// Create Postgres.js client for Drizzle
-const client = postgres(process.env.DATABASE_URL);
-
-// Create Drizzle instance
-export const db = drizzle(client, { schema });
+// Dummy db object
+export const db = {
+  select: () => ({
+    from: () => ({
+      where: () => [],
+      orderBy: () => ({
+        limit: () => []
+      }),
+      limit: () => [],
+      groupBy: () => []
+    })
+  }),
+  insert: () => ({
+    values: () => ({
+      returning: () => []
+    })
+  }),
+  update: () => ({
+    set: () => ({
+      where: () => ({
+        returning: () => []
+      })
+    })
+  }),
+  delete: () => ({
+    where: () => {}
+  })
+};

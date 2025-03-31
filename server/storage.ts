@@ -196,27 +196,18 @@ export class MemStorage implements IStorage {
   async createEmployee(employee: InsertEmployee): Promise<Employee> {
     const id = this.employeeId++;
     const newEmployee: Employee = { 
-      ...employee, 
-      id, 
-      createdAt: null,
-      dateOfBirth: employee.dateOfBirth ?? null,
-      dateOfHire: employee.dateOfHire ?? null,
-      address: employee.address ?? null,
-      phone: employee.phone ?? null,
-      emergencyContact: employee.emergencyContact ?? null,
-      emergencyPhone: employee.emergencyPhone ?? null,
-      department: employee.department ?? null,
-      position: employee.position ?? null,
-      managerUserId: employee.managerUserId ?? null,
-      status: employee.status || 'active',
-      socialSecurityNumber: employee.socialSecurityNumber ?? null,
-      isInternational: employee.isInternational ?? false,
-      visaNumber: employee.visaNumber ?? null,
-      visaExpiry: employee.visaExpiry ?? null,
-      passportNumber: employee.passportNumber ?? null,
-      passportExpiry: employee.passportExpiry ?? null,
-      workPermitNumber: employee.workPermitNumber ?? null,
-      workPermitExpiry: employee.workPermitExpiry ?? null
+      id,
+      employeeId: employee.employeeId,
+      userId: employee.userId || null,
+      name: employee.name,
+      department: employee.department,
+      designation: employee.designation,
+      joinDate: employee.joinDate,
+      passportNumber: employee.passportNumber || null,
+      passportExpiry: employee.passportExpiry || null,
+      visaNumber: employee.visaNumber || null,
+      visaExpiry: employee.visaExpiry || null,
+      createdAt: new Date()
     };
     this.employeeMap.set(id, newEmployee);
     return newEmployee;
@@ -1037,4 +1028,5 @@ export class DatabaseStorage implements IStorage {
 }
 
 // Export the storage instance
-export const storage = new DatabaseStorage();
+// Using MemStorage for now, can switch to DatabaseStorage later
+export const storage = new MemStorage();
