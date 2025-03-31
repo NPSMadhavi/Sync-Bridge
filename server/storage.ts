@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, pool } from "./db";
 import {
   users, employees, dependents, assets, assetAssignments, 
   maintenanceRecords, employeeDocuments, vendors, notifications, 
@@ -13,16 +13,9 @@ import { eq, and, gt, lt, lte, desc, isNull, sql } from "drizzle-orm";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import connectPg from "connect-pg-simple";
-import pg from "pg";
-const { Pool } = pg;
 
 const MemoryStore = createMemoryStore(session);
 const PostgresSessionStore = connectPg(session);
-
-// Create a PostgreSQL connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 // Interface for all storage operations
 export interface IStorage {
@@ -102,7 +95,7 @@ export interface IStorage {
   getDashboardStats(): Promise<any>;
   
   // Session store
-  sessionStore: any; // Use any type for sessionStore
+  sessionStore: session.Store;
 }
 
 // Memory storage implementation
@@ -117,7 +110,7 @@ export class MemStorage implements IStorage {
   private vendorMap: Map<number, Vendor>;
   private notificationMap: Map<number, Notification>;
   private auditLogMap: Map<number, AuditLog>;
-  sessionStore: any; // Use any type for sessionStore
+  sessionStore: session.Store;
   userId: number;
   employeeId: number;
   dependentId: number;
@@ -140,7 +133,7 @@ export class MemStorage implements IStorage {
     this.vendorMap = new Map();
     this.notificationMap = new Map();
     this.auditLogMap = new Map();
-    this.sessionStore = new MemoryStore({ checkPeriod: 86400000 });
+    
     this.userId = 1;
     this.employeeId = 1;
     this.dependentId = 1;
@@ -151,6 +144,10 @@ export class MemStorage implements IStorage {
     this.vendorId = 1;
     this.notificationId = 1;
     this.auditLogId = 1;
+    
+    this.sessionStore = new MemoryStore({
+      checkPeriod: 86400000 // 24 hours
+    });
   }
 
   // User operations
@@ -164,9 +161,12 @@ export class MemStorage implements IStorage {
 
   async createUser(user: InsertUser): Promise<User> {
     const id = this.userId++;
-    // Ensure role is not undefined
-    const role = user.role || 'employee';
-    const newUser = { ...user, id, role, createdAt: new Date() } as User;
+    const newUser: User = { 
+      ...user, 
+      id, 
+      createdAt: null,
+      role: user.role || 'employee' 
+    };
     this.userMap.set(id, newUser);
     return newUser;
   }
@@ -179,7 +179,7 @@ export class MemStorage implements IStorage {
     this.userMap.set(id, updatedUser);
     return updatedUser;
   }
-
+  
   // Employee operations
   async getEmployee(id: number): Promise<Employee | undefined> {
     return this.employeeMap.get(id);
@@ -195,7 +195,29 @@ export class MemStorage implements IStorage {
 
   async createEmployee(employee: InsertEmployee): Promise<Employee> {
     const id = this.employeeId++;
-    const newEmployee = { ...employee, id, createdAt: new Date() };
+    const newEmployee: Employee = { 
+      ...employee, 
+      id, 
+      createdAt: null,
+      dateOfBirth: employee.dateOfBirth ?? null,
+      dateOfHire: employee.dateOfHire ?? null,
+      address: employee.address ?? null,
+      phone: employee.phone ?? null,
+      emergencyContact: employee.emergencyContact ?? null,
+      emergencyPhone: employee.emergencyPhone ?? null,
+      department: employee.department ?? null,
+      position: employee.position ?? null,
+      managerUserId: employee.managerUserId ?? null,
+      status: employee.status || 'active',
+      socialSecurityNumber: employee.socialSecurityNumber ?? null,
+      isInternational: employee.isInternational ?? false,
+      visaNumber: employee.visaNumber ?? null,
+      visaExpiry: employee.visaExpiry ?? null,
+      passportNumber: employee.passportNumber ?? null,
+      passportExpiry: employee.passportExpiry ?? null,
+      workPermitNumber: employee.workPermitNumber ?? null,
+      workPermitExpiry: employee.workPermitExpiry ?? null
+    };
     this.employeeMap.set(id, newEmployee);
     return newEmployee;
   }
@@ -212,7 +234,7 @@ export class MemStorage implements IStorage {
   async deleteEmployee(id: number): Promise<void> {
     this.employeeMap.delete(id);
   }
-
+  
   // Dependent operations
   async getDependent(id: number): Promise<Dependent | undefined> {
     return this.dependentMap.get(id);
@@ -224,7 +246,15 @@ export class MemStorage implements IStorage {
 
   async createDependent(dependent: InsertDependent): Promise<Dependent> {
     const id = this.dependentId++;
-    const newDependent = { ...dependent, id, createdAt: new Date() };
+    const newDependent: Dependent = { 
+      ...dependent, 
+      id, 
+      createdAt: null,
+      passportNumber: dependent.passportNumber ?? null,
+      passportExpiry: dependent.passportExpiry ?? null,
+      visaNumber: dependent.visaNumber ?? null,
+      visaExpiry: dependent.visaExpiry ?? null
+    };
     this.dependentMap.set(id, newDependent);
     return newDependent;
   }
@@ -241,7 +271,7 @@ export class MemStorage implements IStorage {
   async deleteDependent(id: number): Promise<void> {
     this.dependentMap.delete(id);
   }
-
+  
   // Asset operations
   async getAsset(id: number): Promise<Asset | undefined> {
     return this.assetMap.get(id);
@@ -253,7 +283,16 @@ export class MemStorage implements IStorage {
 
   async createAsset(asset: InsertAsset): Promise<Asset> {
     const id = this.assetId++;
-    const newAsset = { ...asset, id, createdAt: new Date() };
+    const newAsset: Asset = { 
+      ...asset, 
+      id, 
+      createdAt: null,
+      status: asset.status || 'available',
+      location: asset.location ?? null,
+      vendorId: asset.vendorId ?? null,
+      purchaseDate: asset.purchaseDate ?? null,
+      warrantyExpiry: asset.warrantyExpiry ?? null
+    };
     this.assetMap.set(id, newAsset);
     return newAsset;
   }
@@ -270,7 +309,7 @@ export class MemStorage implements IStorage {
   async deleteAsset(id: number): Promise<void> {
     this.assetMap.delete(id);
   }
-
+  
   // Asset Assignment operations
   async getAssetAssignment(id: number): Promise<AssetAssignment | undefined> {
     return this.assetAssignmentMap.get(id);
@@ -290,7 +329,14 @@ export class MemStorage implements IStorage {
 
   async createAssetAssignment(assignment: InsertAssetAssignment): Promise<AssetAssignment> {
     const id = this.assignmentId++;
-    const newAssignment = { ...assignment, id, createdAt: new Date() };
+    const newAssignment: AssetAssignment = { 
+      ...assignment, 
+      id, 
+      createdAt: null,
+      dateAssigned: assignment.dateAssigned || new Date(),
+      dateReturned: assignment.dateReturned ?? null,
+      notes: assignment.notes ?? null
+    };
     this.assetAssignmentMap.set(id, newAssignment);
     return newAssignment;
   }
@@ -307,7 +353,7 @@ export class MemStorage implements IStorage {
   async deleteAssetAssignment(id: number): Promise<void> {
     this.assetAssignmentMap.delete(id);
   }
-
+  
   // Maintenance Record operations
   async getMaintenanceRecord(id: number): Promise<MaintenanceRecord | undefined> {
     return this.maintenanceRecordMap.get(id);
@@ -319,7 +365,14 @@ export class MemStorage implements IStorage {
 
   async createMaintenanceRecord(record: InsertMaintenanceRecord): Promise<MaintenanceRecord> {
     const id = this.maintenanceId++;
-    const newRecord = { ...record, id, createdAt: new Date() };
+    const newRecord: MaintenanceRecord = { 
+      ...record, 
+      id, 
+      createdAt: null,
+      resolution: record.resolution ?? null,
+      nextMaintenanceDate: record.nextMaintenanceDate ?? null,
+      cost: record.cost ?? null
+    };
     this.maintenanceRecordMap.set(id, newRecord);
     return newRecord;
   }
@@ -336,7 +389,7 @@ export class MemStorage implements IStorage {
   async deleteMaintenanceRecord(id: number): Promise<void> {
     this.maintenanceRecordMap.delete(id);
   }
-
+  
   // Employee Document operations
   async getEmployeeDocument(id: number): Promise<EmployeeDocument | undefined> {
     return this.employeeDocumentMap.get(id);
@@ -359,7 +412,14 @@ export class MemStorage implements IStorage {
 
   async createEmployeeDocument(document: InsertEmployeeDocument): Promise<EmployeeDocument> {
     const id = this.documentId++;
-    const newDocument = { ...document, id, createdAt: new Date() };
+    const newDocument: EmployeeDocument = { 
+      ...document, 
+      id, 
+      createdAt: null,
+      notes: document.notes ?? null,
+      issueDate: document.issueDate ?? null,
+      expiryDate: document.expiryDate ?? null
+    };
     this.employeeDocumentMap.set(id, newDocument);
     return newDocument;
   }
@@ -376,7 +436,7 @@ export class MemStorage implements IStorage {
   async deleteEmployeeDocument(id: number): Promise<void> {
     this.employeeDocumentMap.delete(id);
   }
-
+  
   // Vendor operations
   async getVendor(id: number): Promise<Vendor | undefined> {
     return this.vendorMap.get(id);
@@ -388,7 +448,12 @@ export class MemStorage implements IStorage {
 
   async createVendor(vendor: InsertVendor): Promise<Vendor> {
     const id = this.vendorId++;
-    const newVendor = { ...vendor, id, createdAt: new Date() };
+    const newVendor: Vendor = { 
+      ...vendor, 
+      id, 
+      createdAt: null,
+      assetTypesSupplied: vendor.assetTypesSupplied ?? null
+    };
     this.vendorMap.set(id, newVendor);
     return newVendor;
   }
@@ -405,7 +470,7 @@ export class MemStorage implements IStorage {
   async deleteVendor(id: number): Promise<void> {
     this.vendorMap.delete(id);
   }
-
+  
   // Notification operations
   async getNotification(id: number): Promise<Notification | undefined> {
     return this.notificationMap.get(id);
@@ -422,7 +487,14 @@ export class MemStorage implements IStorage {
 
   async createNotification(notification: InsertNotification): Promise<Notification> {
     const id = this.notificationId++;
-    const newNotification = { ...notification, id, createdAt: new Date() };
+    const newNotification: Notification = { 
+      ...notification, 
+      id, 
+      createdAt: null,
+      seen: notification.seen ?? false,
+      entityId: notification.entityId ?? null,
+      entityType: notification.entityType ?? null
+    };
     this.notificationMap.set(id, newNotification);
     return newNotification;
   }
@@ -439,7 +511,7 @@ export class MemStorage implements IStorage {
   async deleteNotification(id: number): Promise<void> {
     this.notificationMap.delete(id);
   }
-
+  
   // Audit Log operations
   async getAuditLog(id: number): Promise<AuditLog | undefined> {
     return this.auditLogMap.get(id);
@@ -451,7 +523,12 @@ export class MemStorage implements IStorage {
 
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const id = this.auditLogId++;
-    const newLog = { ...log, id };
+    const newLog: AuditLog = { 
+      ...log, 
+      id, 
+      entityId: log.entityId ?? null,
+      timestamp: log.timestamp || new Date()
+    };
     this.auditLogMap.set(id, newLog);
     return newLog;
   }
@@ -537,13 +614,24 @@ export class MemStorage implements IStorage {
 
 // Database storage implementation
 export class DatabaseStorage implements IStorage {
-  sessionStore: any; // Use any type for sessionStore
+  sessionStore: session.Store;
 
   constructor() {
-    this.sessionStore = new PostgresSessionStore({ 
-      pool, 
-      createTableIfMissing: true 
-    });
+    try {
+      // Try to use PostgreSQL session store
+      this.sessionStore = new PostgresSessionStore({ 
+        pool, 
+        createTableIfMissing: true 
+      });
+      console.log("Using PostgreSQL session store");
+    } catch (error) {
+      // Fall back to memory store if PostgreSQL session store fails
+      console.warn("Failed to initialize PostgreSQL session store, falling back to memory store:", error);
+      this.sessionStore = new MemoryStore({
+        checkPeriod: 86400000 // 24 hours
+      });
+      console.log("Using in-memory session store");
+    }
   }
 
   // User operations
@@ -948,5 +1036,5 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-// Export the storage instance (switch to DatabaseStorage)
+// Export the storage instance
 export const storage = new DatabaseStorage();
