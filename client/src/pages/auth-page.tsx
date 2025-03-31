@@ -74,6 +74,18 @@ export default function AuthPage() {
     registerMutation.mutate({ ...data, role: "employee" });
   };
   
+  // Handle direct input changes
+  const [registerValues, setRegisterValues] = useState({
+    name: "",
+    email: "",
+    password: ""
+  });
+  
+  const [loginValues, setLoginValues] = useState({
+    email: "",
+    password: ""
+  });
+  
   // Redirect if user is already logged in
   if (user) {
     return <Redirect to="/" />;
@@ -167,130 +179,102 @@ export default function AuthPage() {
                 </CardHeader>
                 <CardContent>
                   {activeTab === "login" ? (
-                    <Form {...loginForm}>
-                      <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
-                        <FormField
-                          control={loginForm.control}
-                          name="email"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Email</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  placeholder="john@example.com" 
-                                  {...field}
-                                  onChange={(e) => field.onChange(e.target.value)}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium" htmlFor="login-email">Email</label>
+                        <input
+                          id="login-email"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="john@example.com"
+                          value={loginValues.email}
+                          onChange={(e) => setLoginValues({...loginValues, email: e.target.value})}
                         />
-                        <FormField
-                          control={loginForm.control}
-                          name="password"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Password</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  type="password" 
-                                  placeholder="••••••" 
-                                  {...field}
-                                  onChange={(e) => field.onChange(e.target.value)}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium" htmlFor="login-password">Password</label>
+                        <input
+                          id="login-password"
+                          type="password"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="••••••"
+                          value={loginValues.password}
+                          onChange={(e) => setLoginValues({...loginValues, password: e.target.value})}
                         />
-                        <Button 
-                          type="submit" 
-                          className="w-full"
-                          disabled={loginMutation.isPending}
-                        >
-                          {loginMutation.isPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Logging in...
-                            </>
-                          ) : (
-                            "Sign In"
-                          )}
-                        </Button>
-                      </form>
-                    </Form>
+                      </div>
+                      
+                      <Button 
+                        className="w-full"
+                        disabled={loginMutation.isPending}
+                        onClick={() => {
+                          console.log("Manual login with:", loginValues);
+                          loginMutation.mutate(loginValues);
+                        }}
+                      >
+                        {loginMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Logging in...
+                          </>
+                        ) : (
+                          "Sign In"
+                        )}
+                      </Button>
+                    </div>
                   ) : (
-                    <Form {...registerForm}>
-                      <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
-                        <FormField
-                          control={registerForm.control}
-                          name="name"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Full Name</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  placeholder="John Doe" 
-                                  {...field} 
-                                  onChange={(e) => field.onChange(e.target.value)}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium" htmlFor="register-name">Full Name</label>
+                        <input
+                          id="register-name"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="John Doe"
+                          value={registerValues.name}
+                          onChange={(e) => setRegisterValues({...registerValues, name: e.target.value})}
                         />
-                        <FormField
-                          control={registerForm.control}
-                          name="email"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Email</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  placeholder="john@example.com" 
-                                  {...field} 
-                                  onChange={(e) => field.onChange(e.target.value)}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium" htmlFor="register-email">Email</label>
+                        <input
+                          id="register-email"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="john@example.com"
+                          value={registerValues.email}
+                          onChange={(e) => setRegisterValues({...registerValues, email: e.target.value})}
                         />
-                        <FormField
-                          control={registerForm.control}
-                          name="password"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Password</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  type="password" 
-                                  placeholder="••••••" 
-                                  {...field} 
-                                  onChange={(e) => field.onChange(e.target.value)}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium" htmlFor="register-password">Password</label>
+                        <input
+                          id="register-password"
+                          type="password"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="••••••"
+                          value={registerValues.password}
+                          onChange={(e) => setRegisterValues({...registerValues, password: e.target.value})}
                         />
-                        <Button 
-                          type="submit" 
-                          className="w-full"
-                          disabled={registerMutation.isPending}
-                        >
-                          {registerMutation.isPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Creating account...
-                            </>
-                          ) : (
-                            "Create Account"
-                          )}
-                        </Button>
-                      </form>
-                    </Form>
+                      </div>
+                      
+                      <Button 
+                        className="w-full"
+                        disabled={registerMutation.isPending}
+                        onClick={() => {
+                          console.log("Manual register with:", registerValues);
+                          registerMutation.mutate({...registerValues, role: "employee"});
+                        }}
+                      >
+                        {registerMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Creating account...
+                          </>
+                        ) : (
+                          "Create Account"
+                        )}
+                      </Button>
+                    </div>
                   )}
                 </CardContent>
                 <CardFooter className="flex justify-center">
