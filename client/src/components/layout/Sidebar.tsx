@@ -34,13 +34,11 @@ export default function Sidebar() {
       name: "Assets",
       href: "/assets",
       icon: <MonitorIcon className="mr-3 text-gray-500" />,
-      roles: ['admin', 'it_manager']
     },
     {
       name: "Employees",
       href: "/employees",
       icon: <UsersIcon className="mr-3 text-gray-500" />,
-      roles: ['admin', 'hr']
     },
     {
       name: "Documents",
@@ -51,7 +49,6 @@ export default function Sidebar() {
       name: "Vendors",
       href: "/vendors",
       icon: <Store className="mr-3 text-gray-500" />,
-      roles: ['admin', 'it_manager']
     },
   ];
 
@@ -60,19 +57,16 @@ export default function Sidebar() {
       name: "Settings",
       href: "/settings",
       icon: <Settings className="mr-3 text-gray-500" />,
-      roles: ['admin']
     },
     {
       name: "Reports",
       href: "/reports",
       icon: <FileBarChart className="mr-3 text-gray-500" />,
-      roles: ['admin', 'hr', 'it_manager']
     },
     {
       name: "Audit Logs",
       href: "/audit-logs",
       icon: <ClipboardListIcon className="mr-3 text-gray-500" />,
-      roles: ['admin']
     },
   ];
 
