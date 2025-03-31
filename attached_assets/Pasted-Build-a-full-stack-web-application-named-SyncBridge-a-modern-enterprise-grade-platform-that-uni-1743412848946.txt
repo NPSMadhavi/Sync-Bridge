@@ -1,0 +1,63 @@
+Build a full-stack web application named "SyncBridge" — a modern, enterprise-grade platform that unifies Asset Management and Employee Document Lifecycle Management.
+
+🔹 Purpose:
+SyncBridge helps companies manage their physical assets and employee-related documents (like passports, visas, dependent details) with intelligent tracking, reminders, and reporting in one centralized system.
+
+🔹 Frontend:
+- Use ReactJS with Tailwind CSS for a clean and responsive UI.
+- Use React Router for navigation across modules.
+- Dashboard should include analytics widgets, upcoming document expiry alerts, and smart overviews of assets and employees.
+
+🔹 Backend:
+- Use Node.js with Express to build RESTful APIs.
+- Use Sequelize ORM with PostgreSQL for the database.
+- Implement secure file upload handling (e.g., document scans).
+- Build middleware for authentication, role checks, and expiry notifications.
+
+🔹 Authentication:
+- JWT-based login with roles: Admin, HR, IT Manager, Employee.
+- Role-based access control with protected routes.
+- Include register, login, logout, and role assignment endpoints.
+
+🔹 Database Models:
+1. **Users**: name, email, role, password (hashed)
+2. **Assets**: tag, type, category, serial, status, location, vendor, purchase date, warranty, document attachments
+3. **AssetAssignments**: assetId, assignedTo (employeeId), dateAssigned, dateReturned
+4. **MaintenanceRecords**: assetId, issue description, resolution, service date, cost
+5. **Employees**: employeeId, name, department, designation, join date, passport details, visa details, etc.
+6. **EmployeeDocuments**: employeeId, documentType, filePath, issue date, expiry date
+7. **Dependents**: employeeId, name, relationship, passport number, visa number, expiry date
+8. **Vendors**: name, contact, email, assetTypesSupplied
+9. **Notifications**: type, message, target user, seen/unseen
+10. **AuditLogs**: action, entity, userId, timestamp
+
+🔹 Core Features (MVP):
+- Add/view/update/delete assets and assign them to employees.
+- Upload warranty and purchase docs with expiry tracking.
+- Create and manage employee profiles with visa/passport details.
+- Add dependents with document details (passport/DP visa).
+- Auto-track and alert document expiries (30/60/90 days).
+- Dashboard with summary of expiring assets, documents, and assignments.
+- Role-based navigation and feature access.
+
+🔹 Reporting:
+- Build endpoints for PDF or Excel reports (e.g., expiring visas, assigned assets, service logs).
+- Add downloadable CSV report generation for HR/Admin users.
+
+🔹 Suggested Folder Structure:
+- `/client`: React frontend
+- `/server`: Node backend
+- `/uploads`: document files
+- `.env`: for DB, secret keys, etc.
+- `/models`, `/routes`, `/controllers`: backend structure
+
+🔹 Deployment:
+- App must be runnable via `npm run dev` (concurrently running backend and frontend).
+- Include `README.md` with setup instructions and module descriptions.
+
+🔹 Scalable Ideas (Placeholders OK):
+- AI-powered suggestions for underutilized assets or expiring visas
+- OCR for auto-filling from uploaded passport/visa images
+- Notifications via email (simulate locally)
+- Mobile-friendly layout (PWA-ready)
+
