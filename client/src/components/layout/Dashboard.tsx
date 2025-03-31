@@ -35,12 +35,14 @@ export default function Dashboard({ children, title, description }: DashboardLay
       >
         <div 
           className={cn(
-            "bg-white w-64 h-full transition-transform duration-200",
+            "bg-white w-64 h-full transition-transform duration-200 flex",
             isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
           )}
           onClick={(e) => e.stopPropagation()}
         >
-          <Sidebar />
+          <div className="w-full">
+            <Sidebar />
+          </div>
         </div>
       </div>
       
