@@ -65,10 +65,12 @@ export default function AuthPage() {
   });
   
   const onLoginSubmit = (data: LoginFormValues) => {
+    console.log("Login data:", data);
     loginMutation.mutate(data);
   };
   
   const onRegisterSubmit = (data: RegisterFormValues) => {
+    console.log("Register data:", data);
     registerMutation.mutate({ ...data, role: "employee" });
   };
   
