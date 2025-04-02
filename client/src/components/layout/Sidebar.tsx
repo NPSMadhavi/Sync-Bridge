@@ -84,16 +84,16 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="bg-white w-64 border-r border-gray-200 h-full flex-shrink-0 hidden md:flex flex-col">
-      <div className="p-4 border-b border-gray-200">
+    <aside className="bg-white dark:bg-gray-900 w-64 border-r border-gray-200 dark:border-gray-800 h-full flex-shrink-0 hidden md:flex flex-col">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center">
-          <div className="flex items-center justify-center h-10 w-10 rounded bg-primary-500 text-white font-bold text-lg">SB</div>
-          <h1 className="ml-3 text-lg font-semibold text-gray-800">SyncBridge</h1>
+          <div className="flex items-center justify-center h-10 w-10 rounded bg-primary-500 dark:bg-primary-600 text-white font-bold text-lg">SB</div>
+          <h1 className="ml-3 text-lg font-semibold text-gray-800 dark:text-gray-100">SyncBridge</h1>
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto scrollbar-hide p-4">
         <div className="mb-6">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Main</p>
+          <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Main</p>
           <ul>
             {filteredMainMenuItems.map((item) => (
               <li key={item.name} className="mb-2">
@@ -102,8 +102,8 @@ export default function Sidebar() {
                   className={cn(
                     "flex items-center p-2 rounded-md font-medium",
                     location === item.href
-                      ? "text-gray-800 bg-primary-50"
-                      : "text-gray-600 hover:bg-gray-100"
+                      ? "text-gray-800 dark:text-gray-100 bg-primary-50 dark:bg-primary-900/20"
+                      : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                   )}
                 >
                   {item.icon}
@@ -115,7 +115,7 @@ export default function Sidebar() {
         </div>
         {filteredManagementMenuItems.length > 0 && (
           <div className="mb-6">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Management</p>
+            <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Management</p>
             <ul>
               {filteredManagementMenuItems.map((item) => (
                 <li key={item.name} className="mb-2">
@@ -124,8 +124,8 @@ export default function Sidebar() {
                     className={cn(
                       "flex items-center p-2 rounded-md font-medium",
                       location === item.href
-                        ? "text-gray-800 bg-primary-50"
-                        : "text-gray-600 hover:bg-gray-100"
+                        ? "text-gray-800 dark:text-gray-100 bg-primary-50 dark:bg-primary-900/20"
+                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                     )}
                   >
                     {item.icon}
@@ -137,17 +137,17 @@ export default function Sidebar() {
           </div>
         )}
       </nav>
-      <div className="p-4 border-t border-gray-200">
+      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
         <div className="flex items-center">
-          <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-700">
+          <div className="h-8 w-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-700 dark:text-gray-200">
             <UsersIcon size={16} />
           </div>
           <div className="ml-3">
-            <p className="text-sm font-medium text-gray-800">{user?.name}</p>
-            <p className="text-xs text-gray-500">{user?.role}</p>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{user?.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{user?.role}</p>
           </div>
           <button 
-            className="ml-auto text-gray-400 hover:text-gray-500"
+            className="ml-auto text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
             onClick={handleLogout}
             disabled={logoutMutation.isPending}
           >

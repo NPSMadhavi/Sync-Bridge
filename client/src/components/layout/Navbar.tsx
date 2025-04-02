@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
 import { type Notification } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: () => void }) {
   const { user } = useAuth();
@@ -38,9 +39,9 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
   };
   
   return (
-    <header className="bg-white border-b border-gray-200 flex items-center h-16 px-4 md:px-6">
+    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center h-16 px-4 md:px-6">
       <button 
-        className="text-gray-600 hover:text-gray-800 mr-4 md:hidden"
+        className="text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 mr-4 md:hidden"
         onClick={toggleMobileSidebar}
       >
         <Menu className="h-6 w-6" />
@@ -48,11 +49,11 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
       <div className="flex-1 flex items-center justify-between">
         <div className="relative w-full max-w-md">
           <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-            <Search className="h-4 w-4 text-gray-400" />
+            <Search className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           </span>
           <Input 
             type="text" 
-            className="w-full pl-10 pr-4 py-2" 
+            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" 
             placeholder="Search assets, employees, documents..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -63,7 +64,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
             <Button 
               variant="ghost" 
               size="sm" 
-              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full"
+              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 rounded-full"
             >
               <Bell className="h-5 w-5" />
               {unseenNotificationsCount > 0 && (
@@ -79,17 +80,19 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
           <Button 
             variant="ghost" 
             size="sm" 
-            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full"
+            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 rounded-full"
           >
             <HelpCircle className="h-5 w-5" />
           </Button>
+          
+          <ThemeToggle />
           
           <div className="relative">
             <Link href="/settings">
               <Button 
                 variant="ghost" 
                 size="sm" 
-                className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-700"
+                className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-700 dark:text-gray-200"
               >
                 <User className="h-5 w-5" />
               </Button>

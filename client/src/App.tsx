@@ -14,6 +14,23 @@ import ReportsPage from "@/pages/reports-page";
 import AuditLogsPage from "@/pages/audit-logs-page";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "@/hooks/use-auth";
+import { useEffect } from "react";
+
+// Initialize theme based on localStorage or system preference
+const initializeTheme = () => {
+  const storedTheme = localStorage.getItem("theme");
+  const root = window.document.documentElement;
+  
+  if (storedTheme === "dark") {
+    root.classList.add("dark");
+  } else if (storedTheme === "light") {
+    root.classList.add("light");
+  } else {
+    // Default to system preference
+    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    root.classList.add(systemPrefersDark ? "dark" : "light");
+  }
+};
 
 function Router() {
   return (
@@ -33,6 +50,10 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    initializeTheme();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
