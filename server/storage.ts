@@ -2,12 +2,12 @@ import { db, pool } from "./db";
 import {
   users, employees, dependents, assets, assetAssignments, 
   maintenanceRecords, employeeDocuments, vendors, notifications, 
-  auditLogs, User, InsertUser, Employee, InsertEmployee,
+  auditLogs, licenses, User, InsertUser, Employee, InsertEmployee,
   Dependent, InsertDependent, Asset, InsertAsset, 
   AssetAssignment, InsertAssetAssignment, MaintenanceRecord,
   InsertMaintenanceRecord, EmployeeDocument, InsertEmployeeDocument,
   Vendor, InsertVendor, Notification, InsertNotification,
-  AuditLog, InsertAuditLog
+  AuditLog, InsertAuditLog, License, InsertLicense
 } from "@shared/schema";
 import { eq, and, gt, lt, lte, desc, isNull, sql } from "drizzle-orm";
 import session from "express-session";
@@ -91,6 +91,14 @@ export interface IStorage {
   getAuditLogs(): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   
+  // License operations
+  getLicense(id: number): Promise<License | undefined>;
+  getLicensesByAssetId(assetId: number): Promise<License[]>;
+  getExpiringLicenses(daysThreshold: number): Promise<License[]>;
+  createLicense(license: InsertLicense): Promise<License>;
+  updateLicense(id: number, license: Partial<InsertLicense>): Promise<License | undefined>;
+  deleteLicense(id: number): Promise<void>;
+  
   // Dashboard statistics
   getDashboardStats(): Promise<any>;
   
@@ -110,6 +118,7 @@ export class MemStorage implements IStorage {
   private vendorMap: Map<number, Vendor>;
   private notificationMap: Map<number, Notification>;
   private auditLogMap: Map<number, AuditLog>;
+  private licenseMap: Map<number, License>;
   sessionStore: session.Store;
   userId: number;
   employeeId: number;
@@ -121,6 +130,7 @@ export class MemStorage implements IStorage {
   vendorId: number;
   notificationId: number;
   auditLogId: number;
+  licenseId: number;
 
   constructor() {
     this.userMap = new Map();
@@ -133,6 +143,7 @@ export class MemStorage implements IStorage {
     this.vendorMap = new Map();
     this.notificationMap = new Map();
     this.auditLogMap = new Map();
+    this.licenseMap = new Map();
     
     this.userId = 1;
     this.employeeId = 1;
@@ -144,6 +155,7 @@ export class MemStorage implements IStorage {
     this.vendorId = 1;
     this.notificationId = 1;
     this.auditLogId = 1;
+    this.licenseId = 1;
     
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000 // 24 hours
@@ -282,7 +294,8 @@ export class MemStorage implements IStorage {
       location: asset.location ?? null,
       vendorId: asset.vendorId ?? null,
       purchaseDate: asset.purchaseDate ?? null,
-      warrantyExpiry: asset.warrantyExpiry ?? null
+      warrantyExpiry: asset.warrantyExpiry ?? null,
+      hasLicense: asset.hasLicense ?? false
     };
     this.assetMap.set(id, newAsset);
     return newAsset;
@@ -522,6 +535,77 @@ export class MemStorage implements IStorage {
     };
     this.auditLogMap.set(id, newLog);
     return newLog;
+  }
+  
+  // License operations
+  async getLicense(id: number): Promise<License | undefined> {
+    return this.licenseMap.get(id);
+  }
+
+  async getLicensesByAssetId(assetId: number): Promise<License[]> {
+    return Array.from(this.licenseMap.values()).filter(license => license.assetId === assetId);
+  }
+
+  async getExpiringLicenses(daysThreshold: number): Promise<License[]> {
+    const threshold = new Date();
+    threshold.setDate(threshold.getDate() + daysThreshold);
+    
+    return Array.from(this.licenseMap.values()).filter(license => {
+      if (!license.expiryDate) return false;
+      const expiryDate = new Date(license.expiryDate);
+      return expiryDate <= threshold;
+    });
+  }
+
+  async createLicense(license: InsertLicense): Promise<License> {
+    const id = this.licenseId++;
+    const newLicense: License = { 
+      ...license, 
+      id, 
+      createdAt: null,
+      notes: license.notes ?? null,
+      purchaseDate: license.purchaseDate ?? null,
+      expiryDate: license.expiryDate ?? null,
+      cost: license.cost ?? null,
+      seats: license.seats ?? null,
+      assetId: license.assetId ?? null
+    };
+    this.licenseMap.set(id, newLicense);
+    
+    // Update the asset's hasLicense flag if an assetId is provided
+    if (license.assetId) {
+      const asset = await this.getAsset(license.assetId);
+      if (asset) {
+        await this.updateAsset(license.assetId, { hasLicense: true });
+      }
+    }
+    
+    return newLicense;
+  }
+
+  async updateLicense(id: number, licenseData: Partial<InsertLicense>): Promise<License | undefined> {
+    const license = this.licenseMap.get(id);
+    if (!license) return undefined;
+    
+    const updatedLicense = { ...license, ...licenseData };
+    this.licenseMap.set(id, updatedLicense);
+    return updatedLicense;
+  }
+
+  async deleteLicense(id: number): Promise<void> {
+    const license = this.licenseMap.get(id);
+    this.licenseMap.delete(id);
+    
+    // Update the asset's hasLicense flag if this was the only license for the asset
+    if (license && license.assetId) {
+      const assetLicenses = await this.getLicensesByAssetId(license.assetId);
+      if (assetLicenses.length === 0) {
+        const asset = await this.getAsset(license.assetId);
+        if (asset) {
+          await this.updateAsset(license.assetId, { hasLicense: false });
+        }
+      }
+    }
   }
   
   // Dashboard statistics
@@ -897,6 +981,63 @@ export class DatabaseStorage implements IStorage {
     return newLog;
   }
   
+  // License operations
+  async getLicense(id: number): Promise<License | undefined> {
+    const [license] = await db.select().from(licenses).where(eq(licenses.id, id));
+    return license || undefined;
+  }
+
+  async getLicensesByAssetId(assetId: number): Promise<License[]> {
+    return await db.select().from(licenses).where(eq(licenses.assetId, assetId));
+  }
+
+  async getExpiringLicenses(daysThreshold: number): Promise<License[]> {
+    const threshold = new Date();
+    threshold.setDate(threshold.getDate() + daysThreshold);
+    
+    return await db.select().from(licenses)
+      .where(
+        and(
+          sql`${licenses.expiryDate} IS NOT NULL`,
+          lte(licenses.expiryDate, threshold)
+        )
+      );
+  }
+
+  async createLicense(license: InsertLicense): Promise<License> {
+    const [newLicense] = await db.insert(licenses).values(license).returning();
+    
+    // Update the asset's hasLicense flag if an assetId is provided
+    if (license.assetId) {
+      const asset = await this.getAsset(license.assetId);
+      if (asset) {
+        await this.updateAsset(license.assetId, { hasLicense: true });
+      }
+    }
+    
+    return newLicense;
+  }
+
+  async updateLicense(id: number, licenseData: Partial<InsertLicense>): Promise<License | undefined> {
+    const [license] = await db.update(licenses).set(licenseData).where(eq(licenses.id, id)).returning();
+    return license || undefined;
+  }
+
+  async deleteLicense(id: number): Promise<void> {
+    // Get the license before deleting it to check its assetId
+    const [license] = await db.select().from(licenses).where(eq(licenses.id, id));
+    
+    await db.delete(licenses).where(eq(licenses.id, id));
+    
+    // Update the asset's hasLicense flag if this was the only license for the asset
+    if (license && license.assetId) {
+      const assetLicenses = await this.getLicensesByAssetId(license.assetId);
+      if (assetLicenses.length === 0) {
+        await this.updateAsset(license.assetId, { hasLicense: false });
+      }
+    }
+  }
+  
   // Dashboard statistics
   async getDashboardStats(): Promise<any> {
     // Get counts
@@ -1028,5 +1169,7 @@ export class DatabaseStorage implements IStorage {
 }
 
 // Export the storage instance
-// Using MemStorage for now, can switch to DatabaseStorage later
+// Uncomment the following line to use the DatabaseStorage implementation when ready
+// export const storage = new DatabaseStorage();
+// Using MemStorage for now as it's more reliable for prototyping
 export const storage = new MemStorage();

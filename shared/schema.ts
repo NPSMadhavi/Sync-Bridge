@@ -7,7 +7,8 @@ import { relations } from "drizzle-orm";
 export const userRoleEnum = pgEnum('user_role', ['admin', 'hr', 'it_manager', 'employee']);
 export const assetStatusEnum = pgEnum('asset_status', ['available', 'assigned', 'maintenance', 'retired']);
 export const documentTypeEnum = pgEnum('document_type', ['passport', 'visa', 'contract', 'certification', 'warranty', 'purchase_order', 'other']);
-export const notificationTypeEnum = pgEnum('notification_type', ['document_expiry', 'maintenance_due', 'assignment']);
+export const notificationTypeEnum = pgEnum('notification_type', ['document_expiry', 'maintenance_due', 'assignment', 'license_expiry']);
+export const licenseTypeEnum = pgEnum('license_type', ['software', 'hardware', 'subscription', 'service', 'other']);
 
 // Tables
 export const users = pgTable("users", {
@@ -57,6 +58,21 @@ export const assets = pgTable("assets", {
   vendorId: integer("vendor_id").references(() => vendors.id),
   purchaseDate: timestamp("purchase_date"),
   warrantyExpiry: timestamp("warranty_expiry"),
+  hasLicense: boolean("has_license").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const licenses = pgTable("licenses", {
+  id: serial("id").primaryKey(),
+  assetId: integer("asset_id").references(() => assets.id),
+  name: text("name").notNull(),
+  licenseKey: text("license_key").notNull(),
+  type: licenseTypeEnum("type").notNull(),
+  seats: integer("seats").default(1),
+  purchaseDate: timestamp("purchase_date"),
+  expiryDate: timestamp("expiry_date"),
+  cost: text("cost"),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -152,6 +168,14 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
   }),
   assignments: many(assetAssignments),
   maintenanceRecords: many(maintenanceRecords),
+  licenses: many(licenses),
+}));
+
+export const licensesRelations = relations(licenses, ({ one }) => ({
+  asset: one(assets, {
+    fields: [licenses.assetId],
+    references: [assets.id],
+  }),
 }));
 
 export const assetAssignmentsRelations = relations(assetAssignments, ({ one }) => ({
@@ -225,6 +249,9 @@ export const insertVendorSchema = createInsertSchema(vendors)
 export const insertNotificationSchema = createInsertSchema(notifications)
   .omit({ id: true, createdAt: true });
 
+export const insertLicenseSchema = createInsertSchema(licenses)
+  .omit({ id: true, createdAt: true });
+
 export const insertAuditLogSchema = createInsertSchema(auditLogs)
   .omit({ id: true });
 
@@ -255,6 +282,9 @@ export type InsertVendor = z.infer<typeof insertVendorSchema>;
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+export type License = typeof licenses.$inferSelect;
+export type InsertLicense = z.infer<typeof insertLicenseSchema>;
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;

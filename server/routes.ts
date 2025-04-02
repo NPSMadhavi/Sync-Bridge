@@ -7,7 +7,7 @@ import { ZodError } from "zod";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertDependentSchema, 
   insertEmployeeDocumentSchema, insertVendorSchema, insertAssetAssignmentSchema,
-  insertMaintenanceRecordSchema
+  insertMaintenanceRecordSchema, insertLicenseSchema
 } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -616,6 +616,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // License routes
+  app.get("/api/licenses", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const assetId = req.query.assetId ? parseInt(req.query.assetId as string) : undefined;
+      
+      let licenses;
+      if (assetId) {
+        licenses = await storage.getLicensesByAssetId(assetId);
+      } else {
+        // Get all licenses expiring in the next 90 days by default
+        licenses = await storage.getExpiringLicenses(90);
+      }
+      
+      res.json(licenses);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch licenses" });
+    }
+  });
+
+  app.get("/api/licenses/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const license = await storage.getLicense(id);
+      
+      if (!license) {
+        return res.status(404).json({ message: "License not found" });
+      }
+      
+      res.json(license);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch license" });
+    }
+  });
+
+  app.post("/api/licenses", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const licenseData = insertLicenseSchema.parse(req.body);
+      const license = await storage.createLicense(licenseData);
+      
+      // Create audit log
+      await storage.createAuditLog({
+        action: "create",
+        entity: "license",
+        entityId: license.id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+      
+      // If the license is about to expire, create a notification for IT managers
+      if (license.expiryDate) {
+        const now = new Date();
+        const expiryDate = new Date(license.expiryDate);
+        const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (daysUntilExpiry <= 30) {
+          // Create notifications for admins and IT managers
+          const user = await storage.getUser(req.user!.id);
+          if (user && (user.role === 'admin' || user.role === 'it_manager')) {
+            await storage.createNotification({
+              type: 'license_expiry',
+              message: `License ${license.name} will expire in ${daysUntilExpiry} days`,
+              targetUserId: user.id,
+              seen: false,
+              entityId: license.id,
+              entityType: 'license'
+            });
+          }
+        }
+      }
+      
+      res.status(201).json(license);
+    } catch (error) {
+      if (error instanceof ZodError) return handleZodError(error, res);
+      res.status(500).json({ message: "Failed to create license" });
+    }
+  });
+
+  app.put("/api/licenses/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const licenseData = req.body;
+      
+      const updatedLicense = await storage.updateLicense(id, licenseData);
+      
+      if (!updatedLicense) {
+        return res.status(404).json({ message: "License not found" });
+      }
+      
+      // Create audit log
+      await storage.createAuditLog({
+        action: "update",
+        entity: "license",
+        entityId: id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+      
+      res.json(updatedLicense);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update license" });
+    }
+  });
+
+  app.delete("/api/licenses/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteLicense(id);
+      
+      // Create audit log
+      await storage.createAuditLog({
+        action: "delete",
+        entity: "license",
+        entityId: id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete license" });
+    }
+  });
+
   // Dashboard statistics
   app.get("/api/dashboard", async (req, res) => {
     try {
@@ -693,6 +816,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename=asset-assignments.csv');
+      res.send(csvContent);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  app.get("/api/reports/expiring-licenses", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const days = req.query.days ? parseInt(req.query.days as string) : 90;
+      const licenses = await storage.getExpiringLicenses(days);
+      
+      // Format for CSV
+      const csvRows = [];
+      csvRows.push(['ID', 'Name', 'Type', 'License Key', 'Purchase Date', 'Expiry Date', 'Asset ID', 'Cost', 'Seats']);
+      
+      for (const license of licenses) {
+        csvRows.push([
+          license.id.toString(),
+          license.name,
+          license.type,
+          license.licenseKey,
+          license.purchaseDate ? new Date(license.purchaseDate).toLocaleDateString() : '',
+          license.expiryDate ? new Date(license.expiryDate).toLocaleDateString() : '',
+          license.assetId ? license.assetId.toString() : '',
+          license.cost ? license.cost.toString() : '',
+          license.seats ? license.seats.toString() : ''
+        ]);
+      }
+      
+      const csvContent = csvRows.map(row => row.join(',')).join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=expiring-licenses.csv');
       res.send(csvContent);
     } catch (error) {
       res.status(500).json({ message: "Failed to generate report" });
