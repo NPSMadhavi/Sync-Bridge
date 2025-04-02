@@ -237,12 +237,12 @@ export default function LicenseForm({
                     <FormLabel>Associated Asset</FormLabel>
                     <Select
                       onValueChange={(value) => {
-                        const numValue = value ? parseInt(value) : null;
+                        const numValue = value && value !== "none" ? parseInt(value) : null;
                         field.onChange(numValue);
                         setSelectedAssetId(numValue);
                       }}
                       defaultValue={
-                        field.value !== null ? field.value.toString() : undefined
+                        field.value !== null ? field.value.toString() : "none"
                       }
                     >
                       <FormControl>
@@ -251,7 +251,7 @@ export default function LicenseForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
                         {assets.map((asset) => (
                           <SelectItem key={asset.id} value={asset.id.toString()}>
                             {asset.tag} - {asset.type}
