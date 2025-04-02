@@ -1,0 +1,60 @@
+Enhance SyncBridge to support a multi-tenant SaaS architecture where multiple companies (tenants) can use the application independently under one shared system.
+
+Requirements:
+
+🏢 1. Tenant Model & Relationships
+- Create a `Tenant` model with fields:
+  - id (UUID)
+  - name (string)
+  - subdomain or custom URL support (optional for future)
+  - createdAt, updatedAt
+- Link all tenant-relevant entities to `tenantId`:
+  - Users
+  - Assets
+  - Documents
+  - Employees
+
+🧑‍💼 2. User Account Updates
+- Each user must belong to a tenant (add `tenantId` to user schema)
+- Only allow users to access and modify data for their own tenant
+- On login, fetch user + tenant context and store in session
+
+🔐 3. Auth Context + Role-Based Access (no layout change)
+- Extend current session-based auth to include tenantId
+- Restrict data access in API routes based on session tenantId
+- Continue using roles (admin, hr, etc.) within each tenant
+- No global admin needed for now
+
+🌐 4. Tenant Portal
+- Add a new route: `/tenant` or `/portal`
+- Create a form to register a new company (tenant):
+  - Company name
+  - Admin email
+  - Admin password
+- Upon registration:
+  - Create tenant
+  - Create admin user under that tenant
+  - Redirect to login page
+
+🛠️ 5. Data Isolation & API Filtering
+- In all API routes (e.g. `/assets`, `/documents`), filter by `tenantId`
+- Prevent users from accessing or modifying data outside their tenant
+- Do not modify UI or layout — just enforce server-side isolation
+
+🚫 Do Not:
+- Change any UI components or visual layout
+- Modify sidebar/menu
+- Replace existing styles or themes
+
+✅ Goal:
+- Shared frontend/backend for all tenants
+- Clean separation of data by `tenantId`
+- Tenant-aware login and access control
+- Seamless visual experience
+
+Start by:
+1. Creating the Tenant model and linking it to the User model
+2. Updating login logic to load tenant context into session
+3. Creating a `/tenant` route with a form to register new companies
+
+Show me schema and session update first before proceeding to API and access control layers.

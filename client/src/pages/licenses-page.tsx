@@ -120,7 +120,7 @@ export default function LicensesPage() {
     if (isBefore(expiryDate, now)) {
       return <Badge variant="destructive">Expired</Badge>;
     } else if (isBefore(expiryDate, addDays(now, 30))) {
-      return <Badge variant="warning">Expiring Soon</Badge>;
+      return <Badge variant="warning" className="bg-amber-500 text-white">Expiring Soon</Badge>;
     } else {
       return <Badge variant="outline">Valid</Badge>;
     }

@@ -1,28 +1,47 @@
-import { pgTable, text, integer, serial, timestamp, boolean, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, serial, timestamp, boolean, pgEnum, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
 // Enums
-export const userRoleEnum = pgEnum('user_role', ['admin', 'hr', 'it_manager', 'employee']);
+export const userRoleEnum = pgEnum('user_role', ['super_admin', 'admin', 'hr', 'it_manager', 'employee']);
 export const assetStatusEnum = pgEnum('asset_status', ['available', 'assigned', 'maintenance', 'retired']);
 export const documentTypeEnum = pgEnum('document_type', ['passport', 'visa', 'contract', 'certification', 'warranty', 'purchase_order', 'other']);
 export const notificationTypeEnum = pgEnum('notification_type', ['document_expiry', 'maintenance_due', 'assignment', 'license_expiry']);
 export const licenseTypeEnum = pgEnum('license_type', ['software', 'hardware', 'subscription', 'service', 'other']);
+export const subscriptionPlanEnum = pgEnum('subscription_plan', ['free', 'starter', 'business', 'enterprise']);
 
 // Tables
+export const tenants = pgTable("tenants", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  domain: text("domain"),
+  plan: subscriptionPlanEnum("plan").notNull().default('free'),
+  maxUsers: integer("max_users").notNull().default(5),
+  maxAssets: integer("max_assets").notNull().default(20),
+  maxDocuments: integer("max_documents").notNull().default(50),
+  isActive: boolean("is_active").notNull().default(true),
+  logo: text("logo"),
+  primaryColor: text("primary_color").default('#10b981'),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiryDate: timestamp("expiry_date"),
+});
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   role: userRoleEnum("role").notNull().default('employee'),
   password: text("password").notNull(),
+  isSuperAdmin: boolean("is_super_admin").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const employees = pgTable("employees", {
   id: serial("id").primaryKey(),
-  employeeId: text("employee_id").notNull().unique(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  employeeId: text("employee_id").notNull(),
   userId: integer("user_id").references(() => users.id),
   name: text("name").notNull(),
   department: text("department").notNull(),
@@ -37,6 +56,7 @@ export const employees = pgTable("employees", {
 
 export const dependents = pgTable("dependents", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
   name: text("name").notNull(),
   relationship: text("relationship").notNull(),
@@ -49,7 +69,8 @@ export const dependents = pgTable("dependents", {
 
 export const assets = pgTable("assets", {
   id: serial("id").primaryKey(),
-  tag: text("tag").notNull().unique(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  tag: text("tag").notNull(),
   type: text("type").notNull(),
   category: text("category").notNull(),
   serial: text("serial").notNull(),
@@ -64,6 +85,7 @@ export const assets = pgTable("assets", {
 
 export const licenses = pgTable("licenses", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   assetId: integer("asset_id").references(() => assets.id),
   name: text("name").notNull(),
   licenseKey: text("license_key").notNull(),
@@ -78,6 +100,7 @@ export const licenses = pgTable("licenses", {
 
 export const assetAssignments = pgTable("asset_assignments", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   assetId: integer("asset_id").references(() => assets.id).notNull(),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
   dateAssigned: timestamp("date_assigned").notNull().defaultNow(),
@@ -88,6 +111,7 @@ export const assetAssignments = pgTable("asset_assignments", {
 
 export const maintenanceRecords = pgTable("maintenance_records", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   assetId: integer("asset_id").references(() => assets.id).notNull(),
   issueDescription: text("issue_description").notNull(),
   resolution: text("resolution"),
@@ -99,6 +123,7 @@ export const maintenanceRecords = pgTable("maintenance_records", {
 
 export const employeeDocuments = pgTable("employee_documents", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
   documentType: documentTypeEnum("document_type").notNull(),
   filePath: text("file_path").notNull(),
@@ -110,6 +135,7 @@ export const employeeDocuments = pgTable("employee_documents", {
 
 export const vendors = pgTable("vendors", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   name: text("name").notNull(),
   contact: text("contact").notNull(),
   email: text("email").notNull(),
@@ -119,6 +145,7 @@ export const vendors = pgTable("vendors", {
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   type: notificationTypeEnum("type").notNull(),
   message: text("message").notNull(),
   targetUserId: integer("target_user_id").references(() => users.id).notNull(),
@@ -130,6 +157,7 @@ export const notifications = pgTable("notifications", {
 
 export const auditLogs = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
   action: text("action").notNull(),
   entity: text("entity").notNull(),
   entityId: integer("entity_id"),
@@ -138,13 +166,35 @@ export const auditLogs = pgTable("audit_logs", {
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const tenantsRelations = relations(tenants, ({ many }) => ({
+  users: many(users),
+  employees: many(employees),
+  assets: many(assets),
+  licenses: many(licenses),
+  vendors: many(vendors),
+  assetAssignments: many(assetAssignments),
+  maintenanceRecords: many(maintenanceRecords),
+  employeeDocuments: many(employeeDocuments),
+  dependents: many(dependents),
+  notifications: many(notifications),
+  auditLogs: many(auditLogs),
+}));
+
+export const usersRelations = relations(users, ({ many, one }) => ({
+  tenant: one(tenants, {
+    fields: [users.tenantId],
+    references: [tenants.id],
+  }),
   employees: many(employees),
   notifications: many(notifications),
   auditLogs: many(auditLogs),
 }));
 
 export const employeesRelations = relations(employees, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [employees.tenantId],
+    references: [tenants.id],
+  }),
   user: one(users, {
     fields: [employees.userId],
     references: [users.id],
@@ -155,6 +205,10 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
 }));
 
 export const dependentsRelations = relations(dependents, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [dependents.tenantId],
+    references: [tenants.id],
+  }),
   employee: one(employees, {
     fields: [dependents.employeeId],
     references: [employees.id],
@@ -162,6 +216,10 @@ export const dependentsRelations = relations(dependents, ({ one }) => ({
 }));
 
 export const assetsRelations = relations(assets, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [assets.tenantId],
+    references: [tenants.id],
+  }),
   vendor: one(vendors, {
     fields: [assets.vendorId],
     references: [vendors.id],
@@ -172,6 +230,10 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
 }));
 
 export const licensesRelations = relations(licenses, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [licenses.tenantId],
+    references: [tenants.id],
+  }),
   asset: one(assets, {
     fields: [licenses.assetId],
     references: [assets.id],
@@ -179,6 +241,10 @@ export const licensesRelations = relations(licenses, ({ one }) => ({
 }));
 
 export const assetAssignmentsRelations = relations(assetAssignments, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [assetAssignments.tenantId],
+    references: [tenants.id],
+  }),
   asset: one(assets, {
     fields: [assetAssignments.assetId],
     references: [assets.id],
@@ -190,6 +256,10 @@ export const assetAssignmentsRelations = relations(assetAssignments, ({ one }) =
 }));
 
 export const maintenanceRecordsRelations = relations(maintenanceRecords, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [maintenanceRecords.tenantId],
+    references: [tenants.id],
+  }),
   asset: one(assets, {
     fields: [maintenanceRecords.assetId],
     references: [assets.id],
@@ -197,17 +267,29 @@ export const maintenanceRecordsRelations = relations(maintenanceRecords, ({ one 
 }));
 
 export const employeeDocumentsRelations = relations(employeeDocuments, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [employeeDocuments.tenantId],
+    references: [tenants.id],
+  }),
   employee: one(employees, {
     fields: [employeeDocuments.employeeId],
     references: [employees.id],
   }),
 }));
 
-export const vendorsRelations = relations(vendors, ({ many }) => ({
+export const vendorsRelations = relations(vendors, ({ many, one }) => ({
+  tenant: one(tenants, {
+    fields: [vendors.tenantId],
+    references: [tenants.id],
+  }),
   assets: many(assets),
 }));
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [notifications.tenantId],
+    references: [tenants.id],
+  }),
   user: one(users, {
     fields: [notifications.targetUserId],
     references: [users.id],
@@ -215,6 +297,10 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
 }));
 
 export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [auditLogs.tenantId],
+    references: [tenants.id],
+  }),
   user: one(users, {
     fields: [auditLogs.userId],
     references: [users.id],
