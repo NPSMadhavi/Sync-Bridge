@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertAssetSchema } from "@shared/schema";
@@ -28,8 +28,6 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { assetStatusEnum } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 
-type AssetFormData = z.infer<typeof formSchema>;
-
 // Extend the schema to add validation
 const formSchema = insertAssetSchema.extend({
   tag: z.string().min(3, "Tag must be at least 3 characters"),
@@ -37,6 +35,8 @@ const formSchema = insertAssetSchema.extend({
   category: z.string().min(2, "Category must be at least 2 characters"),
   serial: z.string().min(2, "Serial number must be at least 2 characters"),
 });
+
+type AssetFormData = z.infer<typeof formSchema>;
 
 interface AssetFormProps {
   assetId?: number;
@@ -74,7 +74,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
   });
   
   // Update form when asset data is loaded
-  useState(() => {
+  useEffect(() => {
     if (assetData) {
       form.reset({
         ...assetData,
@@ -82,7 +82,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
         warrantyExpiry: assetData.warrantyExpiry ? new Date(assetData.warrantyExpiry) : undefined,
       });
     }
-  });
+  }, [assetData, form]);
   
   const createAssetMutation = useMutation({
     mutationFn: async (data: AssetFormData) => {
