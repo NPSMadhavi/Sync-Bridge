@@ -11,7 +11,8 @@ import {
   Settings,
   FileBarChart,
   ClipboardListIcon,
-  LogOut
+  LogOut,
+  Key
 } from "lucide-react";
 
 type MenuItem = {
@@ -35,6 +36,11 @@ export default function Sidebar() {
       name: "Assets",
       href: "/assets",
       icon: <MonitorIcon className="mr-3 text-gray-500" />,
+    },
+    {
+      name: "Licenses",
+      href: "/licenses",
+      icon: <Key className="mr-3 text-gray-500" />,
     },
     {
       name: "Employees",

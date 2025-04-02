@@ -12,6 +12,7 @@ import VendorsPage from "@/pages/vendors-page";
 import SettingsPage from "@/pages/settings-page";
 import ReportsPage from "@/pages/reports-page";
 import AuditLogsPage from "@/pages/audit-logs-page";
+import LicensesPage from "@/pages/licenses-page";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "@/hooks/use-auth";
 import { useEffect } from "react";
@@ -39,6 +40,7 @@ function Router() {
       <ProtectedRoute path="/assets" component={AssetsPage} />
       <ProtectedRoute path="/employees" component={EmployeesPage} />
       <ProtectedRoute path="/documents" component={DocumentsPage} />
+      <ProtectedRoute path="/licenses" component={LicensesPage} />
       <ProtectedRoute path="/vendors" component={VendorsPage} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />
