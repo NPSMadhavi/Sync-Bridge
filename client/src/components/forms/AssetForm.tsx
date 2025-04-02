@@ -283,8 +283,8 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
-                    {vendors.map((vendor) => (
+                    <SelectItem value=" ">None</SelectItem>
+                    {Array.isArray(vendors) && vendors.map((vendor: any) => (
                       <SelectItem key={vendor.id} value={vendor.id.toString()}>
                         {vendor.name}
                       </SelectItem>
