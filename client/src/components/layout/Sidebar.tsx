@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
+import Logo from "@/components/ui/logo";
 import {
   LayoutDashboard,
   MonitorIcon,
@@ -87,8 +88,7 @@ export default function Sidebar() {
     <aside className="bg-white dark:bg-gray-900 w-64 border-r border-gray-200 dark:border-gray-800 h-full flex-shrink-0 hidden md:flex flex-col">
       <div className="p-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center">
-          <div className="flex items-center justify-center h-10 w-10 rounded bg-primary-500 dark:bg-primary-600 text-white font-bold text-lg">SB</div>
-          <h1 className="ml-3 text-lg font-semibold text-gray-800 dark:text-gray-100">SyncBridge</h1>
+          <Logo size="small" />
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto scrollbar-hide p-4">
