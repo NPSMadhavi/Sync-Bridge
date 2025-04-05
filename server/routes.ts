@@ -1,4 +1,6 @@
 import type { Express } from "express";
+import express from "express";
+import path from "path";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
@@ -16,6 +18,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Set up file serving
   setupFileServing(app);
+  
+  // Serve files from public directory
+  app.use(express.static('public'));
+  
+  // Special route for pitch deck
+  app.get('/pitch-deck', (req, res) => {
+    res.sendFile(path.resolve(process.cwd(), 'public', 'pitch-deck.html'));
+  });
 
   // Error handling for Zod validation errors
   const handleZodError = (error: any, res: any) => {

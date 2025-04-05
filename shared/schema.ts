@@ -341,7 +341,13 @@ export const insertLicenseSchema = createInsertSchema(licenses)
 export const insertAuditLogSchema = createInsertSchema(auditLogs)
   .omit({ id: true });
 
+export const insertTenantSchema = createInsertSchema(tenants)
+  .omit({ id: true, createdAt: true });
+
 // Types
+export type Tenant = typeof tenants.$inferSelect;
+export type InsertTenant = z.infer<typeof insertTenantSchema>;
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 

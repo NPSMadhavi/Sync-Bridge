@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyncBridge - Enterprise Asset Management Solution</title>
+    <style>
+        :root {
+            --primary-color: hsl(176, 80%, 49%);
+            --primary-dark: hsl(176, 70%, 35%);
+            --primary-light: hsl(176, 80%, 90%);
+            --text-color: #1a202c;
+            --background: #f8fafc;
+            --slide-bg: #ffffff;
+            --accent: #4c51bf;
+            --gradient-start: hsl(176, 80%, 49%);
+            --gradient-end: hsl(190, 70%, 45%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background: var(--background);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .slideshow-container {
+            width: 90vw;
+            height: 85vh;
+            max-width: 1200px;
+            position: relative;
+            margin: auto;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            background: var(--slide-bg);
+            overflow: hidden;
+        }
+
+        .slide {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 0.8s ease;
+            padding: 3rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .slide.active {
+            opacity: 1;
+        }
+
+        .slide-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            max-width: 100%;
+            z-index: 10;
+        }
+
+        .slide h1, .slide h2 {
+            margin-bottom: 1.5rem;
+            background: linear-gradient(to right, var(--gradient-start), var(--gradient-end));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            font-weight: bold;
+        }
+
+        .slide h1 {
+            font-size: 3rem;
+            line-height: 1.2;
+        }
+
+        .slide h2 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .slide p {
+            font-size: 1.3rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+            max-width: 90%;
+        }
+
+        .slide ul {
+            font-size: 1.3rem;
+            line-height: 1.6;
+            margin-left: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .slide ul li {
+            margin-bottom: 0.8rem;
+        }
+
+        .slide-background {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 100%;
+            background-size: cover;
+            background-position: center;
+            opacity: 0.15;
+            z-index: 1;
+        }
+
+        .gradient-box {
+            background: linear-gradient(45deg, var(--gradient-start), var(--gradient-end));
+            border-radius: 8px;
+            padding: 1.5rem;
+            color: white;
+            margin-bottom: 1.5rem;
+            max-width: 85%;
+        }
+
+        .gradient-box h3 {
+            font-size: 1.5rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .gradient-box p {
+            font-size: 1.2rem;
+            margin-bottom: 0;
+        }
+
+        .slide-nav {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            z-index: 20;
+        }
+
+        .slide-nav-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #ccc;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .slide-nav-dot.active {
+            background-color: var(--primary-color);
+        }
+
+        .prev, .next {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 2rem;
+            background: rgba(255, 255, 255, 0.7);
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 20;
+            transition: all 0.3s ease;
+        }
+
+        .prev:hover, .next:hover {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .prev {
+            left: 20px;
+        }
+
+        .next {
+            right: 20px;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .feature-card {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .feature-card h3 {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+            color: var(--primary-dark);
+        }
+
+        .feature-card p {
+            font-size: 1rem;
+            margin-bottom: 0;
+        }
+
+        .logo {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            height: 40px;
+            z-index: 20;
+        }
+
+        .highlight {
+            color: var(--primary-dark);
+            font-weight: bold;
+        }
+
+        .btn {
+            display: inline-block;
+            background: linear-gradient(45deg, var(--gradient-start), var(--gradient-end));
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-top: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 7px 14px rgba(0, 0, 0, 0.15);
+        }
+
+        .metrics {
+            display: flex;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .metric-card {
+            flex: 1;
+            text-align: center;
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+        }
+
+        .metric-card h3 {
+            font-size: 2.5rem;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-card p {
+            font-size: 1rem;
+            margin-bottom: 0;
+            color: var(--text-color);
+        }
+
+        @media (max-width: 768px) {
+            .slide {
+                padding: 2rem;
+            }
+
+            .slide h1 {
+                font-size: 2.2rem;
+            }
+
+            .slide h2 {
+                font-size: 1.8rem;
+            }
+
+            .slide p, .slide ul {
+                font-size: 1.1rem;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics {
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="slideshow-container">
+        <!-- Slide 1: Title -->
+        <div class="slide active">
+            <div class="slide-content">
+                <h1>SyncBridge</h1>
+                <p>A comprehensive enterprise solution that unifies asset management and employee document lifecycle tracking in one seamless platform.</p>
+                <div class="gradient-box">
+                    <h3>Modern. Intelligent. Efficient.</h3>
+                    <p>Streamline your enterprise operations with our AI-powered asset and document management system.</p>
+                </div>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><path d=\"M400,100 L700,400 L400,700 L100,400 Z\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"15\" fill=\"none\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Slide 2: The Problem -->
+        <div class="slide">
+            <div class="slide-content">
+                <h2>The Challenge</h2>
+                <p>Enterprises today face significant challenges in managing their assets and employee documents:</p>
+                <ul>
+                    <li>Fragmented systems leading to <span class="highlight">data silos</span> and inefficient workflows</li>
+                    <li><span class="highlight">Manual tracking</span> of asset assignments and document renewals</li>
+                    <li>Inadequate visibility into <span class="highlight">asset utilization</span> and lifecycle management</li>
+                    <li>Missed document renewals resulting in <span class="highlight">compliance risks</span></li>
+                    <li>Limited integration between HR and IT asset management systems</li>
+                </ul>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><circle cx=\"150\" cy=\"400\" r=\"100\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"8\" fill=\"none\" opacity=\"0.3\" /><circle cx=\"400\" cy=\"400\" r=\"100\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"8\" fill=\"none\" opacity=\"0.3\" /><circle cx=\"650\" cy=\"400\" r=\"100\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"8\" fill=\"none\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Slide 3: Our Solution -->
+        <div class="slide">
+            <div class="slide-content">
+                <h2>Introducing SyncBridge</h2>
+                <p>A unified platform that bridges the gap between asset management and document lifecycle tracking:</p>
+                
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Comprehensive Asset Management</h3>
+                        <p>Track hardware, software, and licenses with detailed lifecycle management and barcode integration.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Document Lifecycle Tracking</h3>
+                        <p>Manage employee documents with automated expiry notifications and renewal workflows.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>AI-Powered Insights</h3>
+                        <p>Get intelligent recommendations and document summarization to aid decision-making.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Multi-Tenant Architecture</h3>
+                        <p>Enterprise-ready SaaS platform supporting multiple organizations with complete data isolation.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><rect x=\"200\" y=\"200\" width=\"400\" height=\"400\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" fill=\"none\" opacity=\"0.3\" /><rect x=\"300\" y=\"300\" width=\"200\" height=\"200\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" fill=\"none\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Slide 4: Core Features -->
+        <div class="slide">
+            <div class="slide-content">
+                <h2>Key Features</h2>
+                <ul>
+                    <li><span class="highlight">Asset Tracking with Barcode Generation</span> - Streamline inventory management and asset assignments</li>
+                    <li><span class="highlight">Document Expiry Notifications</span> - Never miss critical document renewals</li>
+                    <li><span class="highlight">AI-Powered Document Summarization</span> - Quick insights into document contents</li>
+                    <li><span class="highlight">Comprehensive Dashboard Analytics</span> - Visual reporting for decision support</li>
+                    <li><span class="highlight">Role-Based Access Control</span> - Secure, permission-based system access</li>
+                    <li><span class="highlight">Vendor Management</span> - Central repository for all vendor interactions</li>
+                    <li><span class="highlight">Maintenance Records</span> - Track service history and maintenance schedules</li>
+                </ul>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><line x1=\"100\" y1=\"400\" x2=\"700\" y2=\"400\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" opacity=\"0.3\" /><line x1=\"400\" y1=\"100\" x2=\"400\" y2=\"700\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Slide 5: Technical Architecture -->
+        <div class="slide">
+            <div class="slide-content">
+                <h2>Technical Excellence</h2>
+                <p>Built with modern, scalable technologies for enterprise-grade performance:</p>
+                
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Frontend</h3>
+                        <p>React with TypeScript, TanStack Query for efficient data fetching, and Shadcn UI components for a beautiful interface</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Backend</h3>
+                        <p>Node.js/Express API with role-based authentication and multi-tenant database architecture</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Database</h3>
+                        <p>PostgreSQL with Drizzle ORM for type-safe data access and efficient querying</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>AI Integration</h3>
+                        <p>OpenAI-powered document summarization and intelligent recommendations</p>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><rect x=\"150\" y=\"200\" width=\"500\" height=\"400\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" rx=\"20\" ry=\"20\" fill=\"none\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Slide 6: Multi-Tenant Architecture -->
+        <div class="slide">
+            <div class="slide-content">
+                <h2>Enterprise-Ready SaaS Platform</h2>
+                <p>SyncBridge's multi-tenant architecture provides:</p>
+                <ul>
+                    <li><span class="highlight">Complete Data Isolation</span> - Each tenant's data is securely separated</li>
+                    <li><span class="highlight">Customizable Experience</span> - Tenant-specific branding and configurations</li>
+                    <li><span class="highlight">Scalable Subscription Plans</span> - Free, Starter, Business, and Enterprise tiers</li>
+                    <li><span class="highlight">Resource Management</span> - Configurable limits for users, assets, and documents</li>
+                    <li><span class="highlight">Tenant-Aware Analytics</span> - Comprehensive reporting isolated by tenant</li>
+                </ul>
+                <div class="metrics">
+                    <div class="metric-card">
+                        <h3>99.9%</h3>
+                        <p>Uptime Guarantee</p>
+                    </div>
+                    <div class="metric-card">
+                        <h3>3x</h3>
+                        <p>Faster Implementation</p>
+                    </div>
+                    <div class="metric-card">
+                        <h3>40%</h3>
+                        <p>Cost Reduction</p>
+                    </div>
+                </div>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><ellipse cx=\"400\" cy=\"400\" rx=\"300\" ry=\"200\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" fill=\"none\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Slide 7: Benefits and ROI -->
+        <div class="slide">
+            <div class="slide-content">
+                <h2>Business Benefits</h2>
+                <p>SyncBridge delivers measurable value to your organization:</p>
+                
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Operational Efficiency</h3>
+                        <p>Reduce administrative overhead by 60% with automated workflows and centralized management</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Risk Reduction</h3>
+                        <p>Minimize compliance risks through proactive document expiry tracking and notifications</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Cost Optimization</h3>
+                        <p>Improve asset utilization and reduce unnecessary purchases with detailed analytics</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Employee Productivity</h3>
+                        <p>Streamline onboarding and asset provisioning with intelligent workflows</p>
+                    </div>
+                </div>
+
+                <div class="gradient-box">
+                    <h3>ROI Calculator</h3>
+                    <p>Organizations typically see a 300% return on investment within the first year of implementation.</p>
+                </div>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><polyline points=\"100,600 300,300 500,500 700,200\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" fill=\"none\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Slide 8: Contact and CTA -->
+        <div class="slide">
+            <div class="slide-content">
+                <h2>Ready to Transform Your Enterprise</h2>
+                <p>SyncBridge is the comprehensive solution that unifies your asset management and document tracking for maximum efficiency.</p>
+                
+                <div class="gradient-box">
+                    <h3>Get Started Today</h3>
+                    <p>Schedule a demo to see how SyncBridge can streamline your operations and reduce costs.</p>
+                </div>
+                
+                <a href="#" class="btn">Book a Demo</a>
+                
+                <p style="margin-top: 2rem;">Contact us at: <span class="highlight">info@syncbridge.com</span></p>
+                <p>Call: <span class="highlight">+1 (555) 123-4567</span></p>
+            </div>
+            <div class="slide-background" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"800\" viewBox=\"0 0 800 800\"><defs><linearGradient id=\"grad\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\"><stop offset=\"0%\" style=\"stop-color:hsl(176, 80%, 49%);stop-opacity:0.2\" /><stop offset=\"100%\" style=\"stop-color:hsl(190, 70%, 45%);stop-opacity:0.2\" /></linearGradient></defs><rect width=\"100%\" height=\"100%\" fill=\"url(%23grad)\" /><circle cx=\"400\" cy=\"400\" r=\"300\" stroke=\"hsl(176, 80%, 49%)\" stroke-width=\"10\" fill=\"none\" opacity=\"0.3\" /></svg>')"></div>
+            <img src="data:image/svg+xml;charset=UTF-8,%3Csvg width='200' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='10' y='50' font-size='38' font-weight='bold' font-family='Arial, sans-serif' fill='hsl(176, 70%, 35%)'%3ERSV.INFOTECH%3C/text%3E%3C/svg%3E" alt="RSV.INFOTECH Logo" class="logo">
+        </div>
+
+        <!-- Navigation dots -->
+        <div class="slide-nav"></div>
+        
+        <!-- Navigation buttons -->
+        <div class="prev">&#10094;</div>
+        <div class="next">&#10095;</div>
+    </div>
+
+    <script>
+        let slideIndex = 1;
+        const slides = document.querySelectorAll('.slide');
+        
+        // Create navigation dots
+        const slideNav = document.querySelector('.slide-nav');
+        for (let i = 0; i < slides.length; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'slide-nav-dot';
+            if (i === 0) dot.classList.add('active');
+            dot.addEventListener('click', () => {
+                showSlide(i + 1);
+            });
+            slideNav.appendChild(dot);
+        }
+
+        function showSlide(n) {
+            if (n > slides.length) slideIndex = 1;
+            if (n < 1) slideIndex = slides.length;
+            
+            slides.forEach(slide => slide.classList.remove('active'));
+            document.querySelectorAll('.slide-nav-dot').forEach(dot => dot.classList.remove('active'));
+            
+            slides[slideIndex - 1].classList.add('active');
+            document.querySelectorAll('.slide-nav-dot')[slideIndex - 1].classList.add('active');
+        }
+
+        // Next/prev controls
+        document.querySelector('.prev').addEventListener('click', () => {
+            showSlide(slideIndex -= 1);
+        });
+        
+        document.querySelector('.next').addEventListener('click', () => {
+            showSlide(slideIndex += 1);
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                showSlide(slideIndex -= 1);
+            } else if (e.key === 'ArrowRight') {
+                showSlide(slideIndex += 1);
+            }
+        });
+
+        // Initialize
+        showSlide(slideIndex);
+
+        // Auto-advance slides (optional)
+        // let slideInterval = setInterval(() => {
+        //     showSlide(slideIndex += 1);
+        // }, 8000);
+
+        // document.querySelector('.slideshow-container').addEventListener('mouseover', () => {
+        //     clearInterval(slideInterval);
+        // });
+
+        // document.querySelector('.slideshow-container').addEventListener('mouseout', () => {
+        //     slideInterval = setInterval(() => {
+        //         showSlide(slideIndex += 1);
+        //     }, 8000);
+        // });
+    </script>
+</body>
+</html>

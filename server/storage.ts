@@ -2,12 +2,13 @@ import { db, pool } from "./db";
 import {
   users, employees, dependents, assets, assetAssignments, 
   maintenanceRecords, employeeDocuments, vendors, notifications, 
-  auditLogs, licenses, User, InsertUser, Employee, InsertEmployee,
+  auditLogs, licenses, tenants, User, InsertUser, Employee, InsertEmployee,
   Dependent, InsertDependent, Asset, InsertAsset, 
   AssetAssignment, InsertAssetAssignment, MaintenanceRecord,
   InsertMaintenanceRecord, EmployeeDocument, InsertEmployeeDocument,
   Vendor, InsertVendor, Notification, InsertNotification,
-  AuditLog, InsertAuditLog, License, InsertLicense
+  AuditLog, InsertAuditLog, License, InsertLicense,
+  Tenant, InsertTenant
 } from "@shared/schema";
 import { eq, and, gt, lt, lte, desc, isNull, sql } from "drizzle-orm";
 import session from "express-session";
@@ -19,6 +20,16 @@ const PostgresSessionStore = connectPg(session);
 
 // Interface for all storage operations
 export interface IStorage {
+  // Tenant operations
+  getTenant(id: number): Promise<Tenant | undefined>;
+  getTenantByName(name: string): Promise<Tenant | undefined>;
+  getTenantBySlug(slug: string): Promise<Tenant | undefined>;
+  getTenants(): Promise<Tenant[]>;
+  createTenant(tenant: InsertTenant): Promise<Tenant>;
+  updateTenant(id: number, tenant: Partial<InsertTenant>): Promise<Tenant | undefined>;
+  deleteTenant(id: number): Promise<void>;
+  getUsersByTenantId(tenantId: number): Promise<User[]>;
+  
   // User operations
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -28,7 +39,7 @@ export interface IStorage {
   // Employee operations
   getEmployee(id: number): Promise<Employee | undefined>;
   getEmployeeByUserId(userId: number): Promise<Employee | undefined>;
-  getEmployees(): Promise<Employee[]>;
+  getEmployees(tenantId?: number): Promise<Employee[]>;
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: number, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
@@ -42,7 +53,7 @@ export interface IStorage {
   
   // Asset operations
   getAsset(id: number): Promise<Asset | undefined>;
-  getAssets(): Promise<Asset[]>;
+  getAssets(tenantId?: number): Promise<Asset[]>;
   createAsset(asset: InsertAsset): Promise<Asset>;
   updateAsset(id: number, asset: Partial<InsertAsset>): Promise<Asset | undefined>;
   deleteAsset(id: number): Promise<void>;
@@ -51,7 +62,7 @@ export interface IStorage {
   getAssetAssignment(id: number): Promise<AssetAssignment | undefined>;
   getAssetAssignmentsByAssetId(assetId: number): Promise<AssetAssignment[]>;
   getAssetAssignmentsByEmployeeId(employeeId: number): Promise<AssetAssignment[]>;
-  getActiveAssetAssignments(): Promise<AssetAssignment[]>;
+  getActiveAssetAssignments(tenantId?: number): Promise<AssetAssignment[]>;
   createAssetAssignment(assignment: InsertAssetAssignment): Promise<AssetAssignment>;
   updateAssetAssignment(id: number, assignment: Partial<InsertAssetAssignment>): Promise<AssetAssignment | undefined>;
   deleteAssetAssignment(id: number): Promise<void>;
@@ -66,14 +77,14 @@ export interface IStorage {
   // Employee Document operations
   getEmployeeDocument(id: number): Promise<EmployeeDocument | undefined>;
   getEmployeeDocumentsByEmployeeId(employeeId: number): Promise<EmployeeDocument[]>;
-  getExpiringDocuments(daysThreshold: number): Promise<EmployeeDocument[]>;
+  getExpiringDocuments(daysThreshold: number, tenantId?: number): Promise<EmployeeDocument[]>;
   createEmployeeDocument(document: InsertEmployeeDocument): Promise<EmployeeDocument>;
   updateEmployeeDocument(id: number, document: Partial<InsertEmployeeDocument>): Promise<EmployeeDocument | undefined>;
   deleteEmployeeDocument(id: number): Promise<void>;
   
   // Vendor operations
   getVendor(id: number): Promise<Vendor | undefined>;
-  getVendors(): Promise<Vendor[]>;
+  getVendors(tenantId?: number): Promise<Vendor[]>;
   createVendor(vendor: InsertVendor): Promise<Vendor>;
   updateVendor(id: number, vendor: Partial<InsertVendor>): Promise<Vendor | undefined>;
   deleteVendor(id: number): Promise<void>;
@@ -88,19 +99,19 @@ export interface IStorage {
   
   // Audit Log operations
   getAuditLog(id: number): Promise<AuditLog | undefined>;
-  getAuditLogs(): Promise<AuditLog[]>;
+  getAuditLogs(tenantId?: number): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   
   // License operations
   getLicense(id: number): Promise<License | undefined>;
   getLicensesByAssetId(assetId: number): Promise<License[]>;
-  getExpiringLicenses(daysThreshold: number): Promise<License[]>;
+  getExpiringLicenses(daysThreshold: number, tenantId?: number): Promise<License[]>;
   createLicense(license: InsertLicense): Promise<License>;
   updateLicense(id: number, license: Partial<InsertLicense>): Promise<License | undefined>;
   deleteLicense(id: number): Promise<void>;
   
   // Dashboard statistics
-  getDashboardStats(): Promise<any>;
+  getDashboardStats(tenantId?: number): Promise<any>;
   
   // Session store
   sessionStore: session.Store;
@@ -119,6 +130,7 @@ export class MemStorage implements IStorage {
   private notificationMap: Map<number, Notification>;
   private auditLogMap: Map<number, AuditLog>;
   private licenseMap: Map<number, License>;
+  private tenantMap: Map<number, Tenant>;
   sessionStore: session.Store;
   userId: number;
   employeeId: number;
@@ -131,6 +143,7 @@ export class MemStorage implements IStorage {
   notificationId: number;
   auditLogId: number;
   licenseId: number;
+  tenantId: number;
 
   constructor() {
     this.userMap = new Map();
@@ -144,6 +157,7 @@ export class MemStorage implements IStorage {
     this.notificationMap = new Map();
     this.auditLogMap = new Map();
     this.licenseMap = new Map();
+    this.tenantMap = new Map();
     
     this.userId = 1;
     this.employeeId = 1;
@@ -156,10 +170,63 @@ export class MemStorage implements IStorage {
     this.notificationId = 1;
     this.auditLogId = 1;
     this.licenseId = 1;
+    this.tenantId = 1;
     
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000 // 24 hours
     });
+  }
+  
+  // Tenant operations
+  async getTenant(id: number): Promise<Tenant | undefined> {
+    return this.tenantMap.get(id);
+  }
+  
+  async getTenantByName(name: string): Promise<Tenant | undefined> {
+    return Array.from(this.tenantMap.values()).find(tenant => tenant.name === name);
+  }
+  
+  async getTenantBySlug(slug: string): Promise<Tenant | undefined> {
+    return Array.from(this.tenantMap.values()).find(tenant => tenant.slug === slug);
+  }
+  
+  async getTenants(): Promise<Tenant[]> {
+    return Array.from(this.tenantMap.values());
+  }
+  
+  async createTenant(tenant: InsertTenant): Promise<Tenant> {
+    const id = this.tenantId++;
+    const newTenant: Tenant = {
+      ...tenant,
+      id,
+      createdAt: new Date(),
+      maxUsers: tenant.maxUsers || 5,
+      maxAssets: tenant.maxAssets || 20,
+      maxDocuments: tenant.maxDocuments || 50,
+      isActive: tenant.isActive ?? true,
+      primaryColor: tenant.primaryColor || '#10b981',
+      plan: tenant.plan || 'free',
+      expiryDate: tenant.expiryDate || null
+    };
+    this.tenantMap.set(id, newTenant);
+    return newTenant;
+  }
+  
+  async updateTenant(id: number, tenantData: Partial<InsertTenant>): Promise<Tenant | undefined> {
+    const tenant = this.tenantMap.get(id);
+    if (!tenant) return undefined;
+    
+    const updatedTenant = { ...tenant, ...tenantData };
+    this.tenantMap.set(id, updatedTenant);
+    return updatedTenant;
+  }
+  
+  async deleteTenant(id: number): Promise<void> {
+    this.tenantMap.delete(id);
+  }
+  
+  async getUsersByTenantId(tenantId: number): Promise<User[]> {
+    return Array.from(this.userMap.values()).filter(user => user.tenantId === tenantId);
   }
 
   // User operations
@@ -201,7 +268,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.employeeMap.values()).find(emp => emp.userId === userId);
   }
 
-  async getEmployees(): Promise<Employee[]> {
+  async getEmployees(tenantId?: number): Promise<Employee[]> {
+    if (tenantId) {
+      return Array.from(this.employeeMap.values()).filter(employee => employee.tenantId === tenantId);
+    }
     return Array.from(this.employeeMap.values());
   }
 
@@ -280,7 +350,10 @@ export class MemStorage implements IStorage {
     return this.assetMap.get(id);
   }
 
-  async getAssets(): Promise<Asset[]> {
+  async getAssets(tenantId?: number): Promise<Asset[]> {
+    if (tenantId) {
+      return Array.from(this.assetMap.values()).filter(asset => asset.tenantId === tenantId);
+    }
     return Array.from(this.assetMap.values());
   }
 
@@ -327,8 +400,13 @@ export class MemStorage implements IStorage {
     return Array.from(this.assetAssignmentMap.values()).filter(assignment => assignment.employeeId === employeeId);
   }
 
-  async getActiveAssetAssignments(): Promise<AssetAssignment[]> {
-    return Array.from(this.assetAssignmentMap.values()).filter(assignment => !assignment.dateReturned);
+  async getActiveAssetAssignments(tenantId?: number): Promise<AssetAssignment[]> {
+    const assignments = Array.from(this.assetAssignmentMap.values()).filter(assignment => !assignment.dateReturned);
+    
+    if (tenantId) {
+      return assignments.filter(assignment => assignment.tenantId === tenantId);
+    }
+    return assignments;
   }
 
   async createAssetAssignment(assignment: InsertAssetAssignment): Promise<AssetAssignment> {
@@ -403,15 +481,21 @@ export class MemStorage implements IStorage {
     return Array.from(this.employeeDocumentMap.values()).filter(doc => doc.employeeId === employeeId);
   }
 
-  async getExpiringDocuments(daysThreshold: number): Promise<EmployeeDocument[]> {
+  async getExpiringDocuments(daysThreshold: number, tenantId?: number): Promise<EmployeeDocument[]> {
     const threshold = new Date();
     threshold.setDate(threshold.getDate() + daysThreshold);
     
-    return Array.from(this.employeeDocumentMap.values()).filter(doc => {
+    let documents = Array.from(this.employeeDocumentMap.values()).filter(doc => {
       if (!doc.expiryDate) return false;
       const expiryDate = new Date(doc.expiryDate);
       return expiryDate <= threshold;
     });
+    
+    if (tenantId) {
+      documents = documents.filter(doc => doc.tenantId === tenantId);
+    }
+    
+    return documents;
   }
 
   async createEmployeeDocument(document: InsertEmployeeDocument): Promise<EmployeeDocument> {
@@ -446,7 +530,10 @@ export class MemStorage implements IStorage {
     return this.vendorMap.get(id);
   }
 
-  async getVendors(): Promise<Vendor[]> {
+  async getVendors(tenantId?: number): Promise<Vendor[]> {
+    if (tenantId) {
+      return Array.from(this.vendorMap.values()).filter(vendor => vendor.tenantId === tenantId);
+    }
     return Array.from(this.vendorMap.values());
   }
 
@@ -521,7 +608,10 @@ export class MemStorage implements IStorage {
     return this.auditLogMap.get(id);
   }
 
-  async getAuditLogs(): Promise<AuditLog[]> {
+  async getAuditLogs(tenantId?: number): Promise<AuditLog[]> {
+    if (tenantId) {
+      return Array.from(this.auditLogMap.values()).filter(log => log.tenantId === tenantId);
+    }
     return Array.from(this.auditLogMap.values());
   }
 
@@ -546,15 +636,21 @@ export class MemStorage implements IStorage {
     return Array.from(this.licenseMap.values()).filter(license => license.assetId === assetId);
   }
 
-  async getExpiringLicenses(daysThreshold: number): Promise<License[]> {
+  async getExpiringLicenses(daysThreshold: number, tenantId?: number): Promise<License[]> {
     const threshold = new Date();
     threshold.setDate(threshold.getDate() + daysThreshold);
     
-    return Array.from(this.licenseMap.values()).filter(license => {
+    let licenses = Array.from(this.licenseMap.values()).filter(license => {
       if (!license.expiryDate) return false;
       const expiryDate = new Date(license.expiryDate);
       return expiryDate <= threshold;
     });
+    
+    if (tenantId) {
+      licenses = licenses.filter(license => license.tenantId === tenantId);
+    }
+    
+    return licenses;
   }
 
   async createLicense(license: InsertLicense): Promise<License> {
@@ -609,11 +705,16 @@ export class MemStorage implements IStorage {
   }
   
   // Dashboard statistics
-  async getDashboardStats(): Promise<any> {
-    const assets = await this.getAssets();
-    const employees = await this.getEmployees();
-    const expiringDocs = await this.getExpiringDocuments(90);
-    const maintenanceRecords = Array.from(this.maintenanceRecordMap.values());
+  async getDashboardStats(tenantId?: number): Promise<any> {
+    const assets = await this.getAssets(tenantId);
+    const employees = await this.getEmployees(tenantId);
+    const expiringDocs = await this.getExpiringDocuments(90, tenantId);
+    
+    // Filter maintenance records by tenantId if provided
+    let maintenanceRecords = Array.from(this.maintenanceRecordMap.values());
+    if (tenantId) {
+      maintenanceRecords = maintenanceRecords.filter(record => record.tenantId === tenantId);
+    }
     
     const maintenanceDue = maintenanceRecords.filter(record => {
       // Simple logic to determine if maintenance is due
@@ -634,8 +735,14 @@ export class MemStorage implements IStorage {
       percentage: assets.length > 0 ? Math.round((count / assets.length) * 100) : 0
     }));
     
+    // Filter employee documents by tenantId if provided
+    let allDocs = Array.from(this.employeeDocumentMap.values());
+    if (tenantId) {
+      allDocs = allDocs.filter(doc => doc.tenantId === tenantId);
+    }
+    
     // Document status
-    const validDocs = Array.from(this.employeeDocumentMap.values()).filter(doc => {
+    const validDocs = allDocs.filter(doc => {
       if (!doc.expiryDate) return true;
       return new Date(doc.expiryDate) > new Date();
     });
@@ -649,12 +756,12 @@ export class MemStorage implements IStorage {
       return expiryDate > now && expiryDate <= thirtyDaysFromNow;
     });
     
-    const expiredDocs = Array.from(this.employeeDocumentMap.values()).filter(doc => {
+    const expiredDocs = allDocs.filter(doc => {
       if (!doc.expiryDate) return false;
       return new Date(doc.expiryDate) <= new Date();
     });
     
-    const totalDocs = this.employeeDocumentMap.size;
+    const totalDocs = allDocs.length;
     
     const documentStatus = {
       valid: {
@@ -671,6 +778,12 @@ export class MemStorage implements IStorage {
       }
     };
     
+    // Filter asset assignments by tenantId if provided
+    let recentAssignments = Array.from(this.assetAssignmentMap.values());
+    if (tenantId) {
+      recentAssignments = recentAssignments.filter(assignment => assignment.tenantId === tenantId);
+    }
+    
     return {
       counts: {
         assets: assets.length,
@@ -680,7 +793,7 @@ export class MemStorage implements IStorage {
       },
       assetDistribution,
       documentStatus,
-      recentAssignments: Array.from(this.assetAssignmentMap.values())
+      recentAssignments: recentAssignments
         .sort((a, b) => new Date(b.dateAssigned).getTime() - new Date(a.dateAssigned).getTime())
         .slice(0, 5)
     };
@@ -746,7 +859,10 @@ export class DatabaseStorage implements IStorage {
     return employee || undefined;
   }
 
-  async getEmployees(): Promise<Employee[]> {
+  async getEmployees(tenantId?: number): Promise<Employee[]> {
+    if (tenantId) {
+      return await db.select().from(employees).where(eq(employees.tenantId, tenantId));
+    }
     return await db.select().from(employees);
   }
 
@@ -794,7 +910,10 @@ export class DatabaseStorage implements IStorage {
     return asset || undefined;
   }
 
-  async getAssets(): Promise<Asset[]> {
+  async getAssets(tenantId?: number): Promise<Asset[]> {
+    if (tenantId) {
+      return await db.select().from(assets).where(eq(assets.tenantId, tenantId));
+    }
     return await db.select().from(assets);
   }
 
@@ -911,7 +1030,10 @@ export class DatabaseStorage implements IStorage {
     return vendor || undefined;
   }
 
-  async getVendors(): Promise<Vendor[]> {
+  async getVendors(tenantId?: number): Promise<Vendor[]> {
+    if (tenantId) {
+      return await db.select().from(vendors).where(eq(vendors.tenantId, tenantId));
+    }
     return await db.select().from(vendors);
   }
 
@@ -972,7 +1094,12 @@ export class DatabaseStorage implements IStorage {
     return log || undefined;
   }
 
-  async getAuditLogs(): Promise<AuditLog[]> {
+  async getAuditLogs(tenantId?: number): Promise<AuditLog[]> {
+    if (tenantId) {
+      return await db.select().from(auditLogs)
+        .where(eq(auditLogs.tenantId, tenantId))
+        .orderBy(desc(auditLogs.timestamp));
+    }
     return await db.select().from(auditLogs).orderBy(desc(auditLogs.timestamp));
   }
 
@@ -1039,51 +1166,87 @@ export class DatabaseStorage implements IStorage {
   }
   
   // Dashboard statistics
-  async getDashboardStats(): Promise<any> {
-    // Get counts
-    const assetsCount = await db.select({ count: sql`count(*)` }).from(assets);
-    const employeesCount = await db.select({ count: sql`count(*)` }).from(employees);
+  async getDashboardStats(tenantId?: number): Promise<any> {
+    // Get counts with optional tenant filtering
+    const assetsCount = tenantId
+      ? await db.select({ count: sql`count(*)` }).from(assets).where(eq(assets.tenantId, tenantId))
+      : await db.select({ count: sql`count(*)` }).from(assets);
+    
+    const employeesCount = tenantId
+      ? await db.select({ count: sql`count(*)` }).from(employees).where(eq(employees.tenantId, tenantId))
+      : await db.select({ count: sql`count(*)` }).from(employees);
     
     const now = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(now.getDate() + 30);
     
     // Expiring documents
-    const expiringDocsQuery = await db.select({ count: sql`count(*)` })
-      .from(employeeDocuments)
-      .where(
-        and(
-          sql`${employeeDocuments.expiryDate} IS NOT NULL`,
-          and(
-            gt(employeeDocuments.expiryDate, now),
-            lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
+    const expiringDocsQuery = tenantId
+      ? await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            and(
+              eq(employeeDocuments.tenantId, tenantId),
+              sql`${employeeDocuments.expiryDate} IS NOT NULL`,
+              and(
+                gt(employeeDocuments.expiryDate, now),
+                lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
+              )
+            )
           )
-        )
-      );
+      : await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            and(
+              sql`${employeeDocuments.expiryDate} IS NOT NULL`,
+              and(
+                gt(employeeDocuments.expiryDate, now),
+                lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
+              )
+            )
+          );
     
     // Maintenance due - handle potential schema differences
     let maintenanceDueQuery;
     try {
-      maintenanceDueQuery = await db.select({ count: sql`count(*)` })
-        .from(maintenanceRecords)
-        .where(
-          and(
-            sql`${maintenanceRecords.nextMaintenanceDate} IS NOT NULL`,
-            lte(maintenanceRecords.nextMaintenanceDate, now)
-          )
-        );
+      maintenanceDueQuery = tenantId
+        ? await db.select({ count: sql`count(*)` })
+            .from(maintenanceRecords)
+            .where(
+              and(
+                eq(maintenanceRecords.tenantId, tenantId),
+                sql`${maintenanceRecords.nextMaintenanceDate} IS NOT NULL`,
+                lte(maintenanceRecords.nextMaintenanceDate, now)
+              )
+            )
+        : await db.select({ count: sql`count(*)` })
+            .from(maintenanceRecords)
+            .where(
+              and(
+                sql`${maintenanceRecords.nextMaintenanceDate} IS NOT NULL`,
+                lte(maintenanceRecords.nextMaintenanceDate, now)
+              )
+            );
     } catch (err) {
       // Fallback if the column doesn't exist yet in the actual database
       maintenanceDueQuery = [{ count: 0 }];
     }
     
     // Asset distribution
-    const assetTypesQuery = await db.select({
-      type: assets.type,
-      count: sql`count(*)`
-    })
-    .from(assets)
-    .groupBy(assets.type);
+    const assetTypesQuery = tenantId
+      ? await db.select({
+          type: assets.type,
+          count: sql`count(*)`
+        })
+        .from(assets)
+        .where(eq(assets.tenantId, tenantId))
+        .groupBy(assets.type)
+      : await db.select({
+          type: assets.type,
+          count: sql`count(*)`
+        })
+        .from(assets)
+        .groupBy(assets.type);
     
     const assetTypes = assetTypesQuery.map(item => ({
       type: item.type,
@@ -1099,35 +1262,71 @@ export class DatabaseStorage implements IStorage {
     }));
     
     // Document status
-    const totalDocsQuery = await db.select({ count: sql`count(*)` }).from(employeeDocuments);
+    const totalDocsQuery = tenantId
+      ? await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(eq(employeeDocuments.tenantId, tenantId))
+      : await db.select({ count: sql`count(*)` }).from(employeeDocuments);
     const totalDocs = Number(totalDocsQuery[0]?.count || 0);
     
-    const validDocsQuery = await db.select({ count: sql`count(*)` })
-      .from(employeeDocuments)
-      .where(
-        sql`${employeeDocuments.expiryDate} IS NULL OR ${employeeDocuments.expiryDate} > ${now}`
-      );
-    
-    const expiringSoonDocsQuery = await db.select({ count: sql`count(*)` })
-      .from(employeeDocuments)
-      .where(
-        and(
-          sql`${employeeDocuments.expiryDate} IS NOT NULL`,
-          and(
-            gt(employeeDocuments.expiryDate, now),
-            lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
+    const validDocsQuery = tenantId
+      ? await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            and(
+              eq(employeeDocuments.tenantId, tenantId),
+              sql`${employeeDocuments.expiryDate} IS NULL OR ${employeeDocuments.expiryDate} > ${now}`
+            )
           )
-        )
-      );
+      : await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            sql`${employeeDocuments.expiryDate} IS NULL OR ${employeeDocuments.expiryDate} > ${now}`
+          );
     
-    const expiredDocsQuery = await db.select({ count: sql`count(*)` })
-      .from(employeeDocuments)
-      .where(
-        and(
-          sql`${employeeDocuments.expiryDate} IS NOT NULL`,
-          lte(employeeDocuments.expiryDate, now)
-        )
-      );
+    const expiringSoonDocsQuery = tenantId
+      ? await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            and(
+              eq(employeeDocuments.tenantId, tenantId),
+              sql`${employeeDocuments.expiryDate} IS NOT NULL`,
+              and(
+                gt(employeeDocuments.expiryDate, now),
+                lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
+              )
+            )
+          )
+      : await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            and(
+              sql`${employeeDocuments.expiryDate} IS NOT NULL`,
+              and(
+                gt(employeeDocuments.expiryDate, now),
+                lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
+              )
+            )
+          );
+    
+    const expiredDocsQuery = tenantId
+      ? await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            and(
+              eq(employeeDocuments.tenantId, tenantId),
+              sql`${employeeDocuments.expiryDate} IS NOT NULL`,
+              lte(employeeDocuments.expiryDate, now)
+            )
+          )
+      : await db.select({ count: sql`count(*)` })
+          .from(employeeDocuments)
+          .where(
+            and(
+              sql`${employeeDocuments.expiryDate} IS NOT NULL`,
+              lte(employeeDocuments.expiryDate, now)
+            )
+          );
     
     const validDocs = Number(validDocsQuery[0]?.count || 0);
     const expiringSoonDocs = Number(expiringSoonDocsQuery[0]?.count || 0);
@@ -1149,10 +1348,16 @@ export class DatabaseStorage implements IStorage {
     };
     
     // Recent assignments
-    const recentAssignments = await db.select()
-      .from(assetAssignments)
-      .orderBy(desc(assetAssignments.dateAssigned))
-      .limit(5);
+    const recentAssignments = tenantId
+      ? await db.select()
+          .from(assetAssignments)
+          .where(eq(assetAssignments.tenantId, tenantId))
+          .orderBy(desc(assetAssignments.dateAssigned))
+          .limit(5)
+      : await db.select()
+          .from(assetAssignments)
+          .orderBy(desc(assetAssignments.dateAssigned))
+          .limit(5);
     
     return {
       counts: {
