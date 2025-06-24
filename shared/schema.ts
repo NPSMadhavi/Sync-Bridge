@@ -10,6 +10,8 @@ export const documentTypeEnum = pgEnum('document_type', ['passport', 'visa', 'co
 export const notificationTypeEnum = pgEnum('notification_type', ['document_expiry', 'maintenance_due', 'assignment', 'license_expiry']);
 export const licenseTypeEnum = pgEnum('license_type', ['software', 'hardware', 'subscription', 'service', 'other']);
 export const subscriptionPlanEnum = pgEnum('subscription_plan', ['free', 'starter', 'business', 'enterprise']);
+export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'sent', 'paid', 'overdue', 'cancelled']);
+export const paymentMethodEnum = pgEnum('payment_method', ['bank_transfer', 'credit_card', 'cash', 'check', 'other']);
 
 // Tables
 export const tenants = pgTable("tenants", {
@@ -165,6 +167,72 @@ export const auditLogs = pgTable("audit_logs", {
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  company: text("company"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  country: text("country"),
+  taxId: text("tax_id"),
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const invoices = pgTable("invoices", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  invoiceNumber: text("invoice_number").notNull().unique(),
+  customerId: integer("customer_id").references(() => customers.id),
+  issueDate: timestamp("issue_date").notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  status: invoiceStatusEnum("status").notNull().default('draft'),
+  subtotal: integer("subtotal").notNull(), // in cents
+  taxAmount: integer("tax_amount").default(0), // in cents
+  discountAmount: integer("discount_amount").default(0), // in cents
+  totalAmount: integer("total_amount").notNull(), // in cents
+  paidAmount: integer("paid_amount").default(0), // in cents
+  balanceAmount: integer("balance_amount").notNull(), // in cents
+  taxRate: integer("tax_rate").default(0), // percentage * 100 (e.g., 15.5% = 1550)
+  discountRate: integer("discount_rate").default(0), // percentage * 100
+  currency: text("currency").default('USD'),
+  paymentTerms: text("payment_terms"),
+  notes: text("notes"),
+  isEmailSent: boolean("is_email_sent").default(false),
+  emailSentAt: timestamp("email_sent_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const invoiceItems = pgTable("invoice_items", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: integer("unit_price").notNull(), // in cents
+  totalPrice: integer("total_price").notNull(), // in cents
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
+  amount: integer("amount").notNull(), // in cents
+  paymentMethod: paymentMethodEnum("payment_method").notNull(),
+  paymentDate: timestamp("payment_date").notNull(),
+  transactionId: text("transaction_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   users: many(users),
@@ -178,6 +246,9 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   dependents: many(dependents),
   notifications: many(notifications),
   auditLogs: many(auditLogs),
+  customers: many(customers),
+  invoices: many(invoices),
+  payments: many(payments),
 }));
 
 export const usersRelations = relations(users, ({ many, one }) => ({
@@ -307,6 +378,45 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   }),
 }));
 
+export const customersRelations = relations(customers, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [customers.tenantId],
+    references: [tenants.id],
+  }),
+  invoices: many(invoices),
+}));
+
+export const invoicesRelations = relations(invoices, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [invoices.tenantId],
+    references: [tenants.id],
+  }),
+  customer: one(customers, {
+    fields: [invoices.customerId],
+    references: [customers.id],
+  }),
+  items: many(invoiceItems),
+  payments: many(payments),
+}));
+
+export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [invoiceItems.invoiceId],
+    references: [invoices.id],
+  }),
+}));
+
+export const paymentsRelations = relations(payments, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [payments.tenantId],
+    references: [tenants.id],
+  }),
+  invoice: one(invoices, {
+    fields: [payments.invoiceId],
+    references: [invoices.id],
+  }),
+}));
+
 // Insert Schemas
 export const insertUserSchema = createInsertSchema(users)
   .omit({ id: true, createdAt: true });
@@ -344,9 +454,29 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs)
 export const insertTenantSchema = createInsertSchema(tenants)
   .omit({ id: true, createdAt: true });
 
+export const insertCustomerSchema = createInsertSchema(customers)
+  .omit({ id: true, createdAt: true });
+
+export const insertInvoiceSchema = createInsertSchema(invoices)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertInvoiceItemSchema = createInsertSchema(invoiceItems)
+  .omit({ id: true, createdAt: true });
+
+export const insertPaymentSchema = createInsertSchema(payments)
+  .omit({ id: true, createdAt: true });
+
 // Types
 export type Tenant = typeof tenants.$inferSelect;
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type InvoiceItem = typeof invoiceItems.$inferSelect;
+export type InsertInvoiceItem = z.infer<typeof insertInvoiceItemSchema>;
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
