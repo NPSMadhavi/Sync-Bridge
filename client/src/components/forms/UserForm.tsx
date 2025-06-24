@@ -81,6 +81,16 @@ export default function UserForm({ user, onSuccess }: UserFormProps) {
     },
   });
 
+  // Watch role changes to update default modules
+  const selectedRole = form.watch("role");
+  
+  useEffect(() => {
+    if (selectedRole && roleModuleDefaults[selectedRole as keyof typeof roleModuleDefaults] && !user) {
+      const defaultModules = roleModuleDefaults[selectedRole as keyof typeof roleModuleDefaults];
+      form.setValue("allowedModules", defaultModules);
+    }
+  }, [selectedRole, form, user]);
+
   const mutation = useMutation({
     mutationFn: async (data: UserFormData) => {
       const url = user ? `/api/users/${user.id}` : "/api/users";
@@ -158,11 +168,25 @@ export default function UserForm({ user, onSuccess }: UserFormProps) {
                   {user && <span className="text-sm text-muted-foreground">(leave empty to keep current)</span>}
                 </FormLabel>
                 <FormControl>
-                  <Input 
-                    type="password" 
-                    placeholder={user ? "Leave empty to keep current" : "Enter password"} 
-                    {...field} 
-                  />
+                  <div className="relative">
+                    <Input 
+                      type={showPassword ? "text" : "password"} 
+                      placeholder={user ? "Leave empty to keep current" : "Enter password"} 
+                      {...field}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
