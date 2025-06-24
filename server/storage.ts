@@ -23,6 +23,9 @@ const PostgresSessionStore = connectPg(session);
 
 // Interface for all storage operations
 export interface IStorage {
+  // User verification operations
+  getUserByVerificationToken(token: string): Promise<User | undefined>;
+  verifyUserEmail(token: string): Promise<User | undefined>;
   // Tenant operations
   getTenant(id: number): Promise<Tenant | undefined>;
   getTenantByName(name: string): Promise<Tenant | undefined>;

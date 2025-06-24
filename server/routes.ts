@@ -6,6 +6,7 @@ import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { setupFileServing, uploadMiddleware, handleFileUpload } from "./upload";
 import { ZodError } from "zod";
+import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertDependentSchema, 
   insertEmployeeDocumentSchema, insertVendorSchema, insertAssetAssignmentSchema,
