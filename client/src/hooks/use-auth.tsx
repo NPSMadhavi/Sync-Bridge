@@ -9,15 +9,10 @@ import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 
-// Extend the insert schema to add validation
+// Login validation schema
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(6, "Password must be at least 6 characters")
-});
-
-const registerSchema = insertUserSchema.extend({
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  email: z.string().email("Please enter a valid email address"),
 });
 
 type AuthContextType = {

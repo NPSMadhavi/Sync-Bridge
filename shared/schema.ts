@@ -4,7 +4,12 @@ import { z } from "zod";
 import { relations } from "drizzle-orm";
 
 // Enums
-export const userRoleEnum = pgEnum('user_role', ['super_admin', 'admin', 'hr', 'it_manager', 'employee']);
+export const userRoleEnum = pgEnum('user_role', ['super_admin', 'admin', 'hr_manager', 'it_manager', 'accountant', 'employee']);
+export const moduleEnum = pgEnum('module', [
+  'dashboard', 'assets', 'licenses', 'employees', 'documents', 
+  'vendors', 'customers', 'invoices', 'reports', 'audit_logs', 
+  'settings', 'user_management'
+]);
 export const assetStatusEnum = pgEnum('asset_status', ['available', 'assigned', 'maintenance', 'retired']);
 export const documentTypeEnum = pgEnum('document_type', ['passport', 'visa', 'contract', 'certification', 'warranty', 'purchase_order', 'other']);
 export const notificationTypeEnum = pgEnum('notification_type', ['document_expiry', 'maintenance_due', 'assignment', 'license_expiry']);
@@ -435,8 +440,21 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
 }));
 
 // Insert Schemas
-export const insertUserSchema = createInsertSchema(users)
-  .omit({ id: true, createdAt: true });
+export const insertUserSchema = createInsertSchema(users).omit({ 
+  id: true, 
+  createdAt: true,
+  isSuperAdmin: true,
+  tenantId: true,
+  isEmailVerified: true,
+  emailVerificationToken: true,
+  emailVerificationExpiry: true
+});
+
+export const insertUserPermissionSchema = createInsertSchema(userPermissions).omit({
+  id: true,
+  createdAt: true,
+  tenantId: true
+});
 
 export const insertEmployeeSchema = createInsertSchema(employees)
   .omit({ id: true, createdAt: true });

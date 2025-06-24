@@ -176,6 +176,7 @@ export class MemStorage implements IStorage {
   private invoiceItemMap: Map<number, InvoiceItem>;
   private paymentMap: Map<number, Payment>;
   private userPermissionMap: Map<number, UserPermission>;
+  private emailToIdMap: Map<string, number>;
   sessionStore: session.Store;
   userId: number;
   employeeId: number;
@@ -213,6 +214,7 @@ export class MemStorage implements IStorage {
     this.invoiceItemMap = new Map();
     this.paymentMap = new Map();
     this.userPermissionMap = new Map();
+    this.emailToIdMap = new Map();
     
     this.userId = 1;
     this.employeeId = 1;
@@ -247,7 +249,7 @@ export class MemStorage implements IStorage {
       tenantId: 1,
       name: "Super Administrator",
       email: "supadmin@myrsv.com",
-      password: "$2b$10$K6ZzHj5xP3R9wF8R6xLQVOH1GbWz0A8TpOQ5X3s1A2t7Y9p4U6v8e", // @minRSV100#$
+      password: "e6773853f57569bff4aa76b7f8a7887bf0e4fb8fcd2e7db1fc5af92015510b5f9a4356a6ad6a6a232ce99d28a4004fa22c0eb7213cfd95934d851eba53d0bd8a.7289d5ed8f54f3bf3b8e2a2d65e03de4", // @minRSV100#$
       role: "super_admin",
       isSuperAdmin: true,
       isEmailVerified: true,

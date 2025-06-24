@@ -26,15 +26,10 @@ const loginSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-const registerSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["admin", "hr", "it_manager", "employee"]).optional(),
-});
+
 
 type LoginFormValues = z.infer<typeof loginSchema>;
-type RegisterFormValues = z.infer<typeof registerSchema>;
+
 
 // Neural Network Animation Component
 function NeuralNetwork() {
