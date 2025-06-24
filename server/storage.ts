@@ -2,13 +2,16 @@ import { db, pool } from "./db";
 import {
   users, employees, dependents, assets, assetAssignments, 
   maintenanceRecords, employeeDocuments, vendors, notifications, 
-  auditLogs, licenses, tenants, User, InsertUser, Employee, InsertEmployee,
+  auditLogs, licenses, tenants, customers, invoices, invoiceItems, payments,
+  User, InsertUser, Employee, InsertEmployee,
   Dependent, InsertDependent, Asset, InsertAsset, 
   AssetAssignment, InsertAssetAssignment, MaintenanceRecord,
   InsertMaintenanceRecord, EmployeeDocument, InsertEmployeeDocument,
   Vendor, InsertVendor, Notification, InsertNotification,
   AuditLog, InsertAuditLog, License, InsertLicense,
-  Tenant, InsertTenant
+  Tenant, InsertTenant, Customer, InsertCustomer,
+  Invoice, InsertInvoice, InvoiceItem, InsertInvoiceItem,
+  Payment, InsertPayment
 } from "@shared/schema";
 import { eq, and, gt, lt, lte, desc, isNull, sql } from "drizzle-orm";
 import session from "express-session";
@@ -110,6 +113,33 @@ export interface IStorage {
   updateLicense(id: number, license: Partial<InsertLicense>): Promise<License | undefined>;
   deleteLicense(id: number): Promise<void>;
   
+  // Customer operations
+  getCustomer(id: number): Promise<Customer | undefined>;
+  getCustomers(tenantId?: number): Promise<Customer[]>;
+  createCustomer(customer: InsertCustomer): Promise<Customer>;
+  updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
+  deleteCustomer(id: number): Promise<void>;
+  
+  // Invoice operations
+  getInvoice(id: number): Promise<Invoice | undefined>;
+  getInvoices(tenantId?: number): Promise<Invoice[]>;
+  createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  updateInvoice(id: number, invoice: Partial<InsertInvoice>): Promise<Invoice | undefined>;
+  deleteInvoice(id: number): Promise<void>;
+  
+  // Invoice Item operations
+  getInvoiceItemsByInvoiceId(invoiceId: number): Promise<InvoiceItem[]>;
+  createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
+  updateInvoiceItem(id: number, item: Partial<InsertInvoiceItem>): Promise<InvoiceItem | undefined>;
+  deleteInvoiceItem(id: number): Promise<void>;
+  
+  // Payment operations
+  getPayment(id: number): Promise<Payment | undefined>;
+  getPaymentsByInvoiceId(invoiceId: number): Promise<Payment[]>;
+  createPayment(payment: InsertPayment): Promise<Payment>;
+  updatePayment(id: number, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
+  deletePayment(id: number): Promise<void>;
+  
   // Dashboard statistics
   getDashboardStats(tenantId?: number): Promise<any>;
   
@@ -131,6 +161,10 @@ export class MemStorage implements IStorage {
   private auditLogMap: Map<number, AuditLog>;
   private licenseMap: Map<number, License>;
   private tenantMap: Map<number, Tenant>;
+  private customerMap: Map<number, Customer>;
+  private invoiceMap: Map<number, Invoice>;
+  private invoiceItemMap: Map<number, InvoiceItem>;
+  private paymentMap: Map<number, Payment>;
   sessionStore: session.Store;
   userId: number;
   employeeId: number;
@@ -144,6 +178,10 @@ export class MemStorage implements IStorage {
   auditLogId: number;
   licenseId: number;
   tenantId: number;
+  customerId: number;
+  invoiceId: number;
+  invoiceItemId: number;
+  paymentId: number;
 
   constructor() {
     this.userMap = new Map();
@@ -158,6 +196,10 @@ export class MemStorage implements IStorage {
     this.auditLogMap = new Map();
     this.licenseMap = new Map();
     this.tenantMap = new Map();
+    this.customerMap = new Map();
+    this.invoiceMap = new Map();
+    this.invoiceItemMap = new Map();
+    this.paymentMap = new Map();
     
     this.userId = 1;
     this.employeeId = 1;
@@ -171,6 +213,10 @@ export class MemStorage implements IStorage {
     this.auditLogId = 1;
     this.licenseId = 1;
     this.tenantId = 1;
+    this.customerId = 1;
+    this.invoiceId = 1;
+    this.invoiceItemId = 1;
+    this.paymentId = 1;
     
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000 // 24 hours
