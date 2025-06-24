@@ -72,9 +72,9 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
       customerId: invoice?.customerId || 0,
       issueDate: invoice ? new Date(invoice.issueDate) : new Date(),
       dueDate: invoice ? new Date(invoice.dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-      taxRate: invoice ? invoice.taxRate / 100 : 0, // Convert from basis points to percentage
+      taxRate: invoice ? invoice.taxRate / 100 : 9, // Default 9% GST for Singapore
       discountRate: invoice ? invoice.discountRate / 100 : 0,
-      paymentTerms: invoice?.paymentTerms || "Net 30",
+      paymentTerms: invoice?.paymentTerms || "Net 30 days",
       notes: invoice?.notes || "",
       items: invoice?.items || [{ description: "", quantity: 1, unitPrice: 0 }],
     },
@@ -288,16 +288,17 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
             name="taxRate"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Tax Rate (%)</FormLabel>
+                <FormLabel>GST Rate (%)</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder="0.00"
+                    placeholder="9.00"
                     {...field}
-                    onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => field.onChange(parseFloat(e.target.value) || 9)}
                   />
                 </FormControl>
+                <FormDescription>Singapore GST rate (default 9%)</FormDescription>
                 <FormMessage />
               </FormItem>
             )}

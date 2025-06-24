@@ -144,3 +144,4 @@ SyncBridge is a comprehensive full-stack enterprise asset and document managemen
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
+Accounting standards: ACRA Singapore compliance with 9% GST rate as default.
