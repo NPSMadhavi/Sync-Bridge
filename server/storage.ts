@@ -1277,7 +1277,7 @@ export class DatabaseStorage implements IStorage {
       // Hash the password before storing
       const hashedPassword = await this.hashPassword(insertUser.password);
       
-      // Only insert columns that exist in the actual database
+      // Insert using only the columns that exist in the actual database
       const userData = {
         name: insertUser.name,
         email: insertUser.email,
@@ -1285,14 +1285,7 @@ export class DatabaseStorage implements IStorage {
         role: insertUser.role || 'employee'
       };
       
-      const result = await db.insert(users).values(userData).returning({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        password: users.password,
-        role: users.role,
-        createdAt: users.createdAt
-      });
+      const result = await db.insert(users).values(userData).returning();
       
       const user = result[0];
       return {
