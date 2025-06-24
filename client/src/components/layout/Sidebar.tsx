@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import Logo from "@/components/ui/logo";
+import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard,
   MonitorIcon,
@@ -14,7 +16,10 @@ import {
   LogOut,
   Key,
   Receipt,
-  UserCheck
+  UserCheck,
+  Menu,
+  X,
+  Package
 } from "lucide-react";
 
 type MenuItem = {
@@ -27,6 +32,7 @@ type MenuItem = {
 export default function Sidebar() {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const mainMenuItems: MenuItem[] = [
     {

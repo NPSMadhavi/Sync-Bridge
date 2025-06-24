@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { insertUserSchema, type User } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -56,6 +57,17 @@ const moduleOptions = [
 export default function UserForm({ user, onSuccess }: UserFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Default modules based on role
+  const roleModuleDefaults = {
+    super_admin: ["dashboard", "assets", "licenses", "employees", "documents", "vendors", "customers", "invoices", "reports", "audit_logs", "settings", "user_management"],
+    admin: ["dashboard", "assets", "licenses", "employees", "documents", "vendors", "customers", "invoices", "reports", "audit_logs", "settings", "user_management"],
+    hr_manager: ["dashboard", "employees", "documents", "reports"],
+    it_manager: ["dashboard", "assets", "licenses", "documents", "vendors", "reports"],
+    accountant: ["dashboard", "customers", "invoices", "vendors", "reports"],
+    employee: ["dashboard"]
+  };
 
   const form = useForm<UserFormData>({
     resolver: zodResolver(userFormSchema),
