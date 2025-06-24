@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     onError: (error: Error) => {
       toast({
         title: "Login failed",
-        description: error.message,
+        description: "Incorrect credentials",
         variant: "destructive",
       });
     },
@@ -79,9 +79,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error: Error) => {
+      let errorMessage = "Registration failed";
+      if (error.message.includes("Email already exists")) {
+        errorMessage = "Email address is already registered";
+      } else if (error.message.includes("Invalid")) {
+        errorMessage = "Please check your information and try again";
+      }
       toast({
         title: "Registration failed",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     },

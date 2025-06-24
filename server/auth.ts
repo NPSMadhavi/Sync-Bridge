@@ -85,7 +85,7 @@ export function setupAuth(app: Express) {
 
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
-        return res.status(400).json({ message: "Email already exists" });
+        return res.status(400).json({ message: "Email address is already registered" });
       }
 
       // Validate the role is one of the enum values
@@ -127,7 +127,7 @@ export function setupAuth(app: Express) {
         return next(err);
       }
       if (!user) {
-        return res.status(401).json({ message: "Invalid email or password" });
+        return res.status(401).json({ message: "Incorrect credentials" });
       }
       req.login(user, (err) => {
         if (err) {
