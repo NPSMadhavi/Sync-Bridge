@@ -874,6 +874,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       const customer = await storage.createCustomer(customerData);
+      
+      // Create audit log
+      await storage.createAuditLog({
+        action: "create",
+        entity: "customer",
+        entityId: customer.id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+
+      // Create notification for customer creation
+      await storage.createNotification({
+        type: "info",
+        title: "Customer Added",
+        message: `Customer "${customer.name}" has been added successfully`,
+        targetUserId: req.user!.id,
+        createdAt: new Date(),
+        seen: false
+      });
+      
       res.status(201).json(customer);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -966,6 +986,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       const invoice = await storage.createInvoice(invoiceData);
+      
+      // Create audit log
+      await storage.createAuditLog({
+        action: "create",
+        entity: "invoice",
+        entityId: invoice.id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+
+      // Create notification for invoice creation
+      await storage.createNotification({
+        type: "info",
+        title: "Invoice Created",
+        message: `Invoice #${invoice.id} has been created successfully`,
+        targetUserId: req.user!.id,
+        createdAt: new Date(),
+        seen: false
+      });
+      
       res.status(201).json(invoice);
     } catch (error) {
       if (error instanceof ZodError) {
