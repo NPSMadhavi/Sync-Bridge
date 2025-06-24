@@ -1277,17 +1277,13 @@ export class DatabaseStorage implements IStorage {
       // Hash the password before storing
       const hashedPassword = await this.hashPassword(insertUser.password);
       
-      // Insert using only the columns that exist in the actual database
-      const userData = {
-        name: insertUser.name,
-        email: insertUser.email,
-        password: hashedPassword,
-        role: insertUser.role || 'employee'
-      };
+      // Use raw SQL to insert only the columns that actually exist in the database
+      const result = await pool.query(
+        'INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *',
+        [insertUser.name, insertUser.email, hashedPassword, insertUser.role || 'employee']
+      );
       
-      const result = await db.insert(users).values(userData).returning();
-      
-      const user = result[0];
+      const user = result.rows[0];
       return {
         id: user.id,
         name: user.name,
@@ -1297,7 +1293,7 @@ export class DatabaseStorage implements IStorage {
         tenantId: 1,
         isEmailVerified: true,
         emailVerificationToken: null,
-        createdAt: user.createdAt || new Date(),
+        createdAt: user.created_at || new Date(),
         updatedAt: null,
         isActive: true
       };
