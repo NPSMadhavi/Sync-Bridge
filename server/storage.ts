@@ -1205,41 +1205,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   private async initializeDefaultUser() {
-    try {
-      // Check if admin user already exists
-      const existingAdmin = await this.getUserByEmail("supadmin@myrsv.com");
-      
-      if (!existingAdmin) {
-        // Create default tenant first
-        const [tenant] = await db.insert(tenants).values({
-          name: "Default Organization",
-          slug: "default-org",
-          settings: {},
-          plan: "enterprise",
-          userLimit: 100,
-          isActive: true,
-          createdAt: new Date(),
-          updatedAt: null
-        }).onConflictDoNothing().returning();
-
-        // Create default admin user
-        await db.insert(users).values({
-          tenantId: tenant?.id || 1,
-          name: "Super Administrator",
-          email: "supadmin@myrsv.com",
-          password: "b5d4045c3f466fa91fe2cc6abe79232a1a57cdf104f7a26e716e0a1e2789df78.e7ed4b245f6c87d44c6b85ada17f5426", // @minRSV100#$
-          role: "super_admin",
-          isEmailVerified: true,
-          emailVerificationToken: null,
-          createdAt: new Date(),
-          updatedAt: null
-        }).onConflictDoNothing();
-        
-        console.log("Default admin user initialized in database");
-      }
-    } catch (error) {
-      console.warn("Failed to initialize default user:", error.message);
-    }
+    // Default user is now created via SQL - no initialization needed
+    console.log("Database storage initialized");
   }
 
   // User operations
