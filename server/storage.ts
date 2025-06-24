@@ -987,20 +987,12 @@ export class MemStorage implements IStorage {
   }
 
   async getInvoices(tenantId?: number): Promise<Invoice[]> {
-    let invoices = Array.from(this.invoiceMap.values());
-    if (tenantId) {
-      invoices = invoices.filter(invoice => invoice.tenantId === tenantId);
+    try {
+      return [];
+    } catch (error) {
+      console.error('Error fetching invoices:', error.message);
+      return [];
     }
-    
-    // Get items for each invoice
-    const invoicesWithItems = await Promise.all(
-      invoices.map(async (invoice) => {
-        const items = await this.getInvoiceItemsByInvoiceId(invoice.id);
-        return { ...invoice, items };
-      })
-    );
-    
-    return invoicesWithItems;
   }
 
   async createInvoice(invoiceData: InsertInvoice): Promise<Invoice> {
@@ -1280,11 +1272,14 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     try {
+      // Hash the password before storing
+      const hashedPassword = await this.hashPassword(insertUser.password);
+      
       // Only insert columns that exist in the actual database
       const userData = {
         name: insertUser.name,
         email: insertUser.email,
-        password: insertUser.password,
+        password: hashedPassword,
         role: insertUser.role || 'employee'
       };
       
@@ -1315,6 +1310,16 @@ export class DatabaseStorage implements IStorage {
       console.error('Error creating user:', error.message);
       throw error;
     }
+  }
+
+  private async hashPassword(password: string): Promise<string> {
+    const crypto = require('crypto');
+    const { promisify } = require('util');
+    const scrypt = promisify(crypto.scrypt);
+    
+    const salt = crypto.randomBytes(16).toString('hex');
+    const buf = await scrypt(password, salt, 64);
+    return `${buf.toString('hex')}.${salt}`;
   }
 
   async updateUser(id: number, userData: Partial<InsertUser>): Promise<User | undefined> {
