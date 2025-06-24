@@ -12,7 +12,9 @@ import {
   FileBarChart,
   ClipboardListIcon,
   LogOut,
-  Key
+  Key,
+  Receipt,
+  UserCheck
 } from "lucide-react";
 
 type MenuItem = {
@@ -56,6 +58,16 @@ export default function Sidebar() {
       name: "Vendors",
       href: "/vendors",
       icon: <Store className="mr-3 text-gray-500" />,
+    },
+    {
+      name: "Customers",
+      href: "/customers",
+      icon: <UserCheck className="mr-3 text-gray-500" />,
+    },
+    {
+      name: "Invoices",
+      href: "/invoices",
+      icon: <Receipt className="mr-3 text-gray-500" />,
     },
   ];
 
