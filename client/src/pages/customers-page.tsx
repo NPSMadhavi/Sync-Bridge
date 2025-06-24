@@ -11,7 +11,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -115,156 +114,146 @@ export default function CustomersPage() {
         {/* Content */}
         <div className="flex-1 p-6 overflow-auto">
           <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
-          <p className="text-muted-foreground">
-            Manage your customer database and contact information
-          </p>
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{customers.length}</div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{customers.filter(c => c.isActive).length}</div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Companies</CardTitle>
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{new Set(customers.map(c => c.company).filter(Boolean)).size}</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Search */}
+            <div className="flex items-center space-x-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search customers..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
+            </div>
+
+            {/* Customer Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredCustomers.map((customer) => (
+                <Card key={customer.id} className="hover:shadow-md transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg">{customer.name}</CardTitle>
+                        {customer.company && (
+                          <p className="text-sm text-muted-foreground">{customer.company}</p>
+                        )}
+                      </div>
+                      <Badge variant={customer.isActive ? "default" : "secondary"}>
+                        {customer.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex items-center text-sm text-muted-foreground">
+                        <Mail className="h-4 w-4 mr-2" />
+                        {customer.email}
+                      </div>
+                      {customer.phone && (
+                        <div className="flex items-center text-sm text-muted-foreground">
+                          <Phone className="h-4 w-4 mr-2" />
+                          {customer.phone}
+                        </div>
+                      )}
+                      {customer.address && (
+                        <div className="flex items-center text-sm text-muted-foreground">
+                          <MapPin className="h-4 w-4 mr-2" />
+                          {customer.address}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex space-x-2 mt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(customer)}
+                      >
+                        <Edit className="h-4 w-4 mr-1" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(customer)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Delete
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {filteredCustomers.length === 0 && (
+              <div className="text-center py-12">
+                <Building2 className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-semibold text-gray-900">No customers found</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  {searchTerm ? "Try adjusting your search terms." : "Get started by adding your first customer."}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* Forms */}
+      {showForm && (
         <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogTrigger asChild>
-            <Button onClick={() => setEditingCustomer(null)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Customer
-            </Button>
-          </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {editingCustomer ? "Edit Customer" : "Add New Customer"}
               </DialogTitle>
               <DialogDescription>
-                {editingCustomer
-                  ? "Update customer information."
-                  : "Add a new customer to your database."}
+                {editingCustomer 
+                  ? "Update the customer information below."
+                  : "Fill in the customer details below."
+                }
               </DialogDescription>
             </DialogHeader>
-            <CustomerForm
-              customer={editingCustomer}
-              onSuccess={handleFormSuccess}
+            <CustomerForm 
+              customer={editingCustomer} 
+              onSuccess={handleFormSuccess} 
             />
           </DialogContent>
         </Dialog>
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search customers..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
-        />
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{customers.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
-            <Badge variant="outline" className="text-green-600">Active</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {customers.filter(c => c.isActive).length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Companies</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {new Set(customers.filter(c => c.company).map(c => c.company)).size}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Customers Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filteredCustomers.map((customer) => (
-          <Card key={customer.id} className="hover:shadow-md transition-shadow">
-            <CardHeader className="pb-3">
-              <div className="flex justify-between items-start">
-                <div className="space-y-1">
-                  <CardTitle className="text-lg">{customer.name}</CardTitle>
-                  {customer.company && (
-                    <p className="text-sm text-muted-foreground flex items-center">
-                      <Building2 className="h-3 w-3 mr-1" />
-                      {customer.company}
-                    </p>
-                  )}
-                </div>
-                <Badge variant={customer.isActive ? "default" : "secondary"}>
-                  {customer.isActive ? "Active" : "Inactive"}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="space-y-2">
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Mail className="h-3 w-3 mr-2" />
-                  {customer.email}
-                </div>
-                {customer.phone && (
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <Phone className="h-3 w-3 mr-2" />
-                    {customer.phone}
-                  </div>
-                )}
-                {(customer.city || customer.country) && (
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <MapPin className="h-3 w-3 mr-2" />
-                    {[customer.city, customer.country].filter(Boolean).join(", ")}
-                  </div>
-                )}
-              </div>
-              
-              <div className="flex justify-end space-x-2 mt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleEdit(customer)}
-                >
-                  <Edit className="h-3 w-3 mr-1" />
-                  Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDelete(customer)}
-                  className="text-red-600 hover:text-red-700"
-                >
-                  <Trash2 className="h-3 w-3 mr-1" />
-                  Delete
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {filteredCustomers.length === 0 && (
-        <div className="text-center py-12">
-          <Building2 className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">No customers found</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            {searchTerm ? "Try adjusting your search terms." : "Get started by adding your first customer."}
-          </p>
-        </div>
       )}
 
       {/* Delete Confirmation Dialog */}
@@ -291,32 +280,6 @@ export default function CustomersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-          </div>
-        </div>
-      </div>
-      
-      {/* Forms */}
-      {showForm && (
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>
-                {editingCustomer ? "Edit Customer" : "Add New Customer"}
-              </DialogTitle>
-              <DialogDescription>
-                {editingCustomer 
-                  ? "Update the customer information below."
-                  : "Fill in the customer details below."
-                }
-              </DialogDescription>
-            </DialogHeader>
-            <CustomerForm 
-              customer={editingCustomer} 
-              onSuccess={handleFormSuccess} 
-            />
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   );
 }
