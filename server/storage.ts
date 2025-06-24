@@ -1211,22 +1211,45 @@ export class DatabaseStorage implements IStorage {
 
   // User operations
   async getUser(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      if (user) {
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: user.password,
+          role: user.role,
+          tenantId: 1, // Default tenant
+          isEmailVerified: true, // Default verified
+          emailVerificationToken: null,
+          createdAt: user.createdAt || new Date(),
+          updatedAt: null
+        };
+      }
+      return undefined;
+    } catch (error) {
+      console.error('Error fetching user by id:', error.message);
+      return undefined;
+    }
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     try {
       const [user] = await db.select().from(users).where(eq(users.email, email));
-      // Map database result to expected User type
+      // Map database result to expected User type with defaults for missing columns
       if (user) {
         return {
-          ...user,
-          tenantId: user.tenantId || 1,
-          isEmailVerified: user.isEmailVerified || true,
-          emailVerificationToken: user.emailVerificationToken || null,
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: user.password,
+          role: user.role,
+          tenantId: 1, // Default tenant
+          isEmailVerified: true, // Default verified
+          emailVerificationToken: null,
           createdAt: user.createdAt || new Date(),
-          updatedAt: user.updatedAt || null
+          updatedAt: null
         };
       }
       return undefined;
