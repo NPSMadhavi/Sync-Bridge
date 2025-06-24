@@ -1,52 +1,136 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import { Redirect } from "wouter";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Building2, Clipboard, BarChart3, Users } from "lucide-react";
-import Logo from "@/components/ui/logo";
+import { 
+  Loader2, 
+  Bot, 
+  Brain, 
+  Zap, 
+  Network, 
+  Eye, 
+  Shield,
+  Sparkles,
+  Binary,
+  Activity
+} from "lucide-react";
 
-// Login schema
+// Schemas
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-// Register schema
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
+  role: z.enum(["admin", "hr", "it_manager", "employee"]).optional(),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
+// Neural Network Animation Component
+function NeuralNetwork() {
+  const [nodes, setNodes] = useState<Array<{id: number, x: number, y: number, active: boolean}>>([]);
+  
+  useEffect(() => {
+    // Generate random nodes
+    const newNodes = Array.from({length: 12}, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      active: false
+    }));
+    setNodes(newNodes);
+    
+    // Animate nodes
+    const interval = setInterval(() => {
+      setNodes(prev => prev.map(node => ({
+        ...node,
+        active: Math.random() > 0.7
+      })));
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  return (
+    <div className="absolute inset-0 overflow-hidden opacity-20">
+      <svg className="w-full h-full">
+        {/* Connections */}
+        {nodes.map((node, i) => 
+          nodes.slice(i + 1).map((otherNode, j) => {
+            const distance = Math.sqrt(
+              Math.pow(node.x - otherNode.x, 2) + Math.pow(node.y - otherNode.y, 2)
+            );
+            if (distance < 30) {
+              return (
+                <line
+                  key={`${i}-${j}`}
+                  x1={`${node.x}%`}
+                  y1={`${node.y}%`}
+                  x2={`${otherNode.x}%`}
+                  y2={`${otherNode.y}%`}
+                  stroke="hsl(176, 80%, 49%)"
+                  strokeWidth="1"
+                  className={`transition-opacity duration-1000 ${
+                    node.active || otherNode.active ? 'opacity-60' : 'opacity-20'
+                  }`}
+                />
+              );
+            }
+            return null;
+          })
+        )}
+        {/* Nodes */}
+        {nodes.map(node => (
+          <circle
+            key={node.id}
+            cx={`${node.x}%`}
+            cy={`${node.y}%`}
+            r="3"
+            fill="hsl(176, 80%, 49%)"
+            className={`transition-all duration-1000 ${
+              node.active ? 'opacity-100 scale-150' : 'opacity-40'
+            }`}
+          />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// Floating Particles Component
+function FloatingParticles() {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {Array.from({length: 8}).map((_, i) => (
+        <div
+          key={i}
+          className="absolute w-1 h-1 bg-teal-400 rounded-full animate-pulse"
+          style={{
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            animationDelay: `${i * 0.5}s`,
+            animationDuration: `${3 + Math.random() * 2}s`
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function AuthPage() {
   const [activeTab, setActiveTab] = useState<string>("login");
   const { user, isLoading, loginMutation, registerMutation } = useAuth();
   
-  // Login form
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -54,254 +138,292 @@ export default function AuthPage() {
       password: "",
     },
   });
-  
-  // Register form
+
   const registerForm = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
       name: "",
       email: "",
       password: "",
+      role: "employee",
     },
   });
-  
-  const onLoginSubmit = (data: LoginFormValues) => {
-    console.log("Login data:", data);
-    loginMutation.mutate(data);
-  };
-  
-  const onRegisterSubmit = (data: RegisterFormValues) => {
-    console.log("Register data:", data);
-    registerMutation.mutate({ ...data, role: "employee" });
-  };
-  
-  // Handle direct input changes
-  const [registerValues, setRegisterValues] = useState({
-    name: "",
-    email: "",
-    password: ""
-  });
-  
-  const [loginValues, setLoginValues] = useState({
-    email: "",
-    password: ""
-  });
-  
-  // Redirect if user is already logged in
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-teal-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-teal-400 mx-auto mb-4" />
+          <p className="text-slate-300">Initializing AI Systems...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (user) {
     return <Redirect to="/" />;
   }
-  
-  return (
-    <div className="min-h-screen flex flex-col justify-center relative overflow-hidden">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-background to-background/80 dark:from-background dark:to-background/90 z-0"></div>
-      
-      {/* Background pattern */}
-      <div className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05] bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDYwIDYwIj48ZyBmaWxsPSJjdXJyZW50Q29sb3IiPjxwYXRoIGQ9Ik0zNiAxOGMxLjItLjcgMi41LTEgNC0xIDUuNSAwIDEwIDQuNSAxMCAxMHMtNC41IDEwLTEwIDEwYy0xLjMgMC0yLjUtLjItMy42LS43bC00LjUgNC41Yy0xLS40LTItLjYtMy0uOHYtNi4zbC0zLTN2LTMuN2MtLjYtMS0xLTIuMi0xLTMuNSAwLTMuNSAyLjgtNi40IDYuMy02LjQgMS44IDAgMy40LjggNC41IDIuMWwuMy0xLjF6TTQwIDE0YzYuNiAwIDEyIDUuNCAxMiAxMnMtNS40IDEyLTEyIDEyYy0xLjMgMC0yLjUtLjItMy43LS42bC00LjUgNC41Yy0xLjMuNS0yLjcuOS00LjEgMS4xdi02LjVjLTMuNS0xLjQtNi03LjgtNi0xMC41IDAtOC44IDcuMi0xNiAxNi0xNnptLTkuNSAyMy45bC0uMS0uMS4xLjF6Ii8+PC9nPjwvc3ZnPg==')] z-0"></div>
-      
-      {/* Floating circles */}
-      <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-primary/20 blur-3xl"></div>
-      <div className="absolute -bottom-20 -left-20 w-80 h-80 rounded-full bg-primary/10 blur-3xl"></div>
-      
-      <div className="sm:mx-auto sm:w-full sm:max-w-md mb-6 z-10">
-        <div className="flex justify-center">
-          <Logo size="large" />
-        </div>
-        <p className="mt-3 text-center text-muted-foreground">
-          Asset & Document Management Platform
-        </p>
-      </div>
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-4xl px-4 z-10">
-        <div className="bg-card shadow-lg rounded-xl border border-border/30 overflow-hidden">
-          <div className="grid md:grid-cols-2">
-            <div className="hidden md:block bg-gradient-to-br from-primary/10 to-primary/5 p-8">
-              <div className="h-full flex flex-col justify-center space-y-6">
-                <h2 className="text-2xl font-bold mb-2 text-foreground">
-                  Enterprise Management Solution
-                </h2>
-                <p className="text-muted-foreground mb-8">
-                  SyncBridge helps companies manage physical assets and employee documents with intelligent tracking, reminders, and reporting in one centralized system.
-                </p>
-                <div className="space-y-6">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0">
-                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Building2 className="h-5 w-5 text-primary" />
-                      </div>
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="text-sm font-medium text-foreground">Asset Management</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">Track, manage, and assign your company assets efficiently.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0">
-                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Clipboard className="h-5 w-5 text-primary" />
-                      </div>
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="text-sm font-medium text-foreground">Document Lifecycle</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">Manage document expiry with intelligent notifications.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0">
-                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <BarChart3 className="h-5 w-5 text-primary" />
-                      </div>
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="text-sm font-medium text-foreground">Centralized Reporting</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">Generate reports for assets, employees, and documents.</p>
-                    </div>
-                  </div>
-                </div>
+  const onLogin = (data: LoginFormValues) => {
+    loginMutation.mutate(data);
+  };
+
+  const onRegister = (data: RegisterFormValues) => {
+    registerMutation.mutate(data);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-teal-900 relative overflow-hidden">
+      {/* Background Effects */}
+      <NeuralNetwork />
+      <FloatingParticles />
+      
+      {/* Grid Pattern */}
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(20,184,166,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(20,184,166,0.03)_1px,transparent_1px)] bg-[size:50px_50px]" />
+      
+      {/* Main Content */}
+      <div className="relative z-10 min-h-screen flex">
+        {/* Left Side - Hero Section */}
+        <div className="hidden lg:flex lg:w-1/2 flex-col justify-center px-12 xl:px-16">
+          <div className="max-w-md">
+            {/* Logo */}
+            <div className="flex items-center mb-8">
+              <div className="relative">
+                <Bot className="h-12 w-12 text-teal-400" />
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-teal-400 rounded-full animate-pulse" />
+              </div>
+              <div className="ml-3">
+                <h1 className="text-3xl font-bold text-white">SyncBridge</h1>
+                <p className="text-teal-400 text-sm font-medium">AI-Powered Enterprise Platform</p>
               </div>
             </div>
             
-            <div className="p-8">
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold mb-1">Welcome {activeTab === "login" ? "Back" : "to SyncBridge"}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {activeTab === "login" 
-                    ? "Enter your credentials to access your secure dashboard." 
-                    : "Create your account to start managing assets and documents."}
-                </p>
+            {/* Hero Content */}
+            <h2 className="text-4xl xl:text-5xl font-bold text-white mb-6 leading-tight">
+              Next-Gen
+              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-blue-400">
+                Intelligent
+              </span>
+              Asset Management
+            </h2>
+            
+            <p className="text-slate-300 text-lg mb-8 leading-relaxed">
+              Experience the future of enterprise management with AI-driven insights, 
+              automated workflows, and intelligent document processing.
+            </p>
+            
+            {/* AI Features */}
+            <div className="space-y-4">
+              <div className="flex items-center text-slate-300">
+                <Brain className="h-5 w-5 text-teal-400 mr-3" />
+                <span>AI-Powered Document Summarization</span>
               </div>
-              
-              <Tabs defaultValue="login" value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full grid-cols-2 mb-6">
-                  <TabsTrigger value="login">Login</TabsTrigger>
-                  <TabsTrigger value="register">Register</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="login" className="mt-0">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" htmlFor="login-email">Email</label>
-                      <Input
-                        id="login-email"
-                        type="email"
-                        placeholder="john@example.com"
-                        value={loginValues.email}
-                        onChange={(e) => setLoginValues({...loginValues, email: e.target.value})}
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium" htmlFor="login-password">Password</label>
-                        <Button variant="ghost" size="sm" className="px-0 h-auto text-xs text-primary">Forgot password?</Button>
-                      </div>
-                      <Input
-                        id="login-password"
-                        type="password"
-                        placeholder="••••••"
-                        value={loginValues.password}
-                        onChange={(e) => setLoginValues({...loginValues, password: e.target.value})}
-                      />
-                    </div>
-                    
-                    <Button 
-                      className="w-full"
-                      disabled={loginMutation.isPending}
-                      onClick={() => {
-                        console.log("Manual login with:", loginValues);
-                        loginMutation.mutate(loginValues);
-                      }}
-                    >
-                      {loginMutation.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Logging in...
-                        </>
-                      ) : (
-                        "Sign In"
-                      )}
-                    </Button>
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="register" className="mt-0">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" htmlFor="register-name">Full Name</label>
-                      <Input
-                        id="register-name"
-                        placeholder="John Doe"
-                        value={registerValues.name}
-                        onChange={(e) => setRegisterValues({...registerValues, name: e.target.value})}
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" htmlFor="register-email">Email</label>
-                      <Input
-                        id="register-email"
-                        type="email"
-                        placeholder="john@example.com"
-                        value={registerValues.email}
-                        onChange={(e) => setRegisterValues({...registerValues, email: e.target.value})}
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" htmlFor="register-password">Password</label>
-                      <Input
-                        id="register-password"
-                        type="password"
-                        placeholder="••••••"
-                        value={registerValues.password}
-                        onChange={(e) => setRegisterValues({...registerValues, password: e.target.value})}
-                      />
-                    </div>
-                    
-                    <Button 
-                      className="w-full"
-                      disabled={registerMutation.isPending}
-                      onClick={() => {
-                        console.log("Manual register with:", registerValues);
-                        registerMutation.mutate({...registerValues, role: "employee"});
-                      }}
-                    >
-                      {registerMutation.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Creating account...
-                        </>
-                      ) : (
-                        "Create Account"
-                      )}
-                    </Button>
-                  </div>
-                </TabsContent>
-              </Tabs>
-              
-              <div className="mt-6 text-center">
-                <p className="text-sm text-muted-foreground">
-                  {activeTab === "login" 
-                    ? "Don't have an account yet? " 
-                    : "Already have an account? "}
-                  <Button 
-                    variant="link" 
-                    className="p-0 h-auto" 
-                    onClick={() => setActiveTab(activeTab === "login" ? "register" : "login")}
-                  >
-                    {activeTab === "login" ? "Sign up" : "Sign in"}
-                  </Button>
-                </p>
+              <div className="flex items-center text-slate-300">
+                <Zap className="h-5 w-5 text-teal-400 mr-3" />
+                <span>Automated Workflow Intelligence</span>
+              </div>
+              <div className="flex items-center text-slate-300">
+                <Network className="h-5 w-5 text-teal-400 mr-3" />
+                <span>Smart Asset Lifecycle Tracking</span>
+              </div>
+              <div className="flex items-center text-slate-300">
+                <Eye className="h-5 w-5 text-teal-400 mr-3" />
+                <span>Predictive Analytics Dashboard</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      
-      {/* Version footer */}
-      <div className="mt-8 text-center text-xs text-muted-foreground/60 z-10">
-        <p>SyncBridge &copy; 2025 - Enterprise Management Solution v1.0</p>
+        
+        {/* Right Side - Auth Forms */}
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-6 lg:p-12">
+          <div className="w-full max-w-md">
+            {/* Mobile Logo */}
+            <div className="lg:hidden flex items-center justify-center mb-8">
+              <Bot className="h-10 w-10 text-teal-400 mr-3" />
+              <div>
+                <h1 className="text-2xl font-bold text-white">SyncBridge</h1>
+                <p className="text-teal-400 text-sm">AI-Powered Platform</p>
+              </div>
+            </div>
+            
+            {/* Auth Card */}
+            <div className="bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 shadow-2xl">
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full mb-4">
+                  <Shield className="h-8 w-8 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-2">Welcome Back</h3>
+                <p className="text-slate-400">Enter your credentials to access the AI platform</p>
+              </div>
+              
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 bg-slate-700/50 border border-slate-600">
+                  <TabsTrigger 
+                    value="login" 
+                    className="data-[state=active]:bg-teal-500 data-[state=active]:text-white text-slate-300"
+                  >
+                    Sign In
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="register" 
+                    className="data-[state=active]:bg-teal-500 data-[state=active]:text-white text-slate-300"
+                  >
+                    Create Account
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="login" className="space-y-4 mt-6">
+                  <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-slate-300 mb-2 block">
+                        Email Address
+                      </label>
+                      <Input
+                        {...loginForm.register("email")}
+                        type="email"
+                        placeholder="Enter your email"
+                        className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400 focus:border-teal-400"
+                      />
+                      {loginForm.formState.errors.email && (
+                        <p className="text-red-400 text-sm mt-1">
+                          {loginForm.formState.errors.email.message}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm font-medium text-slate-300 mb-2 block">
+                        Password
+                      </label>
+                      <Input
+                        {...loginForm.register("password")}
+                        type="password"
+                        placeholder="Enter your password"
+                        className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400 focus:border-teal-400"
+                      />
+                      {loginForm.formState.errors.password && (
+                        <p className="text-red-400 text-sm mt-1">
+                          {loginForm.formState.errors.password.message}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <Button
+                      type="submit"
+                      disabled={loginMutation.isPending}
+                      className="w-full bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white font-medium py-3 rounded-lg transition-all duration-200"
+                    >
+                      {loginMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Authenticating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Access AI Platform
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </TabsContent>
+                
+                <TabsContent value="register" className="space-y-4 mt-6">
+                  <form onSubmit={registerForm.handleSubmit(onRegister)} className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-slate-300 mb-2 block">
+                        Full Name
+                      </label>
+                      <Input
+                        {...registerForm.register("name")}
+                        placeholder="Enter your full name"
+                        className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400 focus:border-teal-400"
+                      />
+                      {registerForm.formState.errors.name && (
+                        <p className="text-red-400 text-sm mt-1">
+                          {registerForm.formState.errors.name.message}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm font-medium text-slate-300 mb-2 block">
+                        Email Address
+                      </label>
+                      <Input
+                        {...registerForm.register("email")}
+                        type="email"
+                        placeholder="Enter your email"
+                        className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400 focus:border-teal-400"
+                      />
+                      {registerForm.formState.errors.email && (
+                        <p className="text-red-400 text-sm mt-1">
+                          {registerForm.formState.errors.email.message}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm font-medium text-slate-300 mb-2 block">
+                        Password
+                      </label>
+                      <Input
+                        {...registerForm.register("password")}
+                        type="password"
+                        placeholder="Create a password"
+                        className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400 focus:border-teal-400"
+                      />
+                      {registerForm.formState.errors.password && (
+                        <p className="text-red-400 text-sm mt-1">
+                          {registerForm.formState.errors.password.message}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm font-medium text-slate-300 mb-2 block">
+                        Role
+                      </label>
+                      <select
+                        {...registerForm.register("role")}
+                        className="w-full bg-slate-700/50 border border-slate-600 text-white rounded-md px-3 py-2 focus:border-teal-400 focus:outline-none"
+                      >
+                        <option value="employee">Employee</option>
+                        <option value="hr">HR Manager</option>
+                        <option value="it_manager">IT Manager</option>
+                        <option value="admin">Administrator</option>
+                      </select>
+                    </div>
+                    
+                    <Button
+                      type="submit"
+                      disabled={registerMutation.isPending}
+                      className="w-full bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white font-medium py-3 rounded-lg transition-all duration-200"
+                    >
+                      {registerMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating Account...
+                        </>
+                      ) : (
+                        <>
+                          <Binary className="mr-2 h-4 w-4" />
+                          Initialize Account
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </TabsContent>
+              </Tabs>
+              
+              {/* AI Status Indicator */}
+              <div className="mt-6 flex items-center justify-center text-sm text-slate-400">
+                <Activity className="h-4 w-4 text-green-400 mr-2 animate-pulse" />
+                AI Systems Online
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
