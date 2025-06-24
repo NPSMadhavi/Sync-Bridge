@@ -844,6 +844,226 @@ export class MemStorage implements IStorage {
         .slice(0, 5)
     };
   }
+
+  // Customer operations
+  async getCustomer(id: number): Promise<Customer | undefined> {
+    return this.customerMap.get(id);
+  }
+
+  async getCustomers(tenantId?: number): Promise<Customer[]> {
+    if (tenantId) {
+      return Array.from(this.customerMap.values()).filter(customer => customer.tenantId === tenantId);
+    }
+    return Array.from(this.customerMap.values());
+  }
+
+  async createCustomer(customer: InsertCustomer): Promise<Customer> {
+    const id = this.customerId++;
+    const newCustomer: Customer = { 
+      ...customer, 
+      id,
+      phone: customer.phone ?? null,
+      company: customer.company ?? null,
+      address: customer.address ?? null,
+      city: customer.city ?? null,
+      state: customer.state ?? null,
+      zipCode: customer.zipCode ?? null,
+      country: customer.country ?? null,
+      taxId: customer.taxId ?? null,
+      notes: customer.notes ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.customerMap.set(id, newCustomer);
+    return newCustomer;
+  }
+
+  async updateCustomer(id: number, customerData: Partial<InsertCustomer>): Promise<Customer | undefined> {
+    const customer = this.customerMap.get(id);
+    if (!customer) return undefined;
+    
+    const updatedCustomer = { ...customer, ...customerData, updatedAt: new Date() };
+    this.customerMap.set(id, updatedCustomer);
+    return updatedCustomer;
+  }
+
+  async deleteCustomer(id: number): Promise<void> {
+    this.customerMap.delete(id);
+  }
+
+  // Invoice operations
+  async getInvoice(id: number): Promise<Invoice | undefined> {
+    const invoice = this.invoiceMap.get(id);
+    if (invoice) {
+      const items = await this.getInvoiceItemsByInvoiceId(id);
+      return { ...invoice, items };
+    }
+    return undefined;
+  }
+
+  async getInvoices(tenantId?: number): Promise<Invoice[]> {
+    let invoices = Array.from(this.invoiceMap.values());
+    if (tenantId) {
+      invoices = invoices.filter(invoice => invoice.tenantId === tenantId);
+    }
+    
+    // Get items for each invoice
+    const invoicesWithItems = await Promise.all(
+      invoices.map(async (invoice) => {
+        const items = await this.getInvoiceItemsByInvoiceId(invoice.id);
+        return { ...invoice, items };
+      })
+    );
+    
+    return invoicesWithItems;
+  }
+
+  async createInvoice(invoiceData: InsertInvoice): Promise<Invoice> {
+    const id = this.invoiceId++;
+    const { items, ...invoice } = invoiceData as any;
+    
+    // Generate invoice number
+    const invoiceNumber = `INV-${String(id).padStart(6, '0')}`;
+    
+    const newInvoice: Invoice = { 
+      ...invoice, 
+      id,
+      invoiceNumber,
+      status: 'draft',
+      currency: invoice.currency || 'USD',
+      paymentTerms: invoice.paymentTerms ?? null,
+      notes: invoice.notes ?? null,
+      sentAt: null,
+      paidAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.invoiceMap.set(id, newInvoice);
+    
+    // Create invoice items if provided
+    if (items && items.length > 0) {
+      for (const item of items) {
+        await this.createInvoiceItem({
+          ...item,
+          invoiceId: id,
+          tenantId: invoice.tenantId
+        });
+      }
+    }
+    
+    return await this.getInvoice(id) as Invoice;
+  }
+
+  async updateInvoice(id: number, invoiceData: Partial<InsertInvoice>): Promise<Invoice | undefined> {
+    const invoice = this.invoiceMap.get(id);
+    if (!invoice) return undefined;
+
+    const { items, ...updateData } = invoiceData as any;
+    const updatedInvoice = { ...invoice, ...updateData, updatedAt: new Date() };
+    this.invoiceMap.set(id, updatedInvoice);
+
+    // Update items if provided
+    if (items) {
+      // Delete existing items
+      const existingItems = await this.getInvoiceItemsByInvoiceId(id);
+      for (const item of existingItems) {
+        await this.deleteInvoiceItem(item.id);
+      }
+      
+      // Create new items
+      for (const item of items) {
+        await this.createInvoiceItem({
+          ...item,
+          invoiceId: id,
+          tenantId: invoice.tenantId
+        });
+      }
+    }
+
+    return await this.getInvoice(id);
+  }
+
+  async deleteInvoice(id: number): Promise<void> {
+    // Delete invoice items first
+    const items = await this.getInvoiceItemsByInvoiceId(id);
+    for (const item of items) {
+      await this.deleteInvoiceItem(item.id);
+    }
+    
+    // Delete payments
+    const payments = await this.getPaymentsByInvoiceId(id);
+    for (const payment of payments) {
+      await this.deletePayment(payment.id);
+    }
+    
+    // Delete invoice
+    this.invoiceMap.delete(id);
+  }
+
+  // Invoice Item operations
+  async getInvoiceItemsByInvoiceId(invoiceId: number): Promise<InvoiceItem[]> {
+    return Array.from(this.invoiceItemMap.values()).filter(item => item.invoiceId === invoiceId);
+  }
+
+  async createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem> {
+    const id = this.invoiceItemId++;
+    const newItem: InvoiceItem = { 
+      ...item, 
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.invoiceItemMap.set(id, newItem);
+    return newItem;
+  }
+
+  async updateInvoiceItem(id: number, itemData: Partial<InsertInvoiceItem>): Promise<InvoiceItem | undefined> {
+    const item = this.invoiceItemMap.get(id);
+    if (!item) return undefined;
+    
+    const updatedItem = { ...item, ...itemData, updatedAt: new Date() };
+    this.invoiceItemMap.set(id, updatedItem);
+    return updatedItem;
+  }
+
+  async deleteInvoiceItem(id: number): Promise<void> {
+    this.invoiceItemMap.delete(id);
+  }
+
+  // Payment operations
+  async getPayment(id: number): Promise<Payment | undefined> {
+    return this.paymentMap.get(id);
+  }
+
+  async getPaymentsByInvoiceId(invoiceId: number): Promise<Payment[]> {
+    return Array.from(this.paymentMap.values()).filter(payment => payment.invoiceId === invoiceId);
+  }
+
+  async createPayment(payment: InsertPayment): Promise<Payment> {
+    const id = this.paymentId++;
+    const newPayment: Payment = { 
+      ...payment, 
+      id,
+      notes: payment.notes ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.paymentMap.set(id, newPayment);
+    return newPayment;
+  }
+
+  async updatePayment(id: number, paymentData: Partial<InsertPayment>): Promise<Payment | undefined> {
+    const payment = this.paymentMap.get(id);
+    if (!payment) return undefined;
+    
+    const updatedPayment = { ...payment, ...paymentData, updatedAt: new Date() };
+    this.paymentMap.set(id, updatedPayment);
+    return updatedPayment;
+  }
+
+  async deletePayment(id: number): Promise<void> {
+    this.paymentMap.delete(id);
+  }
 }
 
 // Database storage implementation
