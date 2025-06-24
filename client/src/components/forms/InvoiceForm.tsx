@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,13 +54,16 @@ type InvoiceFormData = z.infer<typeof invoiceFormSchema>;
 
 interface InvoiceFormProps {
   invoice?: Invoice | null;
-  customers: Customer[];
   onSuccess?: () => void;
 }
 
-export default function InvoiceForm({ invoice, customers, onSuccess }: InvoiceFormProps) {
+export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const { data: customers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+  });
 
   const form = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceFormSchema),
@@ -172,7 +174,7 @@ export default function InvoiceForm({ invoice, customers, onSuccess }: InvoiceFo
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {customers.map((customer) => (
+                    {customers?.map((customer) => (
                       <SelectItem key={customer.id} value={customer.id.toString()}>
                         {customer.name} {customer.company && `(${customer.company})`}
                       </SelectItem>
