@@ -1703,7 +1703,11 @@ export class DatabaseStorage implements IStorage {
           maintenanceDue: 0
         },
         assetDistribution: [],
-        documentStatus: [],
+        documentStatus: {
+          valid: { count: 0, percentage: 0 },
+          expiringSoon: { count: 0, percentage: 0 },
+          expired: { count: 0, percentage: 0 }
+        },
         recentAssignments: []
       };
     } catch (error) {
@@ -1716,7 +1720,11 @@ export class DatabaseStorage implements IStorage {
           maintenanceDue: 0
         },
         assetDistribution: [],
-        documentStatus: [],
+        documentStatus: {
+          valid: { count: 0, percentage: 0 },
+          expiringSoon: { count: 0, percentage: 0 },
+          expired: { count: 0, percentage: 0 }
+        },
         recentAssignments: []
       };
     }
