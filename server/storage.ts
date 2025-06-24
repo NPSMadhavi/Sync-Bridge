@@ -1315,12 +1315,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   private async hashPassword(password: string): Promise<string> {
-    const crypto = require('crypto');
-    const { promisify } = require('util');
-    const scrypt = promisify(crypto.scrypt);
+    const { scrypt, randomBytes } = await import('crypto');
+    const { promisify } = await import('util');
+    const scryptAsync = promisify(scrypt);
     
-    const salt = crypto.randomBytes(16).toString('hex');
-    const buf = await scrypt(password, salt, 64);
+    const salt = randomBytes(16).toString('hex');
+    const buf = (await scryptAsync(password, salt, 64)) as Buffer;
     return `${buf.toString('hex')}.${salt}`;
   }
 
