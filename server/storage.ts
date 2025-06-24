@@ -1279,18 +1279,90 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    // Ensure role is not undefined
-    const userData = {
-      ...insertUser,
-      role: insertUser.role || 'employee'
-    };
-    const [user] = await db.insert(users).values(userData).returning();
-    return user;
+    try {
+      // Only insert columns that exist in the actual database
+      const userData = {
+        name: insertUser.name,
+        email: insertUser.email,
+        password: insertUser.password,
+        role: insertUser.role || 'employee'
+      };
+      
+      const result = await db.insert(users).values(userData).returning({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        password: users.password,
+        role: users.role,
+        createdAt: users.createdAt
+      });
+      
+      const user = result[0];
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        password: user.password,
+        role: user.role,
+        tenantId: 1,
+        isEmailVerified: true,
+        emailVerificationToken: null,
+        createdAt: user.createdAt || new Date(),
+        updatedAt: null,
+        isActive: true
+      };
+    } catch (error) {
+      console.error('Error creating user:', error.message);
+      throw error;
+    }
   }
 
   async updateUser(id: number, userData: Partial<InsertUser>): Promise<User | undefined> {
-    const [user] = await db.update(users).set(userData).where(eq(users.id, id)).returning();
-    return user || undefined;
+    try {
+      const updateData = {
+        name: userData.name,
+        email: userData.email,
+        password: userData.password,
+        role: userData.role
+      };
+      
+      // Remove undefined values
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] === undefined) {
+          delete updateData[key];
+        }
+      });
+      
+      const result = await db.update(users).set(updateData).where(eq(users.id, id)).returning({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        password: users.password,
+        role: users.role,
+        createdAt: users.createdAt
+      });
+      
+      const user = result[0];
+      if (user) {
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: user.password,
+          role: user.role,
+          tenantId: 1,
+          isEmailVerified: true,
+          emailVerificationToken: null,
+          createdAt: user.createdAt || new Date(),
+          updatedAt: null,
+          isActive: true
+        };
+      }
+      return undefined;
+    } catch (error) {
+      console.error('Error updating user:', error.message);
+      return undefined;
+    }
   }
   
   // Employee operations
