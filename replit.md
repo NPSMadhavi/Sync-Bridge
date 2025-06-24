@@ -140,6 +140,7 @@ SyncBridge is a comprehensive full-stack enterprise asset and document managemen
 - June 24, 2025. Initial setup
 - June 24, 2025. Added comprehensive invoicing system with customer management, invoice creation with line items, tax/discount calculations, and status tracking. Fixed authentication error messages to show professional "Incorrect credentials" instead of raw API responses.
 - June 24, 2025. Implemented role-based access control with user management system. Removed registration from login screen, added hardcoded admin credentials (supadmin@myrsv.com), and created module-based permissions system where administrators can create users and assign access rights to specific modules based on roles (Administrator, IT Manager, HR Manager, Accountant, Employee).
+- June 24, 2025. Enhanced user management with role-based default module selection, password visibility toggle, collapsible sidebar navigation, and proper routing for user management page. Improved user experience with intuitive navigation and better form controls.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
