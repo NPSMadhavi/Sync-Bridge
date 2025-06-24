@@ -1,0 +1,216 @@
+queryClient.ts:49 
+            
+            
+           GET https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/api/user 401 (Unauthorized)
+(anonymous) @ queryClient.ts:49
+fetchFn @ @tanstack_react-query.js?v=441430c2:840
+run @ @tanstack_react-query.js?v=441430c2:494
+start @ @tanstack_react-query.js?v=441430c2:536
+fetch @ @tanstack_react-query.js?v=441430c2:926
+executeFetch_fn @ @tanstack_react-query.js?v=441430c2:2211
+onSubscribe @ @tanstack_react-query.js?v=441430c2:1898
+subscribe @ @tanstack_react-query.js?v=441430c2:24
+(anonymous) @ @tanstack_react-query.js?v=441430c2:3022
+subscribeToStore @ chunk-RPCDYKBN.js?v=441430c2:11984
+commitHookEffectListMount @ chunk-RPCDYKBN.js?v=441430c2:16915
+commitPassiveMountOnFiber @ chunk-RPCDYKBN.js?v=441430c2:18156
+commitPassiveMountEffects_complete @ chunk-RPCDYKBN.js?v=441430c2:18129
+commitPassiveMountEffects_begin @ chunk-RPCDYKBN.js?v=441430c2:18119
+commitPassiveMountEffects @ chunk-RPCDYKBN.js?v=441430c2:18109
+flushPassiveEffectsImpl @ chunk-RPCDYKBN.js?v=441430c2:19490
+flushPassiveEffects @ chunk-RPCDYKBN.js?v=441430c2:19447
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18868
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+commitRootImpl @ chunk-RPCDYKBN.js?v=441430c2:19432
+commitRoot @ chunk-RPCDYKBN.js?v=441430c2:19277
+finishConcurrentRender @ chunk-RPCDYKBN.js?v=441430c2:18805
+performConcurrentWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18718
+workLoop @ chunk-RPCDYKBN.js?v=441430c2:197
+flushWork @ chunk-RPCDYKBN.js?v=441430c2:176
+performWorkUntilDeadline @ chunk-RPCDYKBN.js?v=441430c2:384
+content.js:148 [Redirect Blocker] Stopping to prevent same tab redirects
+content.js:148 [Redirect Blocker] Stopping to prevent same tab redirects
+queryClient.ts:49 
+            
+            
+           GET https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/api/customers 500 (Internal Server Error)
+(anonymous) @ queryClient.ts:49
+fetchFn @ @tanstack_react-query.js?v=441430c2:840
+run @ @tanstack_react-query.js?v=441430c2:494
+start @ @tanstack_react-query.js?v=441430c2:536
+fetch @ @tanstack_react-query.js?v=441430c2:926
+executeFetch_fn @ @tanstack_react-query.js?v=441430c2:2211
+onSubscribe @ @tanstack_react-query.js?v=441430c2:1898
+subscribe @ @tanstack_react-query.js?v=441430c2:24
+(anonymous) @ @tanstack_react-query.js?v=441430c2:3022
+subscribeToStore @ chunk-RPCDYKBN.js?v=441430c2:11984
+commitHookEffectListMount @ chunk-RPCDYKBN.js?v=441430c2:16915
+commitPassiveMountOnFiber @ chunk-RPCDYKBN.js?v=441430c2:18156
+commitPassiveMountEffects_complete @ chunk-RPCDYKBN.js?v=441430c2:18129
+commitPassiveMountEffects_begin @ chunk-RPCDYKBN.js?v=441430c2:18119
+commitPassiveMountEffects @ chunk-RPCDYKBN.js?v=441430c2:18109
+flushPassiveEffectsImpl @ chunk-RPCDYKBN.js?v=441430c2:19490
+flushPassiveEffects @ chunk-RPCDYKBN.js?v=441430c2:19447
+commitRootImpl @ chunk-RPCDYKBN.js?v=441430c2:19416
+commitRoot @ chunk-RPCDYKBN.js?v=441430c2:19277
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18895
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+(anonymous) @ chunk-RPCDYKBN.js?v=441430c2:18627
+queryClient.ts:49 
+            
+            
+           GET https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/api/invoices 500 (Internal Server Error)
+(anonymous) @ queryClient.ts:49
+fetchFn @ @tanstack_react-query.js?v=441430c2:840
+run @ @tanstack_react-query.js?v=441430c2:494
+start @ @tanstack_react-query.js?v=441430c2:536
+fetch @ @tanstack_react-query.js?v=441430c2:926
+executeFetch_fn @ @tanstack_react-query.js?v=441430c2:2211
+onSubscribe @ @tanstack_react-query.js?v=441430c2:1898
+subscribe @ @tanstack_react-query.js?v=441430c2:24
+(anonymous) @ @tanstack_react-query.js?v=441430c2:3022
+subscribeToStore @ chunk-RPCDYKBN.js?v=441430c2:11984
+commitHookEffectListMount @ chunk-RPCDYKBN.js?v=441430c2:16915
+commitPassiveMountOnFiber @ chunk-RPCDYKBN.js?v=441430c2:18156
+commitPassiveMountEffects_complete @ chunk-RPCDYKBN.js?v=441430c2:18129
+commitPassiveMountEffects_begin @ chunk-RPCDYKBN.js?v=441430c2:18119
+commitPassiveMountEffects @ chunk-RPCDYKBN.js?v=441430c2:18109
+flushPassiveEffectsImpl @ chunk-RPCDYKBN.js?v=441430c2:19490
+flushPassiveEffects @ chunk-RPCDYKBN.js?v=441430c2:19447
+commitRootImpl @ chunk-RPCDYKBN.js?v=441430c2:19416
+commitRoot @ chunk-RPCDYKBN.js?v=441430c2:19277
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18895
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+(anonymous) @ chunk-RPCDYKBN.js?v=441430c2:18627
+InvoiceForm.tsx:301 Uncaught ReferenceError: FormDescription is not defined
+    at Object.render (InvoiceForm.tsx:301:18)
+    at Controller (chunk-YABUFNLM.js?v=441430c2:313:35)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=441430c2:11548:26)
+    at mountIndeterminateComponent (chunk-RPCDYKBN.js?v=441430c2:14926:21)
+    at beginWork (chunk-RPCDYKBN.js?v=441430c2:15914:22)
+    at HTMLUnknownElement.callCallback2 (chunk-RPCDYKBN.js?v=441430c2:3674:22)
+    at Object.invokeGuardedCallbackDev (chunk-RPCDYKBN.js?v=441430c2:3699:24)
+    at invokeGuardedCallback (chunk-RPCDYKBN.js?v=441430c2:3733:39)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=441430c2:19765:15)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=441430c2:19198:20)
+render @ InvoiceForm.tsx:301
+Controller @ chunk-YABUFNLM.js?v=441430c2:313
+renderWithHooks @ chunk-RPCDYKBN.js?v=441430c2:11548
+mountIndeterminateComponent @ chunk-RPCDYKBN.js?v=441430c2:14926
+beginWork @ chunk-RPCDYKBN.js?v=441430c2:15914
+callCallback2 @ chunk-RPCDYKBN.js?v=441430c2:3674
+invokeGuardedCallbackDev @ chunk-RPCDYKBN.js?v=441430c2:3699
+invokeGuardedCallback @ chunk-RPCDYKBN.js?v=441430c2:3733
+beginWork$1 @ chunk-RPCDYKBN.js?v=441430c2:19765
+performUnitOfWork @ chunk-RPCDYKBN.js?v=441430c2:19198
+workLoopSync @ chunk-RPCDYKBN.js?v=441430c2:19137
+renderRootSync @ chunk-RPCDYKBN.js?v=441430c2:19116
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18874
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+(anonymous) @ chunk-RPCDYKBN.js?v=441430c2:18627
+InvoiceForm.tsx:301 Uncaught ReferenceError: FormDescription is not defined
+    at Object.render (InvoiceForm.tsx:301:18)
+    at Controller (chunk-YABUFNLM.js?v=441430c2:313:35)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=441430c2:11548:26)
+    at mountIndeterminateComponent (chunk-RPCDYKBN.js?v=441430c2:14926:21)
+    at beginWork (chunk-RPCDYKBN.js?v=441430c2:15914:22)
+    at HTMLUnknownElement.callCallback2 (chunk-RPCDYKBN.js?v=441430c2:3674:22)
+    at Object.invokeGuardedCallbackDev (chunk-RPCDYKBN.js?v=441430c2:3699:24)
+    at invokeGuardedCallback (chunk-RPCDYKBN.js?v=441430c2:3733:39)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=441430c2:19765:15)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=441430c2:19198:20)
+render @ InvoiceForm.tsx:301
+Controller @ chunk-YABUFNLM.js?v=441430c2:313
+renderWithHooks @ chunk-RPCDYKBN.js?v=441430c2:11548
+mountIndeterminateComponent @ chunk-RPCDYKBN.js?v=441430c2:14926
+beginWork @ chunk-RPCDYKBN.js?v=441430c2:15914
+callCallback2 @ chunk-RPCDYKBN.js?v=441430c2:3674
+invokeGuardedCallbackDev @ chunk-RPCDYKBN.js?v=441430c2:3699
+invokeGuardedCallback @ chunk-RPCDYKBN.js?v=441430c2:3733
+beginWork$1 @ chunk-RPCDYKBN.js?v=441430c2:19765
+performUnitOfWork @ chunk-RPCDYKBN.js?v=441430c2:19198
+workLoopSync @ chunk-RPCDYKBN.js?v=441430c2:19137
+renderRootSync @ chunk-RPCDYKBN.js?v=441430c2:19116
+recoverFromConcurrentError @ chunk-RPCDYKBN.js?v=441430c2:18736
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18879
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+(anonymous) @ chunk-RPCDYKBN.js?v=441430c2:18627
+hook.js:608 The above error occurred in the <Controller> component:
+
+    at Controller (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-YABUFNLM.js?v=441430c2:313:35)
+    at FormField (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/components/ui/form.tsx:32:6)
+    at div
+    at form
+    at FormProvider (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-YABUFNLM.js?v=441430c2:102:11)
+    at InvoiceForm (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/components/forms/InvoiceForm.tsx:66:39)
+    at div
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-CPFL7ZFD.js?v=441430c2:41:13
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-75ER7FHX.js?v=441430c2:59:7
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-DKHUMOWT.js?v=441430c2:52:11
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-DKHUMOWT.js?v=441430c2:33:11
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-CPFL7ZFD.js?v=441430c2:41:13
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-AWGIKOCL.js?v=441430c2:29:5
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-WWLPEAN4.js?v=441430c2:230:13
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-WWLPEAN4.js?v=441430c2:153:58
+    at Presence (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-DKISZHX2.js?v=441430c2:24:11)
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-WWLPEAN4.js?v=441430c2:144:64
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-DKHUMOWT.js?v=441430c2:52:11
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-DKHUMOWT.js?v=441430c2:33:11
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-CPFL7ZFD.js?v=441430c2:41:13
+    at https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-75ER7FHX.js?v=441430c2:258:22
+    at Presence (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-DKISZHX2.js?v=441430c2:24:11)
+    at Provider (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-MQDSU7FK.js?v=441430c2:38:15)
+    at DialogPortal (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-WWLPEAN4.js?v=441430c2:107:11)
+    at _c3 (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/components/ui/dialog.tsx:51:12)
+    at Provider (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-MQDSU7FK.js?v=441430c2:38:15)
+    at Dialog (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-WWLPEAN4.js?v=441430c2:48:5)
+    at div
+    at InvoicesPage (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/pages/invoices-page.tsx:99:39)
+    at Route (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=441430c2:323:16)
+    at ProtectedRoute (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/lib/protected-route.tsx:22:3)
+    at Switch (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=441430c2:379:17)
+    at Router
+    at AuthProvider (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/hooks/use-auth.tsx:31:32)
+    at QueryClientProvider (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=441430c2:2805:3)
+    at App (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/App.tsx?v=fU9cY9SLf2Du-VXHT1tPO:132:3)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+overrideMethod @ hook.js:608
+logCapturedError @ chunk-RPCDYKBN.js?v=441430c2:14032
+update.callback @ chunk-RPCDYKBN.js?v=441430c2:14052
+callCallback @ chunk-RPCDYKBN.js?v=441430c2:11248
+commitUpdateQueue @ chunk-RPCDYKBN.js?v=441430c2:11265
+commitLayoutEffectOnFiber @ chunk-RPCDYKBN.js?v=441430c2:17093
+commitLayoutMountEffects_complete @ chunk-RPCDYKBN.js?v=441430c2:17980
+commitLayoutEffects_begin @ chunk-RPCDYKBN.js?v=441430c2:17969
+commitLayoutEffects @ chunk-RPCDYKBN.js?v=441430c2:17920
+commitRootImpl @ chunk-RPCDYKBN.js?v=441430c2:19353
+commitRoot @ chunk-RPCDYKBN.js?v=441430c2:19277
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18895
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+(anonymous) @ chunk-RPCDYKBN.js?v=441430c2:18627
+chunk-RPCDYKBN.js?v=441430c2:9129 Uncaught ReferenceError: FormDescription is not defined
+    at Object.render (InvoiceForm.tsx:301:18)
+    at Controller (chunk-YABUFNLM.js?v=441430c2:313:35)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=441430c2:11548:26)
+    at mountIndeterminateComponent (chunk-RPCDYKBN.js?v=441430c2:14926:21)
+    at beginWork (chunk-RPCDYKBN.js?v=441430c2:15914:22)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=441430c2:19753:22)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=441430c2:19198:20)
+    at workLoopSync (chunk-RPCDYKBN.js?v=441430c2:19137:13)
+    at renderRootSync (chunk-RPCDYKBN.js?v=441430c2:19116:15)
+    at recoverFromConcurrentError (chunk-RPCDYKBN.js?v=441430c2:18736:28)
+render @ InvoiceForm.tsx:301
+Controller @ chunk-YABUFNLM.js?v=441430c2:313
+renderWithHooks @ chunk-RPCDYKBN.js?v=441430c2:11548
+mountIndeterminateComponent @ chunk-RPCDYKBN.js?v=441430c2:14926
+beginWork @ chunk-RPCDYKBN.js?v=441430c2:15914
+beginWork$1 @ chunk-RPCDYKBN.js?v=441430c2:19753
+performUnitOfWork @ chunk-RPCDYKBN.js?v=441430c2:19198
+workLoopSync @ chunk-RPCDYKBN.js?v=441430c2:19137
+renderRootSync @ chunk-RPCDYKBN.js?v=441430c2:19116
+recoverFromConcurrentError @ chunk-RPCDYKBN.js?v=441430c2:18736
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18879
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+(anonymous) @ chunk-RPCDYKBN.js?v=441430c2:18627
