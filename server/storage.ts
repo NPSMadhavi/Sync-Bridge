@@ -1212,7 +1212,16 @@ export class DatabaseStorage implements IStorage {
   // User operations
   async getUser(id: number): Promise<User | undefined> {
     try {
-      const [user] = await db.select().from(users).where(eq(users.id, id));
+      const result = await db.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        password: users.password,
+        role: users.role,
+        createdAt: users.createdAt
+      }).from(users).where(eq(users.id, id));
+      
+      const user = result[0];
       if (user) {
         return {
           id: user.id,
@@ -1220,11 +1229,12 @@ export class DatabaseStorage implements IStorage {
           email: user.email,
           password: user.password,
           role: user.role,
-          tenantId: 1, // Default tenant
-          isEmailVerified: true, // Default verified
+          tenantId: 1,
+          isEmailVerified: true,
           emailVerificationToken: null,
           createdAt: user.createdAt || new Date(),
-          updatedAt: null
+          updatedAt: null,
+          isActive: true
         };
       }
       return undefined;
@@ -1236,8 +1246,16 @@ export class DatabaseStorage implements IStorage {
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     try {
-      const [user] = await db.select().from(users).where(eq(users.email, email));
-      // Map database result to expected User type with defaults for missing columns
+      const result = await db.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        password: users.password,
+        role: users.role,
+        createdAt: users.createdAt
+      }).from(users).where(eq(users.email, email));
+      
+      const user = result[0];
       if (user) {
         return {
           id: user.id,
@@ -1245,11 +1263,12 @@ export class DatabaseStorage implements IStorage {
           email: user.email,
           password: user.password,
           role: user.role,
-          tenantId: 1, // Default tenant
-          isEmailVerified: true, // Default verified
+          tenantId: 1,
+          isEmailVerified: true,
           emailVerificationToken: null,
           createdAt: user.createdAt || new Date(),
-          updatedAt: null
+          updatedAt: null,
+          isActive: true
         };
       }
       return undefined;
