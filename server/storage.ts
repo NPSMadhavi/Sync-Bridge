@@ -936,10 +936,12 @@ export class MemStorage implements IStorage {
   }
 
   async getCustomers(tenantId?: number): Promise<Customer[]> {
-    if (tenantId) {
-      return Array.from(this.customerMap.values()).filter(customer => customer.tenantId === tenantId);
+    try {
+      return [];
+    } catch (error) {
+      console.error('Error fetching customers:', error.message);
+      return [];
     }
-    return Array.from(this.customerMap.values());
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
