@@ -7,10 +7,12 @@ import { setupAuth } from "./auth";
 import { setupFileServing, uploadMiddleware, handleFileUpload } from "./upload";
 import { ZodError } from "zod";
 import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
+import { hashPassword } from "./auth";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertDependentSchema, 
   insertEmployeeDocumentSchema, insertVendorSchema, insertAssetAssignmentSchema,
-  insertMaintenanceRecordSchema, insertLicenseSchema, insertCustomerSchema, insertInvoiceSchema
+  insertMaintenanceRecordSchema, insertLicenseSchema, insertCustomerSchema, 
+  insertInvoiceSchema, insertUserSchema
 } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1044,6 +1046,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "PDF generation not implemented yet" });
     } catch (error) {
       res.status(500).json({ message: "Failed to generate PDF" });
+    }
+  });
+
+  // User management routes
+  app.get("/api/users", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      // Only admin and super_admin can view users
+      if (!["admin", "super_admin"].includes(req.user!.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const users = await storage.getUsers();
+      // Remove passwords from response
+      const safeUsers = users.map(({ password, ...user }) => user);
+      res.json(safeUsers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/users", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      // Only admin and super_admin can create users
+      if (!["admin", "super_admin"].includes(req.user!.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const userData = insertUserSchema.parse({
+        ...req.body,
+        tenantId: req.user!.tenantId || 1
+      });
+      
+      // Hash password
+      const hashedPassword = await hashPassword(userData.password);
+      const user = await storage.createUser({
+        ...userData,
+        password: hashedPassword
+      });
+      
+      // Remove password from response
+      const { password, ...safeUser } = user;
+      res.status(201).json(safeUser);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Invalid user data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+
+  app.put("/api/users/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      // Only admin and super_admin can update users
+      if (!["admin", "super_admin"].includes(req.user!.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const id = parseInt(req.params.id);
+      const userData = insertUserSchema.partial().parse(req.body);
+      
+      // Hash password if provided
+      if (userData.password) {
+        userData.password = await hashPassword(userData.password);
+      }
+      
+      const user = await storage.updateUser(id, userData);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Remove password from response
+      const { password, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Invalid user data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/users/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      // Only admin and super_admin can delete users
+      if (!["admin", "super_admin"].includes(req.user!.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const id = parseInt(req.params.id);
+      
+      // Prevent users from deleting themselves
+      if (id === req.user!.id) {
+        return res.status(400).json({ message: "Cannot delete your own account" });
+      }
+      
+      await storage.deleteUser(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete user" });
     }
   });
 

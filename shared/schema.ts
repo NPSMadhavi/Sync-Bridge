@@ -40,7 +40,20 @@ export const users = pgTable("users", {
   isEmailVerified: boolean("is_email_verified").default(false),
   emailVerificationToken: text("email_verification_token"),
   emailVerificationExpiry: timestamp("email_verification_expiry"),
-  isActive: boolean("is_active").default(false),
+  isActive: boolean("is_active").default(true),
+  allowedModules: text("allowed_modules").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const userPermissions = pgTable("user_permissions", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  module: moduleEnum("module").notNull(),
+  canView: boolean("can_view").default(true),
+  canCreate: boolean("can_create").default(false),
+  canUpdate: boolean("can_update").default(false),
+  canDelete: boolean("can_delete").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -484,6 +497,8 @@ export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type UserPermission = typeof userPermissions.$inferSelect;
+export type InsertUserPermission = z.infer<typeof insertUserPermissionSchema>;
 
 export type Employee = typeof employees.$inferSelect;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;

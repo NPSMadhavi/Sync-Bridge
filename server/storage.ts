@@ -3,6 +3,7 @@ import {
   users, employees, dependents, assets, assetAssignments, 
   maintenanceRecords, employeeDocuments, vendors, notifications, 
   auditLogs, licenses, tenants, customers, invoices, invoiceItems, payments,
+  userPermissions,
   User, InsertUser, Employee, InsertEmployee,
   Dependent, InsertDependent, Asset, InsertAsset, 
   AssetAssignment, InsertAssetAssignment, MaintenanceRecord,
@@ -11,7 +12,7 @@ import {
   AuditLog, InsertAuditLog, License, InsertLicense,
   Tenant, InsertTenant, Customer, InsertCustomer,
   Invoice, InsertInvoice, InvoiceItem, InsertInvoiceItem,
-  Payment, InsertPayment
+  Payment, InsertPayment, UserPermission, InsertUserPermission
 } from "@shared/schema";
 import { eq, and, gt, lt, lte, desc, isNull, sql } from "drizzle-orm";
 import session from "express-session";
@@ -26,6 +27,12 @@ export interface IStorage {
   // User verification operations
   getUserByVerificationToken(token: string): Promise<User | undefined>;
   verifyUserEmail(token: string): Promise<User | undefined>;
+  
+  // User Permission operations
+  getUserPermissions(userId: number): Promise<UserPermission[]>;
+  createUserPermission(permission: InsertUserPermission): Promise<UserPermission>;
+  updateUserPermissions(userId: number, permissions: InsertUserPermission[]): Promise<void>;
+  deleteUserPermissions(userId: number): Promise<void>;
   // Tenant operations
   getTenant(id: number): Promise<Tenant | undefined>;
   getTenantByName(name: string): Promise<Tenant | undefined>;
@@ -168,6 +175,7 @@ export class MemStorage implements IStorage {
   private invoiceMap: Map<number, Invoice>;
   private invoiceItemMap: Map<number, InvoiceItem>;
   private paymentMap: Map<number, Payment>;
+  private userPermissionMap: Map<number, UserPermission>;
   sessionStore: session.Store;
   userId: number;
   employeeId: number;
@@ -185,6 +193,7 @@ export class MemStorage implements IStorage {
   invoiceId: number;
   invoiceItemId: number;
   paymentId: number;
+  userPermissionId: number;
 
   constructor() {
     this.userMap = new Map();
@@ -203,6 +212,7 @@ export class MemStorage implements IStorage {
     this.invoiceMap = new Map();
     this.invoiceItemMap = new Map();
     this.paymentMap = new Map();
+    this.userPermissionMap = new Map();
     
     this.userId = 1;
     this.employeeId = 1;
@@ -220,10 +230,41 @@ export class MemStorage implements IStorage {
     this.invoiceId = 1;
     this.invoiceItemId = 1;
     this.paymentId = 1;
+    this.userPermissionId = 1;
+    
+    // Create default admin user
+    this.createDefaultAdmin();
     
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000 // 24 hours
     });
+  }
+
+  private async createDefaultAdmin() {
+    // Create default admin user
+    const adminUser: User = {
+      id: 1,
+      tenantId: 1,
+      name: "Super Administrator",
+      email: "supadmin@myrsv.com",
+      password: "$2b$10$K6ZzHj5xP3R9wF8R6xLQVOH1GbWz0A8TpOQ5X3s1A2t7Y9p4U6v8e", // @minRSV100#$
+      role: "super_admin",
+      isSuperAdmin: true,
+      isEmailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpiry: null,
+      isActive: true,
+      allowedModules: [
+        "dashboard", "assets", "licenses", "employees", "documents", 
+        "vendors", "customers", "invoices", "reports", "audit_logs", 
+        "settings", "user_management"
+      ],
+      createdAt: new Date()
+    };
+
+    this.userMap.set(1, adminUser);
+    this.emailToIdMap.set("supadmin@myrsv.com", 1);
+    this.userId = 2; // Next user will get ID 2
   }
   
   // Tenant operations
@@ -1066,6 +1107,43 @@ export class MemStorage implements IStorage {
 
   async deletePayment(id: number): Promise<void> {
     this.paymentMap.delete(id);
+  }
+
+  // User Permission operations
+  async getUserPermissions(userId: number): Promise<UserPermission[]> {
+    return Array.from(this.userPermissionMap.values()).filter(perm => perm.userId === userId);
+  }
+
+  async createUserPermission(permission: InsertUserPermission): Promise<UserPermission> {
+    const id = this.userPermissionId++;
+    const newPermission: UserPermission = {
+      ...permission,
+      id,
+      tenantId: permission.tenantId || 1,
+      createdAt: new Date()
+    };
+    this.userPermissionMap.set(id, newPermission);
+    return newPermission;
+  }
+
+  async updateUserPermissions(userId: number, permissions: InsertUserPermission[]): Promise<void> {
+    // Delete existing permissions for user
+    await this.deleteUserPermissions(userId);
+    
+    // Create new permissions
+    for (const permission of permissions) {
+      await this.createUserPermission({
+        ...permission,
+        userId
+      });
+    }
+  }
+
+  async deleteUserPermissions(userId: number): Promise<void> {
+    const userPermissions = await this.getUserPermissions(userId);
+    for (const permission of userPermissions) {
+      this.userPermissionMap.delete(permission.id);
+    }
   }
 }
 

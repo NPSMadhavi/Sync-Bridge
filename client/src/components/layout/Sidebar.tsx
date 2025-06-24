@@ -73,6 +73,13 @@ export default function Sidebar() {
 
   const managementMenuItems: MenuItem[] = [
     {
+      name: "User Management",
+      href: "/users",
+      icon: <UsersIcon className="mr-3 text-gray-500" />,
+      roles: ["super_admin", "admin"],
+    },
+
+    {
       name: "Settings",
       href: "/settings",
       icon: <Settings className="mr-3 text-gray-500" />,
