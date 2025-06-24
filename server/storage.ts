@@ -325,18 +325,57 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.userMap.values()).find(user => user.email === email);
+    const userId = this.emailToIdMap.get(email);
+    return userId ? this.userMap.get(userId) : undefined;
+  }
+
+  async getUsers(): Promise<User[]> {
+    return Array.from(this.userMap.values());
+  }
+
+  async getUserByVerificationToken(token: string): Promise<User | undefined> {
+    return Array.from(this.userMap.values()).find(user => user.emailVerificationToken === token);
+  }
+
+  async verifyUserEmail(token: string): Promise<User | undefined> {
+    const user = await this.getUserByVerificationToken(token);
+    if (!user) return undefined;
+    
+    // Check if token is expired (24 hours)
+    if (user.emailVerificationExpiry && new Date() > user.emailVerificationExpiry) {
+      return undefined;
+    }
+    
+    // Update user as verified and active
+    const updatedUser = {
+      ...user,
+      isEmailVerified: true,
+      isActive: true,
+      emailVerificationToken: null,
+      emailVerificationExpiry: null
+    };
+    
+    this.userMap.set(user.id, updatedUser);
+    return updatedUser;
   }
 
   async createUser(user: InsertUser): Promise<User> {
     const id = this.userId++;
+    
     const newUser: User = { 
       ...user, 
       id, 
-      createdAt: null,
-      role: user.role || 'employee' 
+      isSuperAdmin: user.isSuperAdmin ?? false,
+      tenantId: user.tenantId ?? 1,
+      isEmailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpiry: null,
+      isActive: user.isActive ?? true,
+      allowedModules: user.allowedModules ?? [],
+      createdAt: new Date()
     };
     this.userMap.set(id, newUser);
+    this.emailToIdMap.set(user.email, id);
     return newUser;
   }
 
