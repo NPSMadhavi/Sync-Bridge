@@ -160,8 +160,26 @@ export default function InvoicesPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="flex h-screen bg-slate-50">
+      <Sidebar />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
+              <p className="text-gray-600 mt-1">Manage your invoices and billing.</p>
+            </div>
+            <Button onClick={() => { setEditingInvoice(null); setShowForm(true); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Invoice
+            </Button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 p-6 overflow-auto">
+          <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Invoices</h1>
           <p className="text-muted-foreground">
