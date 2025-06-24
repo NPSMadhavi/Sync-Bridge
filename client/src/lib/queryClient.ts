@@ -2,8 +2,25 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const text = await res.text();
+    let errorData;
+    try {
+      errorData = JSON.parse(text);
+    } catch {
+      errorData = { message: text || res.statusText };
+    }
+    
+    // Clean up authentication error messages
+    if (res.status === 401) {
+      throw new Error("Incorrect credentials");
+    }
+    
+    // Clean up registration error messages
+    if (res.status === 400 && errorData.message?.includes("already")) {
+      throw new Error("Email address is already registered");
+    }
+    
+    throw new Error(errorData.message || `HTTP ${res.status}`);
   }
 }
 

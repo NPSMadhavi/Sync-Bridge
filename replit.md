@@ -138,6 +138,7 @@ SyncBridge is a comprehensive full-stack enterprise asset and document managemen
 
 ## Changelog
 - June 24, 2025. Initial setup
+- June 24, 2025. Added comprehensive invoicing system with customer management, invoice creation with line items, tax/discount calculations, and status tracking. Fixed authentication error messages to show professional "Incorrect credentials" instead of raw API responses.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
