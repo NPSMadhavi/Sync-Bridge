@@ -37,6 +37,10 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").notNull().default('employee'),
   password: text("password").notNull(),
   isSuperAdmin: boolean("is_super_admin").default(false),
+  isEmailVerified: boolean("is_email_verified").default(false),
+  emailVerificationToken: text("email_verification_token"),
+  emailVerificationExpiry: timestamp("email_verification_expiry"),
+  isActive: boolean("is_active").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

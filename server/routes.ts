@@ -27,6 +27,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.sendFile(path.resolve(process.cwd(), 'public', 'pitch-deck.html'));
   });
 
+  // Email verification route
+  app.get("/api/verify-email", async (req, res) => {
+    try {
+      const token = req.query.token as string;
+      
+      if (!token) {
+        return res.status(400).json({ message: "Verification token is required" });
+      }
+      
+      const user = await storage.verifyUserEmail(token);
+      
+      if (!user) {
+        return res.status(400).json({ message: "Invalid or expired verification token" });
+      }
+      
+      // Redirect to login page with success message
+      res.redirect('/auth?verified=true');
+    } catch (error) {
+      res.status(500).json({ message: "Failed to verify email" });
+    }
+  });
+
+  // Resend verification email route
+  app.post("/api/resend-verification", async (req, res) => {
+    try {
+      const { email } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+      
+      const user = await storage.getUserByEmail(email);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      if (user.isEmailVerified) {
+        return res.status(400).json({ message: "Email is already verified" });
+      }
+      
+      // Generate new verification token
+      const verificationToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      const verificationExpiry = new Date();
+      verificationExpiry.setHours(verificationExpiry.getHours() + 24);
+      
+      await storage.updateUser(user.id, {
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiry: verificationExpiry
+      });
+      
+      // Send verification email
+      const verificationUrl = `${req.protocol}://${req.get('host')}/api/verify-email?token=${verificationToken}`;
+      
+      await sendEmail({
+        to: user.email,
+        subject: "Verify Your Email - SyncBridge",
+        html: generateVerificationEmailHTML(verificationUrl, user.name),
+        text: generateVerificationEmailText(verificationUrl, user.name),
+      });
+      
+      res.json({ message: "Verification email sent successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to resend verification email" });
+    }
+  });
+
   // Error handling for Zod validation errors
   const handleZodError = (error: any, res: any) => {
     if (error instanceof ZodError) {

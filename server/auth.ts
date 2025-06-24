@@ -55,9 +55,14 @@ export function setupAuth(app: Express) {
         const user = await storage.getUserByEmail(email);
         if (!user || !(await comparePasswords(password, user.password))) {
           return done(null, false);
-        } else {
-          return done(null, user);
         }
+        
+        // Check if user is active (email verified)
+        if (!user.isActive) {
+          return done(null, false);
+        }
+        
+        return done(null, user);
       } catch (err) {
         return done(err);
       }
@@ -109,12 +114,20 @@ export function setupAuth(app: Express) {
         timestamp: new Date(),
       });
 
-      // Login the user
-      req.login(user, (err) => {
-        if (err) return next(err);
-        // Return the user without the password
-        const { password, ...userWithoutPassword } = user;
-        res.status(201).json(userWithoutPassword);
+      // Send verification email
+      const verificationUrl = `${req.protocol}://${req.get('host')}/api/verify-email?token=${user.emailVerificationToken}`;
+      
+      await sendEmail({
+        to: user.email,
+        subject: "Verify Your Email - SyncBridge",
+        html: generateVerificationEmailHTML(verificationUrl, user.name),
+        text: generateVerificationEmailText(verificationUrl, user.name),
+      });
+
+      // Return success message without logging in the user
+      res.status(201).json({ 
+        message: "Registration successful! Please check your email to verify your account before logging in.",
+        emailSent: true 
       });
     } catch (error) {
       next(error);
@@ -127,7 +140,7 @@ export function setupAuth(app: Express) {
         return next(err);
       }
       if (!user) {
-        return res.status(401).json({ message: "Incorrect credentials" });
+        return res.status(401).json({ message: "Incorrect credentials or account not verified" });
       }
       req.login(user, (err) => {
         if (err) {

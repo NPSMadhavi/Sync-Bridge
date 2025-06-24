@@ -71,11 +71,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiRequest("POST", "/api/register", userData);
       return await res.json();
     },
-    onSuccess: (user: Omit<User, "password">) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: (response: any) => {
+      // Don't set user data since they need to verify email first
       toast({
         title: "Registration successful",
-        description: `Welcome to SyncBridge, ${user.name}!`,
+        description: "Please check your email to verify your account before logging in.",
       });
     },
     onError: (error: Error) => {
