@@ -1193,11 +1193,20 @@ export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    // Use memory store for sessions to ensure reliability
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000 // 24 hours
-    });
-    console.log("Using in-memory session store");
+    // Try PostgreSQL session store first, fallback to memory if needed
+    try {
+      this.sessionStore = new PostgresSessionStore({ 
+        pool, 
+        createTableIfMissing: true,
+        ttl: 86400 // 24 hours
+      });
+      console.log("Using PostgreSQL session store");
+    } catch (error) {
+      console.warn("PostgreSQL session store initialization failed, using memory fallback");
+      this.sessionStore = new MemoryStore({
+        checkPeriod: 86400000 // 24 hours
+      });
+    }
   }
 
   // User operations
