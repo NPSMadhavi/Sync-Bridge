@@ -1199,6 +1199,47 @@ export class DatabaseStorage implements IStorage {
       checkPeriod: 86400000 // 24 hours
     });
     console.log("Using memory session store (data persists in PostgreSQL)");
+    
+    // Ensure default admin user exists in database
+    this.initializeDefaultUser();
+  }
+
+  private async initializeDefaultUser() {
+    try {
+      // Check if admin user already exists
+      const existingAdmin = await this.getUserByEmail("supadmin@myrsv.com");
+      
+      if (!existingAdmin) {
+        // Create default tenant first
+        const [tenant] = await db.insert(tenants).values({
+          name: "Default Organization",
+          slug: "default-org",
+          settings: {},
+          plan: "enterprise",
+          userLimit: 100,
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: null
+        }).onConflictDoNothing().returning();
+
+        // Create default admin user
+        await db.insert(users).values({
+          tenantId: tenant?.id || 1,
+          name: "Super Administrator",
+          email: "supadmin@myrsv.com",
+          password: "b5d4045c3f466fa91fe2cc6abe79232a1a57cdf104f7a26e716e0a1e2789df78.e7ed4b245f6c87d44c6b85ada17f5426", // @minRSV100#$
+          role: "super_admin",
+          isEmailVerified: true,
+          emailVerificationToken: null,
+          createdAt: new Date(),
+          updatedAt: null
+        }).onConflictDoNothing();
+        
+        console.log("Default admin user initialized in database");
+      }
+    } catch (error) {
+      console.warn("Failed to initialize default user:", error.message);
+    }
   }
 
   // User operations
@@ -1753,4 +1794,4 @@ export class DatabaseStorage implements IStorage {
 }
 
 // Export the storage instance
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
