@@ -26,6 +26,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import type { Customer } from "@shared/schema";
 import CustomerForm from "@/components/forms/CustomerForm";
+import Sidebar from "@/components/layout/Sidebar";
 
 export default function CustomersPage() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -272,6 +273,9 @@ export default function CustomersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

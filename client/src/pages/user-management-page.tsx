@@ -316,6 +316,9 @@ export default function UserManagementPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

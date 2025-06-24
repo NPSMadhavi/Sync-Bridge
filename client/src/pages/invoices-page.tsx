@@ -24,6 +24,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import type { Invoice, Customer } from "@shared/schema";
 import InvoiceForm from "@/components/forms/InvoiceForm";
+import Sidebar from "@/components/layout/Sidebar";
 
 // Format currency helper
 const formatCurrency = (cents: number, currency = "USD") => {
