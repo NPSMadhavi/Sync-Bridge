@@ -1762,7 +1762,4 @@ export class DatabaseStorage implements IStorage {
 }
 
 // Export the storage instance
-// Uncomment the following line to use the DatabaseStorage implementation when ready
-// export const storage = new DatabaseStorage();
-// Using MemStorage for now as it's more reliable for prototyping
 export const storage = new DatabaseStorage();
