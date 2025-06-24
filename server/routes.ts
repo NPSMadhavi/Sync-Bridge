@@ -161,6 +161,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id,
         timestamp: new Date()
       });
+
+      // Create notification for employee creation
+      await storage.createNotification({
+        type: "info",
+        title: "Employee Added",
+        message: `Employee "${employee.name}" has been added successfully`,
+        targetUserId: req.user!.id,
+        createdAt: new Date(),
+        seen: false
+      });
       
       res.status(201).json(employee);
     } catch (error) {

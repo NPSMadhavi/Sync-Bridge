@@ -1,38 +1,15 @@
-// This is a placeholder db.ts that doesn't try to connect to a real database
-// Use this for development until ready to integrate with actual PostgreSQL database
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import ws from "ws";
 import * as schema from "@shared/schema";
 
-// Dummy pool object for session store
-export const pool = {
-  query: async () => ({ rows: [] }),
-  connect: () => ({ release: () => {} }),
-};
+neonConfig.webSocketConstructor = ws;
 
-// Dummy db object
-export const db = {
-  select: () => ({
-    from: () => ({
-      where: () => [],
-      orderBy: () => ({
-        limit: () => []
-      }),
-      limit: () => [],
-      groupBy: () => []
-    })
-  }),
-  insert: () => ({
-    values: () => ({
-      returning: () => []
-    })
-  }),
-  update: () => ({
-    set: () => ({
-      where: () => ({
-        returning: () => []
-      })
-    })
-  }),
-  delete: () => ({
-    where: () => {}
-  })
-};
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL must be set. Did you forget to provision a database?",
+  );
+}
+
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const db = drizzle({ client: pool, schema });
