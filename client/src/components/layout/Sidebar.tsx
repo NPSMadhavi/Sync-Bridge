@@ -37,17 +37,17 @@ export default function Sidebar() {
     {
       name: "Dashboard",
       href: "/",
-      icon: <LayoutDashboard className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <LayoutDashboard className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Assets",
       href: "/assets",
-      icon: <MonitorIcon className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <MonitorIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Licenses",
       href: "/licenses",
-      icon: <Key className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <Key className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Employees",
@@ -57,22 +57,22 @@ export default function Sidebar() {
     {
       name: "Documents",
       href: "/documents",
-      icon: <FileTextIcon className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <FileTextIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Vendors",
       href: "/vendors",
-      icon: <Store className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <Store className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Customers",
       href: "/customers",
-      icon: <UserCheck className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <UserCheck className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Invoices",
       href: "/invoices",
-      icon: <Receipt className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <Receipt className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
   ];
 
@@ -86,17 +86,17 @@ export default function Sidebar() {
     {
       name: "Settings",
       href: "/settings",
-      icon: <Settings className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <Settings className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Reports",
       href: "/reports",
-      icon: <FileBarChart className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <FileBarChart className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
       name: "Audit Logs",
       href: "/audit-logs",
-      icon: <ClipboardListIcon className={cn("h-5 w-5 text-slate-400", !isCollapsed && "mr-3")} />,
+      icon: <ClipboardListIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
       roles: ["super_admin", "admin"],
     },
   ];
