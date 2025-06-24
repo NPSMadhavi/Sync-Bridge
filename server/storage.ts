@@ -1277,10 +1277,19 @@ export class DatabaseStorage implements IStorage {
       // Hash the password before storing
       const hashedPassword = await this.hashPassword(insertUser.password);
       
+      // Map frontend role to database enum value
+      let dbRole = insertUser.role || 'employee';
+      if (dbRole === 'super_admin') {
+        dbRole = 'admin'; // Map super_admin to admin since it doesn't exist in DB
+      }
+      if (dbRole === 'hr_manager') {
+        dbRole = 'hr'; // Map hr_manager to hr
+      }
+      
       // Use raw SQL to insert only the columns that actually exist in the database
       const result = await pool.query(
         'INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *',
-        [insertUser.name, insertUser.email, hashedPassword, insertUser.role || 'employee']
+        [insertUser.name, insertUser.email, hashedPassword, dbRole]
       );
       
       const user = result.rows[0];

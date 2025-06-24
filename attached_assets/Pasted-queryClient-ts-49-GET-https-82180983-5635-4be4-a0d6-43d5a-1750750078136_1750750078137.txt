@@ -1,0 +1,63 @@
+queryClient.ts:49 
+            
+            
+           GET https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/api/user 401 (Unauthorized)
+(anonymous) @ queryClient.ts:49
+fetchFn @ @tanstack_react-query.js?v=441430c2:840
+run @ @tanstack_react-query.js?v=441430c2:494
+start @ @tanstack_react-query.js?v=441430c2:536
+fetch @ @tanstack_react-query.js?v=441430c2:926
+executeFetch_fn @ @tanstack_react-query.js?v=441430c2:2211
+onSubscribe @ @tanstack_react-query.js?v=441430c2:1898
+subscribe @ @tanstack_react-query.js?v=441430c2:24
+(anonymous) @ @tanstack_react-query.js?v=441430c2:3022
+subscribeToStore @ chunk-RPCDYKBN.js?v=441430c2:11984
+commitHookEffectListMount @ chunk-RPCDYKBN.js?v=441430c2:16915
+commitPassiveMountOnFiber @ chunk-RPCDYKBN.js?v=441430c2:18156
+commitPassiveMountEffects_complete @ chunk-RPCDYKBN.js?v=441430c2:18129
+commitPassiveMountEffects_begin @ chunk-RPCDYKBN.js?v=441430c2:18119
+commitPassiveMountEffects @ chunk-RPCDYKBN.js?v=441430c2:18109
+flushPassiveEffectsImpl @ chunk-RPCDYKBN.js?v=441430c2:19490
+flushPassiveEffects @ chunk-RPCDYKBN.js?v=441430c2:19447
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18868
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=441430c2:9119
+commitRootImpl @ chunk-RPCDYKBN.js?v=441430c2:19432
+commitRoot @ chunk-RPCDYKBN.js?v=441430c2:19277
+finishConcurrentRender @ chunk-RPCDYKBN.js?v=441430c2:18805
+performConcurrentWorkOnRoot @ chunk-RPCDYKBN.js?v=441430c2:18718
+workLoop @ chunk-RPCDYKBN.js?v=441430c2:197
+flushWork @ chunk-RPCDYKBN.js?v=441430c2:176
+performWorkUntilDeadline @ chunk-RPCDYKBN.js?v=441430c2:384
+content.js:148 [Redirect Blocker] Stopping to prevent same tab redirects
+content.js:148 [Redirect Blocker] Stopping to prevent same tab redirects
+queryClient.ts:32 
+            
+            
+           POST https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/api/users 500 (Internal Server Error)
+apiRequest @ queryClient.ts:32
+mutationFn @ UserForm.tsx:105
+fn @ @tanstack_react-query.js?v=441430c2:1189
+run @ @tanstack_react-query.js?v=441430c2:494
+start @ @tanstack_react-query.js?v=441430c2:536
+execute @ @tanstack_react-query.js?v=441430c2:1225
+await in execute
+mutate @ @tanstack_react-query.js?v=441430c2:2630
+(anonymous) @ @tanstack_react-query.js?v=441430c2:3295
+onSubmit @ UserForm.tsx:126
+(anonymous) @ chunk-YABUFNLM.js?v=441430c2:1675
+await in (anonymous)
+callCallback2 @ chunk-RPCDYKBN.js?v=441430c2:3674
+invokeGuardedCallbackDev @ chunk-RPCDYKBN.js?v=441430c2:3699
+invokeGuardedCallback @ chunk-RPCDYKBN.js?v=441430c2:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-RPCDYKBN.js?v=441430c2:3736
+executeDispatch @ chunk-RPCDYKBN.js?v=441430c2:7014
+processDispatchQueueItemsInOrder @ chunk-RPCDYKBN.js?v=441430c2:7034
+processDispatchQueue @ chunk-RPCDYKBN.js?v=441430c2:7043
+dispatchEventsForPlugins @ chunk-RPCDYKBN.js?v=441430c2:7051
+(anonymous) @ chunk-RPCDYKBN.js?v=441430c2:7174
+batchedUpdates$1 @ chunk-RPCDYKBN.js?v=441430c2:18913
+batchedUpdates @ chunk-RPCDYKBN.js?v=441430c2:3579
+dispatchEventForPluginEventSystem @ chunk-RPCDYKBN.js?v=441430c2:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-RPCDYKBN.js?v=441430c2:5478
+dispatchEvent @ chunk-RPCDYKBN.js?v=441430c2:5472
+dispatchDiscreteEvent @ chunk-RPCDYKBN.js?v=441430c2:5449
