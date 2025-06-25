@@ -7,11 +7,11 @@ import { insertLicenseSchema, License, Asset } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Form,
   FormControl,
@@ -197,20 +197,17 @@ export default function LicenseForm({
   };
 
   return (
-    <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent 
-        className="w-full max-w-4xl p-0 overflow-hidden"
-        side="right"
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent 
+        className="max-w-4xl max-h-[90vh] overflow-hidden p-0"
+        onKeyDown={handleKeyDown}
       >
         <TooltipProvider>
           <Form {...form}>
-            <div 
-              className="h-full flex flex-col"
-              onKeyDown={handleKeyDown}
-            >
-              {/* Sticky Header */}
-              <SheetHeader className="flex-shrink-0 px-6 py-4 border-b bg-background">
-                <SheetTitle className="flex items-center gap-2 text-xl">
+            <div className="flex flex-col h-full">
+              {/* Header */}
+              <DialogHeader className="flex-shrink-0 px-6 py-4 border-b bg-background">
+                <DialogTitle className="flex items-center gap-2 text-xl">
                   <Shield className="h-5 w-5 text-primary" />
                   {isEditMode ? "Edit License" : "Create New License"}
                   {isExpired && (
@@ -218,27 +215,26 @@ export default function LicenseForm({
                       Expired
                     </span>
                   )}
-                </SheetTitle>
-              </SheetHeader>
+                </DialogTitle>
+              </DialogHeader>
 
               {/* Form Content - Scrollable Area */}
-              <div className="flex-1 overflow-y-auto px-1 pb-24">
-                <div className="p-6">
-                  {/* Responsive grid layout container */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  
-                    {/* Left Column */}
-                    <div className="space-y-6">
-                      
-                      {/* Basic Details Section */}
-                      <Card>
-                        <CardHeader className="pb-4">
-                          <CardTitle className="flex items-center gap-2 text-lg">
-                            <Shield className="h-4 w-4" />
-                            Basic Details
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
+              <div className="flex-1 overflow-y-auto px-6 py-6 pb-24">
+                {/* Responsive grid layout container */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                  {/* Left Column */}
+                  <div className="space-y-6">
+                    
+                    {/* License Information Section */}
+                    <Card>
+                      <CardHeader className="pb-4">
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <Shield className="h-4 w-4" />
+                          License Information
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
                           {/* Name */}
                           <FormField
                             control={form.control}
@@ -370,176 +366,23 @@ export default function LicenseForm({
                               </FormItem>
                             )}
                           />
-                        </CardContent>
-                      </Card>
+                      </CardContent>
+                    </Card>
+                    
+                  </div>
 
-                      {/* Assignment & Management Section */}
-                      <Card>
-                        <CardHeader className="pb-4">
-                          <CardTitle className="flex items-center gap-2 text-lg">
-                            <Users className="h-4 w-4" />
-                            Assignment & Management
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
+                  {/* Right Column */}
+                  <div className="space-y-6">
 
-                          {/* Associated Asset */}
-                          <FormField
-                            control={form.control}
-                            name="assetId"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Associated Asset</FormLabel>
-                                <Select
-                                  onValueChange={(value) => {
-                                    const numValue = value && value !== "none" ? parseInt(value) : null;
-                                    field.onChange(numValue);
-                                    setSelectedAssetId(numValue);
-                                  }}
-                                  defaultValue={
-                                    field.value !== null ? field.value.toString() : "none"
-                                  }
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select asset (optional)" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="none">None</SelectItem>
-                                    {assets.map((asset) => (
-                                      <SelectItem key={asset.id} value={asset.id.toString()}>
-                                        {asset.tag} - {asset.type} ({asset.brand} {asset.model})
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription className="text-xs">
-                                  Link this license to a specific device or hardware asset
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          {/* Seats */}
-                          <FormField
-                            control={form.control}
-                            name="seats"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Number of Seats</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    max="1000"
-                                    placeholder="e.g., 5"
-                                    {...field}
-                                    value={field.value || ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value ? parseInt(e.target.value) : null;
-                                      field.onChange(value);
-                                    }}
-                                  />
-                                </FormControl>
-                                <FormDescription className="text-xs">
-                                  Number of users licensed to use this software
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          {/* Vendor */}
-                          <FormField
-                            control={form.control}
-                            name="vendor"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Vendor</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="e.g., Microsoft, Adobe, Oracle"
-                                    {...field}
-                                    value={field.value || ""}
-                                  />
-                                </FormControl>
-                                <FormDescription className="text-xs">
-                                  Software vendor or license provider
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          {/* Renewal Cycle */}
-                          <FormField
-                            control={form.control}
-                            name="renewalCycle"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Renewal Cycle</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value || "none"}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select renewal cycle" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="none">
-                                      <div className="flex items-center gap-2">
-                                        <span className="h-3 w-3 rounded-full bg-gray-400"></span>
-                                        One-time Purchase
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="monthly">
-                                      <div className="flex items-center gap-2">
-                                        <RotateCcw className="h-3 w-3 text-blue-600" />
-                                        Monthly
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="yearly">
-                                      <div className="flex items-center gap-2">
-                                        <RotateCcw className="h-3 w-3 text-green-600" />
-                                        Yearly
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="custom">
-                                      <div className="flex items-center gap-2">
-                                        <RotateCcw className="h-3 w-3 text-purple-600" />
-                                        Custom
-                                      </div>
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription className="text-xs">
-                                  How often this license needs to be renewed
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </CardContent>
-                      </Card>
-                      
-                    </div>
-
-                    {/* Right Column */}
-                    <div className="space-y-6">
-
-                      {/* Finance & Dates Section */}
-                      <Card>
-                        <CardHeader className="pb-4">
-                          <CardTitle className="flex items-center gap-2 text-lg">
-                            <DollarSign className="h-4 w-4" />
-                            Finance & Dates
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
+                    {/* Finance & Dates Section */}
+                    <Card>
+                      <CardHeader className="pb-4">
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <DollarSign className="h-4 w-4" />
+                          Finance & Dates
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
 
                           {/* Cost */}
                           <FormField
@@ -667,47 +510,202 @@ export default function LicenseForm({
                               </FormItem>
                             )}
                           />
-                        </CardContent>
-                      </Card>
+                      </CardContent>
+                    </Card>
 
-                      {/* Additional Notes Section */}
-                      <Card>
-                        <CardHeader className="pb-4">
-                          <CardTitle className="flex items-center gap-2 text-lg">
-                            <Building className="h-4 w-4" />
-                            Additional Information
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
+                    {/* Assignment Section */}
+                    <Card>
+                      <CardHeader className="pb-4">
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <Users className="h-4 w-4" />
+                          Assignment
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
 
-                          {/* Notes */}
-                          <FormField
-                            control={form.control}
-                            name="notes"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Notes</FormLabel>
+                        {/* Associated Asset */}
+                        <FormField
+                          control={form.control}
+                          name="assetId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Associated Asset</FormLabel>
+                              <Select
+                                onValueChange={(value) => {
+                                  const numValue = value && value !== "none" ? parseInt(value) : null;
+                                  field.onChange(numValue);
+                                  setSelectedAssetId(numValue);
+                                }}
+                                defaultValue={
+                                  field.value !== null ? field.value.toString() : "none"
+                                }
+                              >
                                 <FormControl>
-                                  <Textarea
-                                    placeholder="Additional information about this license..."
-                                    className="min-h-[80px]"
-                                    {...field}
-                                    value={field.value || ""}
-                                  />
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select asset (optional)" />
+                                  </SelectTrigger>
                                 </FormControl>
-                                <FormDescription className="text-xs">
-                                  Any additional details, terms, or special conditions
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </CardContent>
-                      </Card>
-                      
-                    </div>
+                                <SelectContent>
+                                  <SelectItem value="none">None</SelectItem>
+                                  {assets.map((asset) => (
+                                    <SelectItem key={asset.id} value={asset.id.toString()}>
+                                      {asset.tag} - {asset.type} ({asset.brand} {asset.model})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription className="text-xs">
+                                Link this license to a specific device or hardware asset
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Seats */}
+                        <FormField
+                          control={form.control}
+                          name="seats"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Number of Seats</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  max="1000"
+                                  placeholder="e.g., 5"
+                                  {...field}
+                                  value={field.value || ""}
+                                  onChange={(e) => {
+                                    const value = e.target.value ? parseInt(e.target.value) : null;
+                                    field.onChange(value);
+                                  }}
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                Number of users licensed to use this software
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
                     
                   </div>
+                </div>
+
+                {/* Additional Info Section - Full Width */}
+                <div className="mt-6">
+                  <Card>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <Building className="h-4 w-4" />
+                        Additional Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                      {/* Vendor */}
+                      <FormField
+                        control={form.control}
+                        name="vendor"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Vendor</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="e.g., Microsoft, Adobe, Oracle"
+                                {...field}
+                                value={field.value || ""}
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs">
+                              Software vendor or license provider
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Renewal Cycle */}
+                      <FormField
+                        control={form.control}
+                        name="renewalCycle"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Renewal Cycle</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              defaultValue={field.value || "none"}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select renewal cycle" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">
+                                  <div className="flex items-center gap-2">
+                                    <span className="h-3 w-3 rounded-full bg-gray-400"></span>
+                                    One-time Purchase
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="monthly">
+                                  <div className="flex items-center gap-2">
+                                    <RotateCcw className="h-3 w-3 text-blue-600" />
+                                    Monthly
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="yearly">
+                                  <div className="flex items-center gap-2">
+                                    <RotateCcw className="h-3 w-3 text-green-600" />
+                                    Yearly
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="custom">
+                                  <div className="flex items-center gap-2">
+                                    <RotateCcw className="h-3 w-3 text-purple-600" />
+                                    Custom
+                                  </div>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormDescription className="text-xs">
+                              How often this license needs to be renewed
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Notes - Full Width */}
+                      <div className="md:col-span-2">
+                        <FormField
+                          control={form.control}
+                          name="notes"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Notes</FormLabel>
+                              <FormControl>
+                                <Textarea
+                                  placeholder="Additional information about this license..."
+                                  className="min-h-[80px]"
+                                  {...field}
+                                  value={field.value || ""}
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                Any additional details, terms, or special conditions
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               </div>
 
@@ -743,7 +741,7 @@ export default function LicenseForm({
             </div>
           </Form>
         </TooltipProvider>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
