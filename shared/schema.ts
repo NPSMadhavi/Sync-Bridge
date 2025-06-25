@@ -22,6 +22,7 @@ export const paymentMethodEnum = pgEnum('payment_method', ['bank_transfer', 'cre
 export const visaTypeEnum = pgEnum('visa_type', ['s_pass', 'work_permit', 'employment_pass', 'pr', 'dependent_pass', 'ltvp', 'student_pass', 'other']);
 export const employeeStatusEnum = pgEnum('employee_status', ['active', 'resigned', 'on_hold', 'terminated']);
 export const relationshipEnum = pgEnum('relationship', ['spouse', 'child', 'parent', 'sibling', 'other']);
+export const companyDocumentTypeEnum = pgEnum("company_document_type", ["company_license", "government_certificate", "purchase_invoice", "rental_agreement", "utility_bill", "payment_reminder", "legal_agreement", "other"]);
 
 // Tables
 export const tenants = pgTable("tenants", {
@@ -529,6 +530,12 @@ export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecor
   .omit({ id: true, createdAt: true });
 
 export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments)
+  .omit({ id: true, createdAt: true });
+
+export const insertCompanyDocumentSchema = createInsertSchema(companyDocuments)
+  .omit({ id: true, createdAt: true, uploadedBy: true });
+
+export const insertDocumentReminderSchema = createInsertSchema(documentReminders)
   .omit({ id: true, createdAt: true });
 
 export const insertVendorSchema = createInsertSchema(vendors)

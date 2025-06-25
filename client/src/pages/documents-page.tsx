@@ -170,7 +170,7 @@ export default function DocumentsPage() {
           <TabsContent value="all" className="mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>All Documents</CardTitle>
+                <CardTitle>All Company Documents</CardTitle>
               </CardHeader>
               <CardContent>
                 {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleDeleteDocument)}
