@@ -163,7 +163,7 @@ export default function DocumentsPage() {
               <TabsTrigger value="expired">Expired</TabsTrigger>
             </TabsList>
             <Button onClick={() => setIsFormDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Upload Document
+              <Plus className="mr-2 h-4 w-4" /> Upload Company Document
             </Button>
           </div>
           

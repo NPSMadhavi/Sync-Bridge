@@ -408,6 +408,25 @@ export const employeeDocumentsRelations = relations(employeeDocuments, ({ one })
   }),
 }));
 
+export const companyDocumentsRelations = relations(companyDocuments, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [companyDocuments.tenantId],
+    references: [tenants.id],
+  }),
+  uploadedBy: one(users, {
+    fields: [companyDocuments.uploadedBy],
+    references: [users.id],
+  }),
+  reminders: many(documentReminders),
+}));
+
+export const documentRemindersRelations = relations(documentReminders, ({ one }) => ({
+  document: one(companyDocuments, {
+    fields: [documentReminders.documentId],
+    references: [companyDocuments.id],
+  }),
+}));
+
 export const vendorsRelations = relations(vendors, ({ many, one }) => ({
   tenant: one(tenants, {
     fields: [vendors.tenantId],
