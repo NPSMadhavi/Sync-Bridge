@@ -63,9 +63,9 @@ export default function DocumentsPage() {
   const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<string>("all");
   
-  // Fetch documents with employee details
-  const { data: documents = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/documents"],
+  // Fetch company documents
+  const { data: documents = [], isLoading } = useQuery<CompanyDocument[]>({
+    queryKey: ["/api/company-documents"],
   });
   
   // Delete document mutation

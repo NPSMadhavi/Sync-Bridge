@@ -582,11 +582,25 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                 />
                                 <div className="space-y-2">
-                                  <Upload className={cn(
-                                    "mx-auto h-8 w-8",
-                                    file ? "text-green-600" : "text-gray-400"
-                                  )} />
-                                  {file ? (
+                                  {isAnalyzing ? (
+                                    <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                                  ) : (
+                                    <Upload className={cn(
+                                      "mx-auto h-8 w-8",
+                                      file ? "text-green-600" : "text-gray-400"
+                                    )} />
+                                  )}
+                                  
+                                  {isAnalyzing ? (
+                                    <div>
+                                      <p className="text-sm font-medium text-blue-700">
+                                        AI is analyzing your document...
+                                      </p>
+                                      <p className="text-xs text-blue-600">
+                                        Extracting document details automatically
+                                      </p>
+                                    </div>
+                                  ) : file ? (
                                     <div>
                                       <p className="text-sm font-medium text-green-700">
                                         File selected: {file.name}
@@ -594,6 +608,18 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                                       <p className="text-xs text-green-600">
                                         {(file.size / 1024 / 1024).toFixed(1)} MB
                                       </p>
+                                      {analysisResult && (
+                                        <div className="mt-2 p-2 bg-blue-50 rounded-md">
+                                          <p className="text-xs text-blue-700">
+                                            AI Analysis: {Math.round(analysisResult.confidence * 100)}% confidence
+                                          </p>
+                                          {analysisResult.confidence > 0.7 && (
+                                            <p className="text-xs text-green-700">
+                                              Form auto-filled with detected information
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   ) : (
                                     <div>
@@ -602,6 +628,9 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                                       </p>
                                       <p className="text-xs text-gray-500">
                                         PDF, JPG, PNG up to 10MB
+                                      </p>
+                                      <p className="text-xs text-blue-600 mt-1">
+                                        AI will auto-detect document details from images
                                       </p>
                                     </div>
                                   )}
@@ -621,24 +650,55 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                       <CardTitle className="flex items-center gap-2 text-lg">
                         <Clock className="h-4 w-4" />
                         Expiry Reminders
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => addReminder({ daysBefore: 30 })}
-                          disabled={reminderFields.length >= 5}
-                          className="ml-auto"
-                        >
-                          <Plus className="h-4 w-4 mr-1" />
-                          Add Reminder
-                        </Button>
+                        <div className="ml-auto flex gap-2">
+                          {analysisResult && analysisResult.expiryDate && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                // Add smart reminders based on document type
+                                if (analysisResult.documentType === 'company_license' || analysisResult.documentType === 'government_certificate') {
+                                  addReminder({ daysBefore: 30 });
+                                  addReminder({ daysBefore: 7 });
+                                } else if (analysisResult.documentType === 'utility_bill' || analysisResult.documentType === 'payment_reminder') {
+                                  addReminder({ daysBefore: 3 });
+                                } else {
+                                  addReminder({ daysBefore: 14 });
+                                }
+                              }}
+                              disabled={reminderFields.length >= 5}
+                              className="text-xs"
+                            >
+                              <Clock className="h-3 w-3 mr-1" />
+                              Smart Reminders
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addReminder({ daysBefore: 30 })}
+                            disabled={reminderFields.length >= 5}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add Reminder
+                          </Button>
+                        </div>
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       {reminderFields.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">
-                          No reminders set. Click "Add Reminder" to get notified before document expiry.
-                        </p>
+                        <div className="text-center">
+                          <p className="text-muted-foreground text-sm">
+                            No reminders set. Click "Add Reminder" to get notified before document expiry.
+                          </p>
+                          {analysisResult && analysisResult.expiryDate && (
+                            <p className="text-xs text-blue-600 mt-2">
+                              AI detected expiry date: {new Date(analysisResult.expiryDate).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
                       ) : (
                         <div className="space-y-3">
                           {reminderFields.map((reminder, index) => (
