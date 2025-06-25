@@ -49,6 +49,11 @@ router.post("/analyze", async (req, res) => {
     // Analyze the document with filename context
     const analysis = await analyzeDocumentFile(base64Data, mimeType, filename);
     
+    // Ensure we always return valid JSON
+    if (!analysis || typeof analysis !== 'object') {
+      throw new Error('Invalid analysis result');
+    }
+    
     res.json(analysis);
   } catch (error) {
     console.error("Error analyzing document:", error);

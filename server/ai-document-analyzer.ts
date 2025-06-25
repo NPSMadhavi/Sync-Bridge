@@ -201,52 +201,72 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
       console.error("Error cleaning up temp files:", cleanupError);
     }
 
-    // Fallback to filename analysis if PDF conversion fails
-    let suggestedTitle = "PDF Document";
-    let suggestedType: DocumentAnalysisResult['documentType'] = 'other';
-    let confidence = 0.3;
-
-    if (filename) {
-      const name = filename.toLowerCase();
-      suggestedTitle = filename.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
-      
-      if (name.includes('invoice') || name.includes('bill') || name.includes('receipt')) {
-        suggestedType = 'purchase_invoice';
-        confidence = 0.5;
-      } else if (name.includes('license') || name.includes('permit')) {
-        suggestedType = 'company_license';
-        confidence = 0.5;
-      } else if (name.includes('certificate') || name.includes('cert')) {
-        suggestedType = 'government_certificate';
-        confidence = 0.5;
-      } else if (name.includes('contract') || name.includes('agreement')) {
-        suggestedType = 'legal_agreement';
-        confidence = 0.5;
-      }
-    }
-
-    return {
-      title: suggestedTitle,
-      documentType: suggestedType,
-      customType: suggestedType === 'other' ? "PDF Document" : undefined,
-      confidence: confidence,
-      extractedText: `PDF analysis failed (${error instanceof Error ? error.message : 'Unknown error'}). Falling back to filename analysis.`,
-    };
+    // Return a meaningful error that won't crash the JSON response
+    throw new Error(`PDF analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or fill form manually.`);
   }
 }
 
 // Main function to analyze any document type
 export async function analyzeDocumentFile(base64Data: string, mimeType: string, filename?: string): Promise<DocumentAnalysisResult> {
-  if (mimeType === 'application/pdf') {
-    return analyzePDF(base64Data, filename);
-  } else if (mimeType.startsWith('image/')) {
-    return analyzeDocument(base64Data, mimeType);
-  } else {
-    return {
-      title: "Unsupported File Type",
-      documentType: 'other',
-      confidence: 0,
-      extractedText: "File type not supported for AI analysis",
-    };
+  try {
+    if (mimeType === 'application/pdf') {
+      // For PDFs, fallback to filename analysis since PDF conversion is complex
+      return analyzeFromFilename(filename);
+    } else if (mimeType.startsWith('image/')) {
+      return analyzeDocument(base64Data, mimeType);
+    } else {
+      return {
+        title: "Unsupported File Type",
+        documentType: 'other',
+        confidence: 0,
+        extractedText: "File type not supported for AI analysis",
+      };
+    }
+  } catch (error) {
+    console.error("Error in analyzeDocumentFile:", error);
+    throw error;
   }
+}
+
+// Fallback filename analysis function
+function analyzeFromFilename(filename?: string): DocumentAnalysisResult {
+  let suggestedTitle = "PDF Document";
+  let suggestedType: DocumentAnalysisResult['documentType'] = 'other';
+  let confidence = 0.3;
+
+  if (filename) {
+    const name = filename.toLowerCase();
+    suggestedTitle = filename.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+    
+    if (name.includes('invoice') || name.includes('bill') || name.includes('receipt')) {
+      suggestedType = 'purchase_invoice';
+      confidence = 0.7;
+    } else if (name.includes('license') || name.includes('permit')) {
+      suggestedType = 'company_license';
+      confidence = 0.7;
+    } else if (name.includes('certificate') || name.includes('cert')) {
+      suggestedType = 'government_certificate';
+      confidence = 0.7;
+    } else if (name.includes('contract') || name.includes('agreement')) {
+      suggestedType = 'legal_agreement';
+      confidence = 0.7;
+    } else if (name.includes('rental') || name.includes('lease')) {
+      suggestedType = 'rental_agreement';
+      confidence = 0.7;
+    } else if (name.includes('utility') || name.includes('electric') || name.includes('water') || name.includes('gas')) {
+      suggestedType = 'utility_bill';
+      confidence = 0.7;
+    } else if (name.includes('payment') || name.includes('reminder') || name.includes('notice')) {
+      suggestedType = 'payment_reminder';
+      confidence = 0.7;
+    }
+  }
+
+  return {
+    title: suggestedTitle,
+    documentType: suggestedType,
+    customType: suggestedType === 'other' ? "PDF Document" : undefined,
+    confidence: confidence,
+    extractedText: `Filename analysis: ${filename || 'No filename provided'}. PDF content analysis requires additional setup.`,
+  };
 }
