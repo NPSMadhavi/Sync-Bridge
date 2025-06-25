@@ -213,7 +213,7 @@ export default function LicenseForm({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent 
-        className="max-w-4xl max-h-[90vh] overflow-hidden p-0"
+        className="max-w-6xl w-[95vw] max-h-[95vh] overflow-hidden p-0"
         onKeyDown={handleKeyDown}
       >
         <TooltipProvider>
@@ -235,7 +235,7 @@ export default function LicenseForm({
               {/* Form Content - Scrollable Area */}
               <div className="flex-1 overflow-y-auto px-6 py-6 pb-24">
                 {/* Responsive grid layout container */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 
                   {/* Left Column */}
                   <div className="space-y-6">
@@ -675,7 +675,7 @@ export default function LicenseForm({
                 </div>
 
                 {/* Additional Info Section - Full Width */}
-                <div className="mt-6">
+                <div className="mt-8 col-span-full">
                   <Card>
                     <CardHeader className="pb-4">
                       <CardTitle className="flex items-center gap-2 text-lg">
@@ -683,7 +683,7 @@ export default function LicenseForm({
                         Additional Information
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
                       {/* Vendor */}
                       <FormField
@@ -759,7 +759,7 @@ export default function LicenseForm({
                       />
 
                       {/* Notes - Full Width */}
-                      <div className="md:col-span-2">
+                      <div className="lg:col-span-2">
                         <FormField
                           control={form.control}
                           name="notes"
@@ -769,7 +769,7 @@ export default function LicenseForm({
                               <FormControl>
                                 <Textarea
                                   placeholder="Additional information about this license..."
-                                  className="min-h-[80px]"
+                                  className="min-h-[100px]"
                                   {...field}
                                   value={field.value || ""}
                                 />
