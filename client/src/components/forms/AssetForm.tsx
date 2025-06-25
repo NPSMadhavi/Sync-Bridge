@@ -215,17 +215,17 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
   return (
     <TooltipProvider>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
           
-          {/* Two-column layout container */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Responsive two-column layout container */}
+          <div className="flex flex-col md:flex-row gap-x-6 gap-y-4">
             
             {/* Left Column */}
-            <div className="space-y-6">
+            <div className="flex-1 space-y-4">
               
               {/* Basic Details Section */}
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <Package className="h-4 w-4 text-blue-600" />
                     Basic Details
@@ -250,7 +250,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                             </Tooltip>
                           </FormLabel>
                           <FormControl>
-                            <Input placeholder="IT-LAP-001" {...field} />
+                            <Input placeholder="IT-LAP-001" className="w-full" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -289,7 +289,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                         <FormItem>
                           <FormLabel>Serial Number *</FormLabel>
                           <FormControl>
-                            <Input placeholder="C02XN1ABMD6R" {...field} />
+                            <Input placeholder="C02XN1ABMD6R" className="w-full" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -303,7 +303,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                         <FormItem>
                           <FormLabel>Model Number</FormLabel>
                           <FormControl>
-                            <Input placeholder="MacBook Pro 14-inch" {...field} />
+                            <Input placeholder="MacBook Pro 14-inch" className="w-full" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -340,7 +340,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
 
               {/* Assignment & Status Section */}
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <User className="h-4 w-4 text-green-600" />
                     Assignment & Status
@@ -403,7 +403,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                         <FormItem>
                           <FormLabel>Assigned To</FormLabel>
                           <FormControl>
-                            <Input placeholder="Employee name or department" {...field} />
+                            <Input placeholder="Employee name or department" className="w-full" {...field} />
                           </FormControl>
                           <FormDescription className="text-xs">
                             Leave empty if available for assignment
@@ -444,11 +444,11 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
             </div>
             
             {/* Right Column */}
-            <div className="space-y-6">
+            <div className="flex-1 space-y-4">
 
               {/* Procurement Details Section */}
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <CreditCard className="h-4 w-4 text-purple-600" />
                     Procurement Details
@@ -463,7 +463,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                         <FormItem>
                           <FormLabel>Vendor</FormLabel>
                           <FormControl>
-                            <Input placeholder="Vendor name" {...field} />
+                            <Input placeholder="Vendor name" className="w-full" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -477,7 +477,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                         <FormItem>
                           <FormLabel>Invoice Number</FormLabel>
                           <FormControl>
-                            <Input placeholder="INV-2024-001" {...field} />
+                            <Input placeholder="INV-2024-001" className="w-full" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -526,7 +526,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
               {/* Finance Details Section (Collapsible) */}
               <Card>
                 <Collapsible open={isFinanceOpen} onOpenChange={setIsFinanceOpen}>
-                  <CardHeader>
+                  <CardHeader className="pb-3">
                     <CollapsibleTrigger className="flex items-center justify-between w-full text-left">
                       <CardTitle className="flex items-center gap-2 text-base">
                         <Calculator className="h-4 w-4 text-orange-600" />
@@ -616,7 +616,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
 
               {/* Additional Notes Section */}
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <FileText className="h-4 w-4 text-gray-600" />
                     Additional Notes
@@ -650,10 +650,11 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
           </div>
 
           {/* Form Actions - Full Width */}
-          <div className="flex justify-end gap-4 pt-4 border-t">
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t mt-6">
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto min-w-[100px]"
               onClick={() => {
                 form.reset();
                 if (onSuccess) onSuccess();
@@ -664,7 +665,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
             <Button 
               type="submit" 
               disabled={createAssetMutation.isPending || updateAssetMutation.isPending}
-              className="min-w-[120px]"
+              className="w-full sm:w-auto min-w-[120px]"
             >
               {(createAssetMutation.isPending || updateAssetMutation.isPending) && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
