@@ -52,9 +52,12 @@ router.post("/analyze", async (req, res) => {
     res.json(analysis);
   } catch (error) {
     console.error("Error analyzing document:", error);
-    res.status(500).json({ 
+    
+    // Return a proper JSON error response
+    return res.status(500).json({ 
       error: "Failed to analyze document",
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
   }
 });

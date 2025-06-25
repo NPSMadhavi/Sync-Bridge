@@ -169,9 +169,19 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
       }
     } catch (error) {
       console.error("AI analysis failed:", error);
+      
+      let errorMessage = "Unable to analyze document with AI. Please fill form manually.";
+      if (error instanceof Error) {
+        if (error.message.includes('Unexpected token')) {
+          errorMessage = "Server error during analysis. Please try again or fill form manually.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
         title: "AI Analysis Failed",
-        description: "Unable to analyze document with AI. Please fill form manually.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

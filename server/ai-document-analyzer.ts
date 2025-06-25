@@ -154,14 +154,16 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
 
     // Convert first page of PDF to image
     const options = {
-      format: 'jpeg',
+      format: 'jpeg' as const,
       out_dir: tempDir,
       out_prefix: `pdf_page_${Date.now()}`,
       page: 1, // Only convert first page
       single_file: true
     };
 
+    console.log('Converting PDF with options:', options);
     const result = await convert(tempPdfPath, options);
+    console.log('PDF conversion result:', result);
     
     if (!result || result.length === 0) {
       throw new Error("Failed to convert PDF to image");
@@ -170,7 +172,8 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
     tempImagePath = result[0];
 
     // Read the converted image and convert to base64
-    const imageBuffer = await require('fs').promises.readFile(tempImagePath);
+    const { readFile } = await import('fs/promises');
+    const imageBuffer = await readFile(tempImagePath);
     const imageBase64 = imageBuffer.toString('base64');
 
     // Now analyze the image using our existing image analysis
