@@ -1,0 +1,53 @@
+api/user:1 
+            
+            
+           Failed to load resource: the server responded with a status of 401 (Unauthorized)
+content.js:148 [Redirect Blocker] Stopping to prevent same tab redirects
+content.js:148 [Redirect Blocker] Stopping to prevent same tab redirects
+employees-page.tsx:236 Uncaught ReferenceError: Dialog is not defined
+    at EmployeesPage (employees-page.tsx:236:8)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=2e8f5457:11548:26)
+    at mountIndeterminateComponent (chunk-RPCDYKBN.js?v=2e8f5457:14926:21)
+    at beginWork (chunk-RPCDYKBN.js?v=2e8f5457:15914:22)
+    at HTMLUnknownElement.callCallback2 (chunk-RPCDYKBN.js?v=2e8f5457:3674:22)
+    at Object.invokeGuardedCallbackDev (chunk-RPCDYKBN.js?v=2e8f5457:3699:24)
+    at invokeGuardedCallback (chunk-RPCDYKBN.js?v=2e8f5457:3733:39)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=2e8f5457:19765:15)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=2e8f5457:19198:20)
+    at workLoopSync (chunk-RPCDYKBN.js?v=2e8f5457:19137:13)
+employees-page.tsx:236 Uncaught ReferenceError: Dialog is not defined
+    at EmployeesPage (employees-page.tsx:236:8)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=2e8f5457:11548:26)
+    at mountIndeterminateComponent (chunk-RPCDYKBN.js?v=2e8f5457:14926:21)
+    at beginWork (chunk-RPCDYKBN.js?v=2e8f5457:15914:22)
+    at HTMLUnknownElement.callCallback2 (chunk-RPCDYKBN.js?v=2e8f5457:3674:22)
+    at Object.invokeGuardedCallbackDev (chunk-RPCDYKBN.js?v=2e8f5457:3699:24)
+    at invokeGuardedCallback (chunk-RPCDYKBN.js?v=2e8f5457:3733:39)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=2e8f5457:19765:15)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=2e8f5457:19198:20)
+    at workLoopSync (chunk-RPCDYKBN.js?v=2e8f5457:19137:13)
+hook.js:608 The above error occurred in the <EmployeesPage> component:
+
+    at EmployeesPage (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/pages/employees-page.tsx:62:21)
+    at Route (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=2e8f5457:191:16)
+    at ProtectedRoute (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/lib/protected-route.tsx:22:3)
+    at Switch (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=2e8f5457:247:17)
+    at Router
+    at AuthProvider (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/hooks/use-auth.tsx:31:32)
+    at QueryClientProvider (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=2e8f5457:2805:3)
+    at App (https://82180983-5635-4be4-a0d6-43d5abba1d96-00-2hi55vgz1hbaw.riker.replit.dev/src/App.tsx?v=8_bj1ck5YwuSvyOQnNlju:132:3)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+overrideMethod @ hook.js:608
+chunk-RPCDYKBN.js?v=2e8f5457:9129 Uncaught ReferenceError: Dialog is not defined
+    at EmployeesPage (employees-page.tsx:236:8)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=2e8f5457:11548:26)
+    at mountIndeterminateComponent (chunk-RPCDYKBN.js?v=2e8f5457:14926:21)
+    at beginWork (chunk-RPCDYKBN.js?v=2e8f5457:15914:22)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=2e8f5457:19753:22)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=2e8f5457:19198:20)
+    at workLoopSync (chunk-RPCDYKBN.js?v=2e8f5457:19137:13)
+    at renderRootSync (chunk-RPCDYKBN.js?v=2e8f5457:19116:15)
+    at recoverFromConcurrentError (chunk-RPCDYKBN.js?v=2e8f5457:18736:28)
+    at performSyncWorkOnRoot (chunk-RPCDYKBN.js?v=2e8f5457:18879:28)

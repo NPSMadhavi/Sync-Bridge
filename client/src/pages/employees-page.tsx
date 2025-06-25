@@ -233,17 +233,12 @@ export default function EmployeesPage() {
       />
       
       {/* Document Form Dialog */}
-      <Dialog open={isDocumentFormOpen} onOpenChange={setIsDocumentFormOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Add Document</DialogTitle>
-          </DialogHeader>
-          <DocumentForm
-            employeeId={selectedEmployeeId || undefined}
-            onSuccess={() => setIsDocumentFormOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      {isDocumentFormOpen && selectedEmployeeId && (
+        <DocumentForm
+          employeeId={selectedEmployeeId}
+          onSuccess={() => setIsDocumentFormOpen(false)}
+        />
+      )}
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
