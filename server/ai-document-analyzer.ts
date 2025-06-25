@@ -216,13 +216,18 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
 
 // Main function to analyze any document type
 export async function analyzeDocumentFile(base64Data: string, mimeType: string, filename?: string): Promise<DocumentAnalysisResult> {
+  console.log(`Starting analysis for ${mimeType} file: ${filename}`);
+  
   try {
     if (mimeType === 'application/pdf') {
+      console.log("Processing PDF file...");
       // Use full PDF analysis with image conversion
       return await analyzePDF(base64Data, filename);
     } else if (mimeType.startsWith('image/')) {
+      console.log("Processing image file...");
       return await analyzeDocument(base64Data, mimeType);
     } else {
+      console.log("Unsupported file type:", mimeType);
       return {
         title: "Unsupported File Type",
         documentType: 'other',
@@ -232,11 +237,19 @@ export async function analyzeDocumentFile(base64Data: string, mimeType: string, 
     }
   } catch (error) {
     console.error("Error in analyzeDocumentFile:", error);
-    // Fallback to filename analysis only if PDF conversion completely fails
+    // Always fallback to filename analysis for PDFs to prevent crashes
     if (mimeType === 'application/pdf' && filename) {
+      console.log("Falling back to filename analysis for PDF...");
       return analyzeFromFilename(filename);
     }
-    throw error;
+    
+    // For other errors, return a safe fallback result instead of throwing
+    return {
+      title: filename ? filename.replace(/\.[^/.]+$/, "") : "Analysis Failed",
+      documentType: 'other',
+      confidence: 0,
+      extractedText: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
   }
 }
 

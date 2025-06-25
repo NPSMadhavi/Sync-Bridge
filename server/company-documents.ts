@@ -35,19 +35,26 @@ const createCompanyDocumentSchema = z.object({
 
 // Analyze document with AI
 router.post("/analyze", async (req, res) => {
+  console.log("Starting document analysis...");
+  
   try {
     const { fileData, filename } = req.body;
+    console.log("Received request:", { filename, hasFileData: !!fileData });
     
     if (!fileData) {
+      console.error("No file data provided");
       return res.status(400).json({ error: "File data is required" });
     }
 
     // Extract mime type and base64 data
     const [mimeTypePart, base64Data] = fileData.split(',');
     const mimeType = mimeTypePart.split(':')[1].split(';')[0];
+    console.log("Detected mime type:", mimeType);
 
     // Analyze the document with filename context
+    console.log("Starting document analysis...");
     const analysis = await analyzeDocumentFile(base64Data, mimeType, filename);
+    console.log("Analysis completed:", { title: analysis.title, type: analysis.documentType, confidence: analysis.confidence });
     
     // Ensure we always return valid JSON
     if (!analysis || typeof analysis !== 'object') {
@@ -58,11 +65,11 @@ router.post("/analyze", async (req, res) => {
   } catch (error) {
     console.error("Error analyzing document:", error);
     
-    // Return a proper JSON error response
-    return res.status(500).json({ 
+    // Always ensure we return JSON, never HTML
+    res.status(500).json({ 
       error: "Failed to analyze document",
       details: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+      type: "analysis_error"
     });
   }
 });
