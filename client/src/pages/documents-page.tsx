@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import DocumentForm from "@/components/forms/DocumentForm";
+import CompanyDocumentForm from "@/components/forms/CompanyDocumentForm";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,14 +71,14 @@ export default function DocumentsPage() {
   // Delete document mutation
   const deleteDocumentMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/documents/${id}`);
+      await apiRequest("DELETE", `/api/company-documents/${id}`);
     },
     onSuccess: () => {
       toast({
         title: "Document deleted",
         description: "The document has been deleted successfully.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company-documents"] });
       setIsDeleteDialogOpen(false);
     },
     onError: (error: Error) => {
@@ -202,17 +202,12 @@ export default function DocumentsPage() {
         </Tabs>
       </div>
       
-      {/* Document Form Dialog */}
-      <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Upload Document</DialogTitle>
-          </DialogHeader>
-          <DocumentForm
-            onSuccess={() => setIsFormDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Company Document Form */}
+      <CompanyDocumentForm
+        document={selectedDocumentId ? documents.find(d => d.id === selectedDocumentId) : undefined}
+        isOpen={isFormDialogOpen}
+        onClose={() => setIsFormDialogOpen(false)}
+      />
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

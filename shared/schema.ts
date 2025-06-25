@@ -174,6 +174,27 @@ export const employeeDocuments = pgTable("employee_documents", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const companyDocuments = pgTable("company_documents", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  documentType: companyDocumentTypeEnum("document_type").notNull(),
+  customType: text("custom_type"),
+  title: text("title").notNull(),
+  filePath: text("file_path").notNull(),
+  issueDate: timestamp("issue_date"),
+  expiryDate: timestamp("expiry_date"),
+  notes: text("notes"),
+  uploadedBy: integer("uploaded_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const documentReminders = pgTable("document_reminders", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").references(() => companyDocuments.id, { onDelete: "cascade" }).notNull(),
+  daysBefore: integer("days_before").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const vendors = pgTable("vendors", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").references(() => tenants.id),
