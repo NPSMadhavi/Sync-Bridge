@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format, isAfter, isBefore } from "date-fns";
-import { CalendarIcon, Loader2, Shield, DollarSign, Users, Building, RotateCcw, CheckCircle } from "lucide-react";
+import { CalendarIcon, Loader2, Shield, DollarSign, Users, Building, RotateCcw, CheckCircle, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -52,13 +52,20 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
 
 // Extend the insertLicenseSchema with enhanced validations
 const licenseFormSchema = insertLicenseSchema.extend({
   name: z.string().min(1, "Name is required"),
   licenseKey: z.string()
     .min(1, "License key is required")
-    .regex(/^[A-Z0-9\-]{4,}$/, "License key must contain only uppercase letters, numbers, and hyphens"),
+    .regex(/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}(-[A-Z0-9]{4})?$|^[A-Z0-9\-]{10,}$/, "License key must follow format XXXX-XXXX-XXXX or similar pattern"),
   type: z.enum(["software", "hardware", "subscription", "service", "other"]),
   assetId: z.number().nullable().optional(),
   purchaseDate: z.date().optional().nullable(),
@@ -100,6 +107,7 @@ export default function LicenseForm({
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(
     license?.assetId || null
   );
+  const [assetSearchOpen, setAssetSearchOpen] = useState(false);
 
   // Fetch all assets for the asset selection
   const { data: assets = [] } = useQuery<Asset[]>({
@@ -189,10 +197,16 @@ export default function LicenseForm({
 
   // Handle form submission
   const onSubmit = (values: LicenseFormValues) => {
+    // Auto-set status to expired if expiry date has passed
+    const updatedValues = { ...values };
+    if (values.expiryDate && isBefore(values.expiryDate, new Date())) {
+      updatedValues.status = "expired";
+    }
+
     if (license) {
-      updateMutation.mutate(values);
+      updateMutation.mutate(updatedValues);
     } else {
-      createMutation.mutate(values);
+      createMutation.mutate(updatedValues);
     }
   };
 
@@ -302,14 +316,17 @@ export default function LicenseForm({
                                     {...field}
                                     className="font-mono text-sm"
                                     onChange={(e) => {
-                                      // Auto-format license key to uppercase
-                                      const value = e.target.value.toUpperCase();
+                                      // Auto-format license key to uppercase and add hyphens
+                                      let value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                      if (value.length > 4) {
+                                        value = value.match(/.{1,4}/g)?.join('-') || value;
+                                      }
                                       field.onChange(value);
                                     }}
                                   />
                                 </FormControl>
                                 <FormDescription className="text-xs">
-                                  License key or activation code (uppercase letters, numbers, hyphens)
+                                  License key format: XXXX-XXXX-XXXX-XXXX (auto-formatted)
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -392,14 +409,19 @@ export default function LicenseForm({
                               <FormItem>
                                 <FormLabel>License Cost (SGD)</FormLabel>
                                 <FormControl>
-                                  <Input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    placeholder="e.g., 299.99"
-                                    {...field}
-                                    value={field.value || ""}
-                                  />
+                                  <div className="relative">
+                                    <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="299.99"
+                                      inputMode="decimal"
+                                      className="pl-10"
+                                      {...field}
+                                      value={field.value || ""}
+                                    />
+                                  </div>
                                 </FormControl>
                                 <FormDescription className="text-xs">
                                   Total cost paid for this license in Singapore Dollars
@@ -459,56 +481,66 @@ export default function LicenseForm({
                           <FormField
                             control={form.control}
                             name="expiryDate"
-                            render={({ field }) => (
-                              <FormItem className="flex flex-col">
-                                <FormLabel className="flex items-center gap-2">
-                                  Expiry Date
-                                  {field.value && isBefore(field.value, new Date()) && (
-                                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">
-                                      Expired
-                                    </span>
-                                  )}
-                                </FormLabel>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <FormControl>
-                                      <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                          "w-full pl-3 text-left font-normal",
-                                          !field.value && "text-muted-foreground",
-                                          field.value && isBefore(field.value, new Date()) && "border-red-500 bg-red-50"
-                                        )}
-                                      >
-                                        {field.value ? (
-                                          format(field.value, "PPP")
-                                        ) : (
-                                          <span>Pick a date</span>
-                                        )}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                      </Button>
-                                    </FormControl>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                      mode="single"
-                                      selected={field.value || undefined}
-                                      onSelect={field.onChange}
-                                      disabled={(date) => {
-                                        const purchaseDate = form.watch("purchaseDate");
-                                        return date < new Date("1900-01-01") || 
-                                               (purchaseDate && isBefore(date, purchaseDate));
-                                      }}
-                                      initialFocus
-                                    />
-                                  </PopoverContent>
-                                </Popover>
-                                <FormDescription className="text-xs">
-                                  When does this license expire (must be after purchase date)
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
+                            render={({ field }) => {
+                              const isExpiredLicense = field.value && isBefore(field.value, new Date());
+                              const purchaseDate = form.watch("purchaseDate");
+                              
+                              return (
+                                <FormItem className="flex flex-col">
+                                  <FormLabel className="flex items-center gap-2">
+                                    Expiry Date
+                                    {isExpiredLicense && (
+                                      <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-medium">
+                                        Expired
+                                      </span>
+                                    )}
+                                  </FormLabel>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <FormControl>
+                                        <Button
+                                          variant={"outline"}
+                                          className={cn(
+                                            "w-full pl-3 text-left font-normal",
+                                            !field.value && "text-muted-foreground",
+                                            isExpiredLicense && "border-red-500 bg-red-50 text-red-700"
+                                          )}
+                                        >
+                                          {field.value ? (
+                                            format(field.value, "PPP")
+                                          ) : (
+                                            <span>Pick a date</span>
+                                          )}
+                                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                        </Button>
+                                      </FormControl>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                      <Calendar
+                                        mode="single"
+                                        selected={field.value || undefined}
+                                        onSelect={field.onChange}
+                                        disabled={(date) => {
+                                          return date < new Date("1900-01-01") || 
+                                                 (purchaseDate && isBefore(date, purchaseDate));
+                                        }}
+                                        initialFocus
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                  <FormDescription className={cn(
+                                    "text-xs",
+                                    isExpiredLicense && "text-red-600"
+                                  )}>
+                                    {isExpiredLicense 
+                                      ? "This license has expired and will be marked as expired"
+                                      : "When does this license expire (must be after purchase date)"
+                                    }
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              );
+                            }}
                           />
                       </CardContent>
                     </Card>
@@ -523,37 +555,83 @@ export default function LicenseForm({
                       </CardHeader>
                       <CardContent className="space-y-4">
 
-                        {/* Associated Asset */}
+                        {/* Associated Asset - Searchable */}
                         <FormField
                           control={form.control}
                           name="assetId"
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Associated Asset</FormLabel>
-                              <Select
-                                onValueChange={(value) => {
-                                  const numValue = value && value !== "none" ? parseInt(value) : null;
-                                  field.onChange(numValue);
-                                  setSelectedAssetId(numValue);
-                                }}
-                                defaultValue={
-                                  field.value !== null ? field.value.toString() : "none"
-                                }
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select asset (optional)" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="none">None</SelectItem>
-                                  {assets.map((asset) => (
-                                    <SelectItem key={asset.id} value={asset.id.toString()}>
-                                      {asset.tag} - {asset.type} ({asset.brand} {asset.model})
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <Popover open={assetSearchOpen} onOpenChange={setAssetSearchOpen}>
+                                <PopoverTrigger asChild>
+                                  <FormControl>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={assetSearchOpen}
+                                      className="w-full justify-between"
+                                    >
+                                      {field.value && field.value !== null
+                                        ? (() => {
+                                            const selectedAsset = assets.find(asset => asset.id === field.value);
+                                            return selectedAsset 
+                                              ? `${selectedAsset.tag} - ${selectedAsset.type} (${selectedAsset.brand} ${selectedAsset.model})`
+                                              : "None";
+                                          })()
+                                        : "Select asset (optional)..."}
+                                      <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </FormControl>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-full p-0">
+                                  <Command>
+                                    <CommandInput placeholder="Search assets..." />
+                                    <CommandEmpty>No asset found.</CommandEmpty>
+                                    <CommandGroup className="max-h-64 overflow-auto">
+                                      <CommandItem
+                                        value="none"
+                                        onSelect={() => {
+                                          field.onChange(null);
+                                          setSelectedAssetId(null);
+                                          setAssetSearchOpen(false);
+                                        }}
+                                      >
+                                        <CheckCircle
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            field.value === null ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        None
+                                      </CommandItem>
+                                      {assets.map((asset) => (
+                                        <CommandItem
+                                          key={asset.id}
+                                          value={`${asset.tag} ${asset.type} ${asset.brand} ${asset.model}`}
+                                          onSelect={() => {
+                                            field.onChange(asset.id);
+                                            setSelectedAssetId(asset.id);
+                                            setAssetSearchOpen(false);
+                                          }}
+                                        >
+                                          <CheckCircle
+                                            className={cn(
+                                              "mr-2 h-4 w-4",
+                                              field.value === asset.id ? "opacity-100" : "opacity-0"
+                                            )}
+                                          />
+                                          <div className="flex flex-col">
+                                            <span className="font-medium">{asset.tag} - {asset.type}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                              {asset.brand} {asset.model}
+                                            </span>
+                                          </div>
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
                               <FormDescription className="text-xs">
                                 Link this license to a specific device or hardware asset
                               </FormDescription>
