@@ -223,13 +223,14 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
     <TooltipProvider>
       <Form {...form}>
         <div 
-          className="min-h-[calc(100vh-160px)] flex flex-col"
+          className="h-[calc(100vh-160px)] flex flex-col"
           onKeyDown={handleKeyDown}
         >
-          {/* Form Content */}
-          <div className="flex-1 py-6">
-            {/* Responsive grid layout container */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Form Content - Scrollable Area */}
+          <div className="flex-1 overflow-y-auto px-1 pb-24">
+            <div className="py-6">
+              {/* Responsive grid layout container */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
               {/* Left Column */}
               <div className="space-y-6">
@@ -665,10 +666,11 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
             </div>
             
             </div>
+            </div>
           </div>
           
-          {/* Sticky Footer with Actions */}
-          <div className="sticky bottom-0 z-10 bg-background border-t px-0 py-4 mt-6">
+          {/* Sticky Footer with Actions - Outside scrollable area */}
+          <div className="flex-shrink-0 bg-background border-t px-4 py-4">
             <form onSubmit={form.handleSubmit(onSubmit)}>
               <div className="flex flex-col sm:flex-row justify-end gap-3">
                 <Button
