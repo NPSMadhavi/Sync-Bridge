@@ -1,4 +1,8 @@
 import OpenAI from 'openai';
+import { convert } from 'pdf-poppler';
+import { writeFile, unlink, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY environment variable must be set");
@@ -132,49 +136,89 @@ Example response:
   }
 }
 
-// Analyze PDF by extracting information from filename and providing smart suggestions
+// Convert PDF to image and analyze with full AI vision
 export async function analyzePDF(base64PDF: string, filename?: string): Promise<DocumentAnalysisResult> {
+  const tempDir = join(process.cwd(), 'temp');
+  const tempPdfPath = join(tempDir, `temp_pdf_${Date.now()}.pdf`);
+  let tempImagePath: string | null = null;
+
   try {
-    // Smart analysis based on filename patterns
+    // Ensure temp directory exists
+    if (!existsSync(tempDir)) {
+      await mkdir(tempDir, { recursive: true });
+    }
+
+    // Convert base64 to PDF file
+    const pdfBuffer = Buffer.from(base64PDF, 'base64');
+    await writeFile(tempPdfPath, pdfBuffer);
+
+    // Convert first page of PDF to image
+    const options = {
+      format: 'jpeg',
+      out_dir: tempDir,
+      out_prefix: `pdf_page_${Date.now()}`,
+      page: 1, // Only convert first page
+      single_file: true
+    };
+
+    const result = await convert(tempPdfPath, options);
+    
+    if (!result || result.length === 0) {
+      throw new Error("Failed to convert PDF to image");
+    }
+
+    tempImagePath = result[0];
+
+    // Read the converted image and convert to base64
+    const imageBuffer = await require('fs').promises.readFile(tempImagePath);
+    const imageBase64 = imageBuffer.toString('base64');
+
+    // Now analyze the image using our existing image analysis
+    const analysisResult = await analyzeDocument(imageBase64, 'image/jpeg');
+
+    // Clean up temporary files
+    await unlink(tempPdfPath);
+    if (tempImagePath && existsSync(tempImagePath)) {
+      await unlink(tempImagePath);
+    }
+
+    return {
+      ...analysisResult,
+      extractedText: `PDF converted to image for analysis. ${analysisResult.extractedText || ''}`
+    };
+
+  } catch (error) {
+    console.error("Error analyzing PDF:", error);
+
+    // Clean up on error
+    try {
+      if (existsSync(tempPdfPath)) await unlink(tempPdfPath);
+      if (tempImagePath && existsSync(tempImagePath)) await unlink(tempImagePath);
+    } catch (cleanupError) {
+      console.error("Error cleaning up temp files:", cleanupError);
+    }
+
+    // Fallback to filename analysis if PDF conversion fails
     let suggestedTitle = "PDF Document";
     let suggestedType: DocumentAnalysisResult['documentType'] = 'other';
-    let suggestedCustomType = undefined;
     let confidence = 0.3;
 
     if (filename) {
       const name = filename.toLowerCase();
-      
-      // Extract potential title from filename
       suggestedTitle = filename.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
       
-      // Detect document type from filename patterns
       if (name.includes('invoice') || name.includes('bill') || name.includes('receipt')) {
         suggestedType = 'purchase_invoice';
-        confidence = 0.7;
+        confidence = 0.5;
       } else if (name.includes('license') || name.includes('permit')) {
         suggestedType = 'company_license';
-        confidence = 0.7;
+        confidence = 0.5;
       } else if (name.includes('certificate') || name.includes('cert')) {
         suggestedType = 'government_certificate';
-        confidence = 0.7;
+        confidence = 0.5;
       } else if (name.includes('contract') || name.includes('agreement')) {
         suggestedType = 'legal_agreement';
-        confidence = 0.7;
-      } else if (name.includes('rental') || name.includes('lease')) {
-        suggestedType = 'rental_agreement';
-        confidence = 0.7;
-      } else if (name.includes('utility') || name.includes('electric') || name.includes('water') || name.includes('gas')) {
-        suggestedType = 'utility_bill';
-        confidence = 0.7;
-      } else if (name.includes('payment') || name.includes('reminder') || name.includes('notice')) {
-        suggestedType = 'payment_reminder';
-        confidence = 0.7;
-      }
-
-      // Extract potential dates from filename
-      const dateMatches = filename.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})|(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})|(\d{8})|(\d{4})(\d{2})(\d{2})/);
-      if (dateMatches) {
-        confidence = Math.min(confidence + 0.1, 0.8);
+        confidence = 0.5;
       }
     }
 
@@ -183,15 +227,7 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
       documentType: suggestedType,
       customType: suggestedType === 'other' ? "PDF Document" : undefined,
       confidence: confidence,
-      extractedText: `PDF filename analysis: ${filename || 'No filename provided'}. Suggestions based on filename patterns. Please verify and adjust details manually.`,
-    };
-  } catch (error) {
-    console.error("Error analyzing PDF:", error);
-    return {
-      title: "PDF Analysis Failed",
-      documentType: 'other',
-      confidence: 0,
-      extractedText: "PDF analysis failed. Please enter document details manually.",
+      extractedText: `PDF analysis failed (${error instanceof Error ? error.message : 'Unknown error'}). Falling back to filename analysis.`,
     };
   }
 }

@@ -592,7 +592,10 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                                         AI is analyzing your document...
                                       </p>
                                       <p className="text-xs text-blue-600">
-                                        Extracting document details automatically
+                                        {file?.type === 'application/pdf' 
+                                          ? 'Converting PDF and extracting details...' 
+                                          : 'Extracting document details automatically'
+                                        }
                                       </p>
                                     </div>
                                   ) : file ? (
@@ -625,7 +628,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                                         PDF, JPG, PNG up to 10MB
                                       </p>
                                       <p className="text-xs text-blue-600 mt-1">
-                                        AI will analyze images and suggest details for PDFs
+                                        AI will analyze images and convert PDFs for full analysis
                                       </p>
                                     </div>
                                   )}
