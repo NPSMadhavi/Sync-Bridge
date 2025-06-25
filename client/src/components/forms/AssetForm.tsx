@@ -215,334 +215,42 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
   return (
     <TooltipProvider>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8 max-w-4xl mx-auto">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           
-          {/* Basic Details Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5 text-blue-600" />
-                Basic Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="tag"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        Asset Tag *
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <HelpCircle className="h-4 w-4 text-gray-400" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Unique identifier for tracking this asset</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </FormLabel>
-                      <FormControl>
-                        <Input placeholder="IT-LAP-001" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Asset Type *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select asset type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {assetTypes.map((type) => (
-                            <SelectItem key={type} value={type.toLowerCase()}>
-                              {type}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="serial"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Serial Number *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="C02XN1ABMD6R" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="model"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Model Number</FormLabel>
-                      <FormControl>
-                        <Input placeholder="MacBook Pro 14-inch" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="manufacturer"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Manufacturer</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select manufacturer" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {manufacturers.map((manufacturer) => (
-                            <SelectItem key={manufacturer} value={manufacturer.toLowerCase()}>
-                              {manufacturer}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Assignment & Status Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5 text-green-600" />
-                Assignment & Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="available">Available</SelectItem>
-                          <SelectItem value="assigned">Assigned</SelectItem>
-                          <SelectItem value="maintenance">Under Repair</SelectItem>
-                          <SelectItem value="retired">Retired</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="condition"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Condition</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select condition" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="new">New</SelectItem>
-                          <SelectItem value="used">Used</SelectItem>
-                          <SelectItem value="refurbished">Refurbished</SelectItem>
-                          <SelectItem value="damaged">Damaged</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="assignedTo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Assigned To</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Employee name or department" {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        Leave empty if available for assignment
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="location"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Location</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select location" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {locations.map((location) => (
-                            <SelectItem key={location} value={location.toLowerCase()}>
-                              {location}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Procurement Details Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5 text-purple-600" />
-                Procurement Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="vendor"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vendor</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Vendor name" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="invoiceNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Invoice Number</FormLabel>
-                      <FormControl>
-                        <Input placeholder="INV-2024-001" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="purchaseDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Purchase Date</FormLabel>
-                      <FormControl>
-                        <DatePicker
-                          date={field.value}
-                          onDateChange={field.onChange}
-                          placeholder="Select purchase date"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="warrantyExpiryDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Warranty Expiry Date</FormLabel>
-                      <FormControl>
-                        <DatePicker
-                          date={field.value}
-                          onDateChange={field.onChange}
-                          placeholder="Select warranty expiry"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Finance Details Section (Collapsible) */}
-          <Card>
-            <Collapsible open={isFinanceOpen} onOpenChange={setIsFinanceOpen}>
-              <CardHeader>
-                <CollapsibleTrigger className="flex items-center justify-between w-full text-left">
-                  <CardTitle className="flex items-center gap-2">
-                    <Calculator className="h-5 w-5 text-orange-600" />
-                    Finance Details (Optional)
+          {/* Two-column layout container */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Left Column */}
+            <div className="space-y-6">
+              
+              {/* Basic Details Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Package className="h-4 w-4 text-blue-600" />
+                    Basic Details
                   </CardTitle>
-                  {isFinanceOpen ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </CollapsibleTrigger>
-              </CardHeader>
-              <CollapsibleContent>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
                     <FormField
                       control={form.control}
-                      name="depreciationStartDate"
+                      name="tag"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Depreciation Start Date</FormLabel>
+                          <FormLabel className="flex items-center gap-2">
+                            Asset Tag *
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <HelpCircle className="h-3 w-3 text-gray-400" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Unique identifier for tracking this asset</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </FormLabel>
                           <FormControl>
-                            <DatePicker
-                              date={field.value}
-                              onDateChange={field.onChange}
-                              placeholder="Select start date"
-                            />
+                            <Input placeholder="IT-LAP-001" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -551,44 +259,73 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
 
                     <FormField
                       control={form.control}
-                      name="usefulLifeYears"
+                      name="type"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Useful Life (Years)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min="1"
-                              max="20"
-                              placeholder="3"
-                              {...field}
-                              onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Expected useful life for depreciation calculation
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="depreciationMethod"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Depreciation Method</FormLabel>
+                          <FormLabel>Asset Type *</FormLabel>
                           <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select method" />
+                                <SelectValue placeholder="Select asset type" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {depreciationMethods.map((method) => (
-                                <SelectItem key={method} value={method.toLowerCase()}>
-                                  {method}
+                              {assetTypes.map((type) => (
+                                <SelectItem key={type} value={type.toLowerCase()}>
+                                  {type}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="serial"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Serial Number *</FormLabel>
+                          <FormControl>
+                            <Input placeholder="C02XN1ABMD6R" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="model"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Model Number</FormLabel>
+                          <FormControl>
+                            <Input placeholder="MacBook Pro 14-inch" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="manufacturer"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Manufacturer</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select manufacturer" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {manufacturers.map((manufacturer) => (
+                                <SelectItem key={manufacturer} value={manufacturer.toLowerCase()}>
+                                  {manufacturer}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -599,44 +336,321 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                     />
                   </div>
                 </CardContent>
-              </CollapsibleContent>
-            </Collapsible>
-          </Card>
+              </Card>
 
-          {/* Additional Notes Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-gray-600" />
-                Additional Notes
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description / Notes</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Additional information about this asset..."
-                        className="min-h-[100px]"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Any additional details, specifications, or notes about the asset
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
+              {/* Assignment & Status Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <User className="h-4 w-4 text-green-600" />
+                    Assignment & Status
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="status"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Status *</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select status" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="available">Available</SelectItem>
+                              <SelectItem value="assigned">Assigned</SelectItem>
+                              <SelectItem value="maintenance">Under Repair</SelectItem>
+                              <SelectItem value="retired">Retired</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-          {/* Form Actions */}
-          <div className="flex justify-end gap-4 pt-6 border-t">
+                    <FormField
+                      control={form.control}
+                      name="condition"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Condition</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select condition" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="new">New</SelectItem>
+                              <SelectItem value="used">Used</SelectItem>
+                              <SelectItem value="refurbished">Refurbished</SelectItem>
+                              <SelectItem value="damaged">Damaged</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="assignedTo"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Assigned To</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Employee name or department" {...field} />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            Leave empty if available for assignment
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="location"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Location</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select location" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {locations.map((location) => (
+                                <SelectItem key={location} value={location.toLowerCase()}>
+                                  {location}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+              
+            </div>
+            
+            {/* Right Column */}
+            <div className="space-y-6">
+
+              {/* Procurement Details Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <CreditCard className="h-4 w-4 text-purple-600" />
+                    Procurement Details
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="vendor"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vendor</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Vendor name" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="invoiceNumber"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Invoice Number</FormLabel>
+                          <FormControl>
+                            <Input placeholder="INV-2024-001" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="purchaseDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Purchase Date</FormLabel>
+                          <FormControl>
+                            <DatePicker
+                              date={field.value}
+                              onDateChange={field.onChange}
+                              placeholder="Select purchase date"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="warrantyExpiryDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Warranty Expiry Date</FormLabel>
+                          <FormControl>
+                            <DatePicker
+                              date={field.value}
+                              onDateChange={field.onChange}
+                              placeholder="Select warranty expiry"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Finance Details Section (Collapsible) */}
+              <Card>
+                <Collapsible open={isFinanceOpen} onOpenChange={setIsFinanceOpen}>
+                  <CardHeader>
+                    <CollapsibleTrigger className="flex items-center justify-between w-full text-left">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Calculator className="h-4 w-4 text-orange-600" />
+                        Finance Details (Optional)
+                      </CardTitle>
+                      {isFinanceOpen ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </CollapsibleTrigger>
+                  </CardHeader>
+                  <CollapsibleContent>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-4">
+                        <FormField
+                          control={form.control}
+                          name="depreciationStartDate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Depreciation Start Date</FormLabel>
+                              <FormControl>
+                                <DatePicker
+                                  date={field.value}
+                                  onDateChange={field.onChange}
+                                  placeholder="Select start date"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="usefulLifeYears"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Useful Life (Years)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  max="20"
+                                  placeholder="3"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                Expected useful life for depreciation calculation
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="depreciationMethod"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Depreciation Method</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select method" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {depreciationMethods.map((method) => (
+                                    <SelectItem key={method} value={method.toLowerCase()}>
+                                      {method}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </CardContent>
+                  </CollapsibleContent>
+                </Collapsible>
+              </Card>
+
+              {/* Additional Notes Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <FileText className="h-4 w-4 text-gray-600" />
+                    Additional Notes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description / Notes</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="Additional information about this asset..."
+                            className="min-h-[80px]"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Any additional details, specifications, or notes about the asset
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </CardContent>
+              </Card>
+              
+            </div>
+          </div>
+
+          {/* Form Actions - Full Width */}
+          <div className="flex justify-end gap-4 pt-4 border-t">
             <Button
               type="button"
               variant="outline"
