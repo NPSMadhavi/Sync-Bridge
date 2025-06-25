@@ -128,7 +128,8 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
     try {
       setIsAnalyzing(true);
       const response = await apiRequest("POST", "/api/company-documents/analyze", {
-        fileData: base64Data
+        fileData: base64Data,
+        filename: file?.name
       });
       const result = await response.json();
       setAnalysisResult(result);
@@ -204,15 +205,9 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
       const base64String = reader.result as string;
       form.setValue("fileData", base64String);
       
-      // Trigger AI analysis for image files
-      if (selectedFile.type.startsWith('image/')) {
+      // Trigger AI analysis for both images and PDFs
+      if (selectedFile.type.startsWith('image/') || selectedFile.type === 'application/pdf') {
         await analyzeDocumentWithAI(base64String);
-      } else if (selectedFile.type === 'application/pdf') {
-        toast({
-          title: "PDF Uploaded",
-          description: "PDF analysis is limited. Please verify document details manually.",
-          variant: "default",
-        });
       }
     };
     reader.readAsDataURL(selectedFile);
@@ -630,7 +625,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                                         PDF, JPG, PNG up to 10MB
                                       </p>
                                       <p className="text-xs text-blue-600 mt-1">
-                                        AI will auto-detect document details from images
+                                        AI will analyze images and suggest details for PDFs
                                       </p>
                                     </div>
                                   )}

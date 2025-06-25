@@ -132,17 +132,58 @@ Example response:
   }
 }
 
-// Analyze PDF by converting first page to image
-export async function analyzePDF(base64PDF: string): Promise<DocumentAnalysisResult> {
+// Analyze PDF by extracting information from filename and providing smart suggestions
+export async function analyzePDF(base64PDF: string, filename?: string): Promise<DocumentAnalysisResult> {
   try {
-    // For now, we'll return a fallback for PDFs since we need additional libraries for PDF to image conversion
-    // In a production environment, you would use libraries like pdf-poppler or pdf2pic
+    // Smart analysis based on filename patterns
+    let suggestedTitle = "PDF Document";
+    let suggestedType: DocumentAnalysisResult['documentType'] = 'other';
+    let suggestedCustomType = undefined;
+    let confidence = 0.3;
+
+    if (filename) {
+      const name = filename.toLowerCase();
+      
+      // Extract potential title from filename
+      suggestedTitle = filename.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+      
+      // Detect document type from filename patterns
+      if (name.includes('invoice') || name.includes('bill') || name.includes('receipt')) {
+        suggestedType = 'purchase_invoice';
+        confidence = 0.7;
+      } else if (name.includes('license') || name.includes('permit')) {
+        suggestedType = 'company_license';
+        confidence = 0.7;
+      } else if (name.includes('certificate') || name.includes('cert')) {
+        suggestedType = 'government_certificate';
+        confidence = 0.7;
+      } else if (name.includes('contract') || name.includes('agreement')) {
+        suggestedType = 'legal_agreement';
+        confidence = 0.7;
+      } else if (name.includes('rental') || name.includes('lease')) {
+        suggestedType = 'rental_agreement';
+        confidence = 0.7;
+      } else if (name.includes('utility') || name.includes('electric') || name.includes('water') || name.includes('gas')) {
+        suggestedType = 'utility_bill';
+        confidence = 0.7;
+      } else if (name.includes('payment') || name.includes('reminder') || name.includes('notice')) {
+        suggestedType = 'payment_reminder';
+        confidence = 0.7;
+      }
+
+      // Extract potential dates from filename
+      const dateMatches = filename.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})|(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})|(\d{8})|(\d{4})(\d{2})(\d{2})/);
+      if (dateMatches) {
+        confidence = Math.min(confidence + 0.1, 0.8);
+      }
+    }
+
     return {
-      title: "PDF Document",
-      documentType: 'other',
-      customType: "PDF Document (Analysis not available)",
-      confidence: 0.3,
-      extractedText: "PDF analysis requires additional processing. Please manually enter document details.",
+      title: suggestedTitle,
+      documentType: suggestedType,
+      customType: suggestedType === 'other' ? "PDF Document" : undefined,
+      confidence: confidence,
+      extractedText: `PDF filename analysis: ${filename || 'No filename provided'}. Suggestions based on filename patterns. Please verify and adjust details manually.`,
     };
   } catch (error) {
     console.error("Error analyzing PDF:", error);
@@ -150,14 +191,15 @@ export async function analyzePDF(base64PDF: string): Promise<DocumentAnalysisRes
       title: "PDF Analysis Failed",
       documentType: 'other',
       confidence: 0,
+      extractedText: "PDF analysis failed. Please enter document details manually.",
     };
   }
 }
 
 // Main function to analyze any document type
-export async function analyzeDocumentFile(base64Data: string, mimeType: string): Promise<DocumentAnalysisResult> {
+export async function analyzeDocumentFile(base64Data: string, mimeType: string, filename?: string): Promise<DocumentAnalysisResult> {
   if (mimeType === 'application/pdf') {
-    return analyzePDF(base64Data);
+    return analyzePDF(base64Data, filename);
   } else if (mimeType.startsWith('image/')) {
     return analyzeDocument(base64Data, mimeType);
   } else {

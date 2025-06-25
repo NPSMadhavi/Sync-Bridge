@@ -36,7 +36,7 @@ const createCompanyDocumentSchema = z.object({
 // Analyze document with AI
 router.post("/analyze", async (req, res) => {
   try {
-    const { fileData } = req.body;
+    const { fileData, filename } = req.body;
     
     if (!fileData) {
       return res.status(400).json({ error: "File data is required" });
@@ -46,8 +46,8 @@ router.post("/analyze", async (req, res) => {
     const [mimeTypePart, base64Data] = fileData.split(',');
     const mimeType = mimeTypePart.split(':')[1].split(';')[0];
 
-    // Analyze the document
-    const analysis = await analyzeDocumentFile(base64Data, mimeType);
+    // Analyze the document with filename context
+    const analysis = await analyzeDocumentFile(base64Data, mimeType, filename);
     
     res.json(analysis);
   } catch (error) {
