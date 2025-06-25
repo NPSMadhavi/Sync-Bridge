@@ -98,6 +98,8 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
   const [isEditMode] = useState(!!document);
   const [file, setFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
   
   const form = useForm<CompanyDocumentFormData>({
     resolver: zodResolver(companyDocumentFormSchema),
@@ -121,8 +123,63 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
   // Watch document type to show/hide custom type field
   const watchedDocumentType = form.watch("documentType");
 
+  // AI Analysis function
+  const analyzeDocumentWithAI = async (base64Data: string) => {
+    try {
+      setIsAnalyzing(true);
+      const response = await apiRequest("POST", "/api/company-documents/analyze", {
+        fileData: base64Data
+      });
+      const result = await response.json();
+      setAnalysisResult(result);
+      
+      // Auto-fill form with AI results if confidence is high enough
+      if (result.confidence > 0.7) {
+        if (result.title) {
+          form.setValue("title", result.title);
+        }
+        if (result.documentType) {
+          form.setValue("documentType", result.documentType);
+        }
+        if (result.customType && result.documentType === "other") {
+          form.setValue("customType", result.customType);
+        }
+        if (result.issueDate) {
+          form.setValue("issueDate", new Date(result.issueDate));
+        }
+        if (result.expiryDate) {
+          form.setValue("expiryDate", new Date(result.expiryDate));
+        }
+        if (result.extractedText) {
+          const currentNotes = form.getValues("notes") || "";
+          form.setValue("notes", currentNotes + (currentNotes ? "\n\n" : "") + "AI Extracted: " + result.extractedText);
+        }
+
+        toast({
+          title: "AI Analysis Complete",
+          description: `Document analyzed with ${Math.round(result.confidence * 100)}% confidence. Form fields have been auto-filled.`,
+        });
+      } else {
+        toast({
+          title: "AI Analysis Complete",
+          description: `Document analyzed with ${Math.round(result.confidence * 100)}% confidence. Please review and verify the suggested information.`,
+          variant: "default",
+        });
+      }
+    } catch (error) {
+      console.error("AI analysis failed:", error);
+      toast({
+        title: "AI Analysis Failed",
+        description: "Unable to analyze document with AI. Please fill form manually.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   // File upload handler
-  const handleFileUpload = (selectedFile: File) => {
+  const handleFileUpload = async (selectedFile: File) => {
     if (selectedFile.size > 10 * 1024 * 1024) { // 10MB limit
       toast({
         title: "File too large",
@@ -143,9 +200,20 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
 
     setFile(selectedFile);
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onloadend = async () => {
       const base64String = reader.result as string;
       form.setValue("fileData", base64String);
+      
+      // Trigger AI analysis for image files
+      if (selectedFile.type.startsWith('image/')) {
+        await analyzeDocumentWithAI(base64String);
+      } else if (selectedFile.type === 'application/pdf') {
+        toast({
+          title: "PDF Uploaded",
+          description: "PDF analysis is limited. Please verify document details manually.",
+          variant: "default",
+        });
+      }
     };
     reader.readAsDataURL(selectedFile);
   };
@@ -647,21 +715,22 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                     onClick={() => {
                       form.reset();
                       setFile(null);
+                      setAnalysisResult(null);
                       onClose();
                     }}
-                    disabled={createMutation.isPending || updateMutation.isPending}
+                    disabled={createMutation.isPending || updateMutation.isPending || isAnalyzing}
                   >
                     Cancel
                   </Button>
                   <Button 
                     type="submit" 
-                    disabled={createMutation.isPending || updateMutation.isPending}
+                    disabled={createMutation.isPending || updateMutation.isPending || isAnalyzing}
                     className="w-full sm:w-auto min-w-[140px]"
                   >
-                    {(createMutation.isPending || updateMutation.isPending) && (
+                    {(createMutation.isPending || updateMutation.isPending || isAnalyzing) && (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     )}
-                    {isEditMode ? "Update Document" : "Upload Document"}
+                    {isAnalyzing ? "Analyzing..." : isEditMode ? "Update Document" : "Upload Document"}
                   </Button>
                 </div>
               </form>

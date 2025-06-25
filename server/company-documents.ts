@@ -6,6 +6,7 @@ import { eq, and, desc, lt, gte } from "drizzle-orm";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
+import { analyzeDocumentFile } from "./ai-document-analyzer";
 
 const router = Router();
 
@@ -30,6 +31,32 @@ const createCompanyDocumentSchema = z.object({
   reminders: z.array(z.object({
     daysBefore: z.number().min(1).max(365)
   })).optional(),
+});
+
+// Analyze document with AI
+router.post("/analyze", async (req, res) => {
+  try {
+    const { fileData } = req.body;
+    
+    if (!fileData) {
+      return res.status(400).json({ error: "File data is required" });
+    }
+
+    // Extract mime type and base64 data
+    const [mimeTypePart, base64Data] = fileData.split(',');
+    const mimeType = mimeTypePart.split(':')[1].split(';')[0];
+
+    // Analyze the document
+    const analysis = await analyzeDocumentFile(base64Data, mimeType);
+    
+    res.json(analysis);
+  } catch (error) {
+    console.error("Error analyzing document:", error);
+    res.status(500).json({ 
+      error: "Failed to analyze document",
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
 });
 
 // Get all company documents

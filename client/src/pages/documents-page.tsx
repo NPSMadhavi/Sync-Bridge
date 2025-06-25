@@ -153,7 +153,7 @@ export default function DocumentsPage() {
   };
   
   return (
-    <Dashboard title="Documents" description="Manage employee and asset documents.">
+    <Dashboard title="Documents" description="Manage company documents with AI-powered analysis.">
       <div className="mb-6">
         <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
           <div className="flex justify-between items-center">

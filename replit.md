@@ -144,6 +144,7 @@ SyncBridge is a comprehensive full-stack enterprise asset and document managemen
 - June 24, 2025. Switched from memory storage to PostgreSQL database storage for data persistence. Updated invoice form with Singapore ACRA compliance including 9% GST default rate and proper accounting terminology.
 - June 24, 2025. Completed database migration from placeholder to real PostgreSQL connection. Enhanced audit logging system with automatic notification creation for all user actions. All data now persists in database with comprehensive audit trail and notification updates.
 - June 24, 2025. Fixed PostgreSQL persistence configuration for production deployment. Main application data uses PostgreSQL with proper connection handling. Session store configured with PostgreSQL primary and memory fallback for resilience. Application ready for deployment with full database persistence.
+- June 25, 2025. Enhanced Documents module with AI-powered document analysis using OpenAI GPT-4 Vision. System now automatically extracts document title, type, issue date, expiry date from uploaded images with confidence scoring. Smart reminder suggestions based on document type. Full-screen slide-in panel design matching other modules.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
