@@ -134,39 +134,70 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
       const result = await response.json();
       setAnalysisResult(result);
       
-      // Auto-fill form with AI results if confidence is high enough
-      if (result.confidence > 0.7) {
-        if (result.title) {
-          form.setValue("title", result.title);
-        }
-        if (result.documentType) {
-          form.setValue("documentType", result.documentType);
-        }
-        if (result.customType && result.documentType === "other") {
-          form.setValue("customType", result.customType);
-        }
-        if (result.issueDate) {
-          form.setValue("issueDate", new Date(result.issueDate));
-        }
-        if (result.expiryDate) {
-          form.setValue("expiryDate", new Date(result.expiryDate));
-        }
-        if (result.extractedText) {
-          const currentNotes = form.getValues("notes") || "";
-          form.setValue("notes", currentNotes + (currentNotes ? "\n\n" : "") + "AI Extracted: " + result.extractedText);
-        }
-
-        toast({
-          title: "AI Analysis Complete",
-          description: `Document analyzed with ${Math.round(result.confidence * 100)}% confidence. Form fields have been auto-filled.`,
-        });
-      } else {
-        toast({
-          title: "AI Analysis Complete",
-          description: `Document analyzed with ${Math.round(result.confidence * 100)}% confidence. Please review and verify the suggested information.`,
-          variant: "default",
-        });
+      // Auto-fill form with AI results
+      console.log("Processing analysis result:", result);
+      
+      if (result.title && result.title.trim() && result.title !== "PDF Document") {
+        console.log("Setting title:", result.title);
+        form.setValue("title", result.title, { shouldValidate: true, shouldDirty: true });
       }
+      
+      if (result.documentType) {
+        console.log("Setting document type:", result.documentType);
+        form.setValue("documentType", result.documentType, { shouldValidate: true, shouldDirty: true });
+      }
+      
+      if (result.customType && result.documentType === "other") {
+        console.log("Setting custom type:", result.customType);
+        form.setValue("customType", result.customType, { shouldValidate: true, shouldDirty: true });
+      }
+      
+      if (result.issueDate) {
+        try {
+          const issueDate = new Date(result.issueDate);
+          if (!isNaN(issueDate.getTime())) {
+            console.log("Setting issue date:", issueDate);
+            form.setValue("issueDate", issueDate, { shouldValidate: true, shouldDirty: true });
+          }
+        } catch (e) {
+          console.error("Invalid issue date:", result.issueDate, e);
+        }
+      }
+      
+      if (result.expiryDate) {
+        try {
+          const expiryDate = new Date(result.expiryDate);
+          if (!isNaN(expiryDate.getTime())) {
+            console.log("Setting expiry date:", expiryDate);
+            form.setValue("expiryDate", expiryDate, { shouldValidate: true, shouldDirty: true });
+          }
+        } catch (e) {
+          console.error("Invalid expiry date:", result.expiryDate, e);
+        }
+      }
+      
+      if (result.extractedText) {
+        const currentNotes = form.getValues("notes") || "";
+        const newNote = `AI Analysis: ${result.extractedText}`;
+        if (!currentNotes.includes("AI Analysis:")) {
+          console.log("Setting notes with AI analysis");
+          form.setValue("notes", currentNotes + (currentNotes ? "\n\n" : "") + newNote, { shouldValidate: true, shouldDirty: true });
+        }
+      }
+
+      // Force form to re-render and validate
+      setTimeout(() => {
+        form.trigger();
+      }, 100);
+      
+      const fieldsPopulated = (result.title && result.title !== "PDF Document") || result.issueDate || result.expiryDate;
+      
+      toast({
+        title: "Analysis Complete",
+        description: fieldsPopulated 
+          ? `Document analyzed with ${Math.round(result.confidence * 100)}% confidence. Form fields populated.`
+          : `Document type detected with ${Math.round(result.confidence * 100)}% confidence. Please verify details.`,
+      });
     } catch (error) {
       console.error("AI analysis failed:", error);
       

@@ -253,10 +253,12 @@ Return only the JSON object, no additional text.
     if (filename) {
       const name = filename.toLowerCase();
       
-      // Clean filename for title
+      // Clean filename for title - handle date prefixes like "2025.04.30"
       suggestedTitle = filename
         .replace(/\.[^/.]+$/, "") // Remove extension
+        .replace(/^\d{4}[\.\/\-]\d{1,2}[\.\/\-]\d{1,2}\s*/, "") // Remove date prefix
         .replace(/[_-]/g, " ")    // Replace underscores/hyphens with spaces
+        .trim()
         .replace(/\b\w/g, l => l.toUpperCase()); // Title case
       
       // Detect document type from filename patterns
@@ -283,66 +285,86 @@ Return only the JSON object, no additional text.
         confidence = 0.7;
       }
 
-      // Extract dates from filename using multiple patterns
+      // Extract dates from filename using comprehensive patterns
       const datePatterns = [
-        /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/g,  // YYYY.MM.DD, YYYY/MM/DD, YYYY-MM-DD
-        /(\d{1,2})[\.\/\-](\d{1,2})[\.\/\-](\d{4})/g,  // MM.DD.YYYY, DD.MM.YYYY
-        /(\d{8})/g,                                     // YYYYMMDD
-        /(\d{4})(\d{2})(\d{2})/g,                      // YYYYMMDD without separators
+        // YYYY.MM.DD format (like your invoice: 2025.04.30)
+        /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/g,
+        // DD.MM.YYYY or MM.DD.YYYY  
+        /(\d{1,2})[\.\/\-](\d{1,2})[\.\/\-](\d{4})/g,
+        // YYYYMMDD
+        /(\d{8})/g,
+        // Spaced dates like "2025 04 30"
+        /(\d{4})\s+(\d{1,2})\s+(\d{1,2})/g,
       ];
 
+      console.log("Analyzing filename for dates:", filename);
+      
       for (const pattern of datePatterns) {
         const matches = Array.from(filename.matchAll(pattern));
         if (matches.length > 0) {
-          confidence = Math.min(confidence + 0.1, 0.85);
+          console.log("Found date matches:", matches);
+          confidence = Math.min(confidence + 0.2, 0.9);
           
           // Try to parse the first date as issue date
           const firstMatch = matches[0];
           try {
             let dateStr = '';
+            
             if (firstMatch[0].length === 8 && firstMatch[0].match(/^\d{8}$/)) {
               // YYYYMMDD format
               dateStr = `${firstMatch[0].substring(0,4)}-${firstMatch[0].substring(4,6)}-${firstMatch[0].substring(6,8)}`;
             } else if (firstMatch[1] && firstMatch[1].length === 4) {
-              // YYYY-MM-DD format
+              // YYYY-MM-DD format (like 2025.04.30)
               dateStr = `${firstMatch[1]}-${firstMatch[2].padStart(2,'0')}-${firstMatch[3].padStart(2,'0')}`;
             } else if (firstMatch[3] && firstMatch[3].length === 4) {
-              // DD-MM-YYYY format
+              // DD-MM-YYYY format  
               dateStr = `${firstMatch[3]}-${firstMatch[2].padStart(2,'0')}-${firstMatch[1].padStart(2,'0')}`;
             }
             
+            console.log("Trying to parse date:", dateStr);
             const testDate = new Date(dateStr);
             if (!isNaN(testDate.getTime()) && testDate.getFullYear() > 2020 && testDate.getFullYear() < 2030) {
               suggestedIssueDate = dateStr;
+              console.log("Successfully extracted issue date:", suggestedIssueDate);
               
               // For certain document types, calculate typical expiry dates
               if (suggestedType === 'company_license' || suggestedType === 'government_certificate') {
                 const expiryDate = new Date(testDate);
                 expiryDate.setFullYear(expiryDate.getFullYear() + 1); // Add 1 year
                 suggestedExpiryDate = expiryDate.toISOString().split('T')[0];
-              } else if (suggestedType === 'utility_bill' || suggestedType === 'purchase_invoice') {
+                console.log("Calculated expiry date for license/cert:", suggestedExpiryDate);
+              } else if (suggestedType === 'utility_bill') {
                 const expiryDate = new Date(testDate);
                 expiryDate.setMonth(expiryDate.getMonth() + 1); // Add 1 month for payment due
                 suggestedExpiryDate = expiryDate.toISOString().split('T')[0];
+                console.log("Calculated due date for utility bill:", suggestedExpiryDate);
+              } else if (suggestedType === 'purchase_invoice') {
+                const expiryDate = new Date(testDate);
+                expiryDate.setDate(expiryDate.getDate() + 30); // Add 30 days for invoice due
+                suggestedExpiryDate = expiryDate.toISOString().split('T')[0];
+                console.log("Calculated due date for invoice:", suggestedExpiryDate);
               }
             }
           } catch (dateError) {
-            console.log("Date parsing failed for:", firstMatch[0]);
+            console.log("Date parsing failed for:", firstMatch[0], dateError);
           }
           break;
         }
       }
     }
 
-    return {
+    const finalResult = {
       title: suggestedTitle,
       documentType: suggestedType,
       customType: suggestedType === 'other' ? "PDF Document" : undefined,
       issueDate: suggestedIssueDate,
       expiryDate: suggestedExpiryDate,
       confidence: confidence,
-      extractedText: `Filename-based analysis completed. Document type detected with ${Math.round(confidence * 100)}% confidence. For accurate content extraction, please ensure OpenAI API is properly configured.`,
+      extractedText: `Filename analysis: Document type detected with ${Math.round(confidence * 100)}% confidence${suggestedIssueDate ? `, Issue date: ${suggestedIssueDate}` : ''}${suggestedExpiryDate ? `, Due date: ${suggestedExpiryDate}` : ''}.`,
     };
+    
+    console.log("Final analysis result:", finalResult);
+    return finalResult;
 
   } catch (error) {
     console.error("Error analyzing PDF:", error);
