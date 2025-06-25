@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { fromBuffer } from 'pdf2pic';
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY environment variable must be set");
@@ -132,12 +133,117 @@ Example response:
   }
 }
 
-// Enhanced PDF analysis using intelligent filename and metadata extraction
+// Advanced PDF analysis using OpenAI GPT-4 Vision API to extract actual document data
 export async function analyzePDF(base64PDF: string, filename?: string): Promise<DocumentAnalysisResult> {
   try {
-    console.log("Analyzing PDF using intelligent filename parsing:", filename);
+    console.log("Converting PDF to image for OpenAI Vision analysis:", filename);
     
-    // Extract information from filename
+    // Convert PDF to image using pdf2pic
+    try {
+      const pdfBuffer = Buffer.from(base64PDF, 'base64');
+      
+      const convert = fromBuffer(pdfBuffer, {
+        density: 200,           // Higher DPI for better text recognition
+        saveFilename: "page",
+        savePath: "./temp",
+        format: "jpeg",
+        width: 2000,           // High resolution for better OCR
+        height: 2800
+      });
+
+      // Convert first page only
+      const page1 = await convert(1, { responseType: "buffer" });
+      
+      if (!page1.buffer) {
+        throw new Error("Failed to convert PDF to image");
+      }
+
+      const imageBase64 = page1.buffer.toString('base64');
+      console.log("PDF converted to image successfully, analyzing with OpenAI Vision...");
+
+      const analysisPrompt = `
+You are a document analysis expert. Analyze this document image and extract the following information in JSON format:
+
+{
+  "title": "Document title or main heading",
+  "documentType": "company_license|government_certificate|purchase_invoice|rental_agreement|utility_bill|payment_reminder|legal_agreement|other",
+  "customType": "If documentType is 'other', specify the custom type",
+  "issueDate": "Document issue/creation date in YYYY-MM-DD format",
+  "expiryDate": "Document expiry/due date in YYYY-MM-DD format (if applicable)",
+  "confidence": 0.9,
+  "extractedText": "Key information extracted from the document"
+}
+
+Look for:
+- Document title, company names, invoice numbers
+- Issue date, creation date, invoice date
+- Due date, expiry date, payment due date
+- Document type indicators (Invoice, License, Certificate, Agreement, etc.)
+- Any other relevant business information
+
+Be precise with dates and ensure they are in YYYY-MM-DD format. If a date is unclear, don't guess.
+Return only the JSON object, no additional text.
+`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: analysisPrompt
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${imageBase64}`,
+                  detail: "high"
+                }
+              }
+            ]
+          }
+        ]
+      });
+
+      const aiResponse = response.choices[0]?.message?.content;
+      if (aiResponse) {
+        console.log("OpenAI Vision API response:", aiResponse);
+        
+        // Try to parse the JSON response
+        try {
+          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsedResult = JSON.parse(jsonMatch[0]);
+            
+            // Validate and format the result
+            const result: DocumentAnalysisResult = {
+              title: parsedResult.title || filename?.replace(/\.[^/.]+$/, "") || "Document",
+              documentType: parsedResult.documentType || 'other',
+              customType: parsedResult.customType,
+              issueDate: parsedResult.issueDate,
+              expiryDate: parsedResult.expiryDate,
+              confidence: Math.min(parsedResult.confidence || 0.9, 1.0),
+              extractedText: parsedResult.extractedText || "Content extracted using AI vision analysis"
+            };
+            
+            console.log("AI Vision analysis successful:", result);
+            return result;
+          }
+        } catch (parseError) {
+          console.error("Failed to parse AI response as JSON:", parseError);
+        }
+      }
+    } catch (conversionError) {
+      console.error("PDF to image conversion failed:", conversionError);
+      // Fall back to filename analysis
+    }
+
+    // Fallback: Enhanced filename analysis
+    console.log("Falling back to intelligent filename analysis:", filename);
+    
     let suggestedTitle = "PDF Document";
     let suggestedType: DocumentAnalysisResult['documentType'] = 'other';
     let suggestedIssueDate: string | undefined;
@@ -156,40 +262,39 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
       // Detect document type from filename patterns
       if (name.includes('invoice') || name.includes('bill') || name.includes('receipt')) {
         suggestedType = 'purchase_invoice';
-        confidence = 0.85;
+        confidence = 0.75;
       } else if (name.includes('license') || name.includes('permit') || name.includes('registration')) {
         suggestedType = 'company_license';
-        confidence = 0.85;
+        confidence = 0.75;
       } else if (name.includes('certificate') || name.includes('cert')) {
         suggestedType = 'government_certificate';
-        confidence = 0.85;
+        confidence = 0.75;
       } else if (name.includes('contract') || name.includes('agreement')) {
         suggestedType = 'legal_agreement';
-        confidence = 0.8;
+        confidence = 0.7;
       } else if (name.includes('rental') || name.includes('lease')) {
         suggestedType = 'rental_agreement';
-        confidence = 0.8;
+        confidence = 0.7;
       } else if (name.includes('utility') || name.includes('electric') || name.includes('water') || name.includes('gas') || name.includes('internet')) {
         suggestedType = 'utility_bill';
-        confidence = 0.8;
+        confidence = 0.7;
       } else if (name.includes('payment') || name.includes('reminder') || name.includes('notice') || name.includes('due')) {
         suggestedType = 'payment_reminder';
-        confidence = 0.8;
+        confidence = 0.7;
       }
 
       // Extract dates from filename using multiple patterns
       const datePatterns = [
-        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/g,  // MM/DD/YYYY or DD/MM/YYYY
-        /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/g,  // YYYY/MM/DD
-        /(\d{8})/g,                                 // YYYYMMDD
-        /(\d{4})(\d{2})(\d{2})/g,                  // YYYYMMDD without separators
-        /(\d{2})(\d{2})(\d{4})/g                   // MMDDYYYY or DDMMYYYY
+        /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/g,  // YYYY.MM.DD, YYYY/MM/DD, YYYY-MM-DD
+        /(\d{1,2})[\.\/\-](\d{1,2})[\.\/\-](\d{4})/g,  // MM.DD.YYYY, DD.MM.YYYY
+        /(\d{8})/g,                                     // YYYYMMDD
+        /(\d{4})(\d{2})(\d{2})/g,                      // YYYYMMDD without separators
       ];
 
       for (const pattern of datePatterns) {
         const matches = Array.from(filename.matchAll(pattern));
         if (matches.length > 0) {
-          confidence = Math.min(confidence + 0.1, 0.9);
+          confidence = Math.min(confidence + 0.1, 0.85);
           
           // Try to parse the first date as issue date
           const firstMatch = matches[0];
@@ -198,16 +303,16 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
             if (firstMatch[0].length === 8 && firstMatch[0].match(/^\d{8}$/)) {
               // YYYYMMDD format
               dateStr = `${firstMatch[0].substring(0,4)}-${firstMatch[0].substring(4,6)}-${firstMatch[0].substring(6,8)}`;
-            } else if (firstMatch.length === 4) {
-              // Groups captured (YYYY)(MM)(DD)
+            } else if (firstMatch[1] && firstMatch[1].length === 4) {
+              // YYYY-MM-DD format
               dateStr = `${firstMatch[1]}-${firstMatch[2].padStart(2,'0')}-${firstMatch[3].padStart(2,'0')}`;
-            } else {
-              // Other formats - try to construct date
-              dateStr = `${firstMatch[3]}-${firstMatch[1].padStart(2,'0')}-${firstMatch[2].padStart(2,'0')}`;
+            } else if (firstMatch[3] && firstMatch[3].length === 4) {
+              // DD-MM-YYYY format
+              dateStr = `${firstMatch[3]}-${firstMatch[2].padStart(2,'0')}-${firstMatch[1].padStart(2,'0')}`;
             }
             
             const testDate = new Date(dateStr);
-            if (!isNaN(testDate.getTime()) && testDate.getFullYear() > 2000 && testDate.getFullYear() < 2030) {
+            if (!isNaN(testDate.getTime()) && testDate.getFullYear() > 2020 && testDate.getFullYear() < 2030) {
               suggestedIssueDate = dateStr;
               
               // For certain document types, calculate typical expiry dates
@@ -215,9 +320,9 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
                 const expiryDate = new Date(testDate);
                 expiryDate.setFullYear(expiryDate.getFullYear() + 1); // Add 1 year
                 suggestedExpiryDate = expiryDate.toISOString().split('T')[0];
-              } else if (suggestedType === 'utility_bill') {
+              } else if (suggestedType === 'utility_bill' || suggestedType === 'purchase_invoice') {
                 const expiryDate = new Date(testDate);
-                expiryDate.setMonth(expiryDate.getMonth() + 1); // Add 1 month
+                expiryDate.setMonth(expiryDate.getMonth() + 1); // Add 1 month for payment due
                 suggestedExpiryDate = expiryDate.toISOString().split('T')[0];
               }
             }
@@ -236,7 +341,7 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
       issueDate: suggestedIssueDate,
       expiryDate: suggestedExpiryDate,
       confidence: confidence,
-      extractedText: `Intelligent filename analysis completed. Document type detected with ${Math.round(confidence * 100)}% confidence based on filename patterns and content indicators.`,
+      extractedText: `Filename-based analysis completed. Document type detected with ${Math.round(confidence * 100)}% confidence. For accurate content extraction, please ensure OpenAI API is properly configured.`,
     };
 
   } catch (error) {
