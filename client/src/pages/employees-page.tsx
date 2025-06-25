@@ -14,12 +14,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Employee } from "@shared/schema";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+
 import EmployeeForm from "@/components/forms/EmployeeForm";
 import {
   DropdownMenu,
@@ -230,18 +225,12 @@ export default function EmployeesPage() {
         </CardContent>
       </Card>
       
-      {/* Employee Form Dialog */}
-      <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{selectedEmployeeId ? "Edit Employee" : "Add New Employee"}</DialogTitle>
-          </DialogHeader>
-          <EmployeeForm
-            employeeId={selectedEmployeeId || undefined}
-            onSuccess={() => setIsFormDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Employee Form - Full Screen Panel */}
+      <EmployeeForm
+        employee={selectedEmployeeId ? employees.find(e => e.id === selectedEmployeeId) : undefined}
+        isOpen={isFormDialogOpen}
+        onClose={() => setIsFormDialogOpen(false)}
+      />
       
       {/* Document Form Dialog */}
       <Dialog open={isDocumentFormOpen} onOpenChange={setIsDocumentFormOpen}>
