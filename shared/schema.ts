@@ -611,3 +611,8 @@ export type InsertLicense = z.infer<typeof insertLicenseSchema>;
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+
+export type CompanyDocument = typeof companyDocuments.$inferSelect;
+export type InsertCompanyDocument = z.infer<typeof insertCompanyDocumentSchema>;
+export type DocumentReminder = typeof documentReminders.$inferSelect;
+export type InsertDocumentReminder = z.infer<typeof insertDocumentReminderSchema>;
