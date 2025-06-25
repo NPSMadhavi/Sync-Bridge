@@ -1,0 +1,39 @@
+Problem:
+The current "Add New Asset" modal, even after switching to a horizontal (2-column) layout, still suffers from major usability issues:
+- The modal content is vertically cropped on normal screen heights (e.g., 1080p) when zoom is set to 100%.
+- Users must zoom out to 75–80% just to view the full form, which is not acceptable for production use.
+- Even with scrollable containers applied, the UX feels cramped, inconsistent, and unintuitive.
+
+Request:
+Please **redesign the entire modal UI** from the ground up with a responsive-first and full-width panel experience. Avoid using a traditional popup modal for long forms.
+
+Design Requirements:
+
+1. **Use a full-width drawer or side panel (not a modal popup)**:
+   - Slide-in panel from the right or center-aligned full-page panel.
+   - Avoid fixed-size modal boxes that limit available vertical space.
+
+2. **Adaptive layout**:
+   - Use `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2` for all fields with `gap-4`.
+   - Stack fields vertically on small screens, and render in 2-column layout for medium and large screens.
+
+3. **Sticky header and footer**:
+   - Header with "Add New Asset" should be `sticky top-0 z-10 bg-dark`.
+   - Footer with [Cancel] and [Create Asset] buttons should be `sticky bottom-0 z-10 bg-dark`.
+
+4. **Scrollable body section**:
+   - Only the form body should scroll. Use `overflow-y-auto max-h-[calc(100vh-160px)]` to ensure proper scroll behavior between header and footer.
+
+5. **Responsive behavior without zoom dependency**:
+   - The form should be fully usable at 100% zoom on all screens without cropping.
+   - Ensure max usability for common resolutions like 1366x768, 1440x900, and 1920x1080.
+
+6. **Optional Enhancements**:
+   - Add progress indicator or section tabs for long forms.
+   - Autofocus first input field.
+   - Keyboard navigation support (`Tab`, `Esc`, `Enter`).
+
+Expected Outcome:
+A modern, production-grade, responsive form layout that eliminates zoom/cropping issues and significantly improves user experience. This new layout should be reusable for other long forms (e.g., Edit Asset, Add User, etc.).
+
+Thank you.

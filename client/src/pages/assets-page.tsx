@@ -16,11 +16,11 @@ import { Asset } from "@shared/schema";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import AssetForm from "@/components/forms/AssetForm";
 import {
   DropdownMenu,
@@ -244,18 +244,30 @@ export default function AssetsPage() {
         </CardContent>
       </Card>
       
-      {/* Asset Form Dialog */}
-      <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{selectedAssetId ? "Edit Asset" : "Add New Asset"}</DialogTitle>
-          </DialogHeader>
-          <AssetForm
-            assetId={selectedAssetId || undefined}
-            onSuccess={() => setIsFormDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Asset Form Drawer */}
+      <Sheet open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
+        <SheetContent 
+          side="right" 
+          className="w-full sm:max-w-none p-0 flex flex-col"
+        >
+          {/* Sticky Header */}
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-xl font-semibold">
+                {selectedAssetId ? "Edit Asset" : "Add New Asset"}
+              </SheetTitle>
+            </SheetHeader>
+          </div>
+          
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto px-6 pb-24">
+            <AssetForm
+              assetId={selectedAssetId || undefined}
+              onSuccess={() => setIsFormDialogOpen(false)}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
