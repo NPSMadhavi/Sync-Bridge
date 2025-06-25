@@ -664,6 +664,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
               
             </div>
             
+            </div>
           </div>
           
           {/* Sticky Footer with Actions */}
