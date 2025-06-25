@@ -14,6 +14,7 @@ import {
   insertMaintenanceRecordSchema, insertLicenseSchema, insertCustomerSchema, 
   insertInvoiceSchema, insertUserSchema
 } from "@shared/schema";
+import companyDocumentsRouter from "./company-documents";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
@@ -1330,6 +1331,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to generate report" });
     }
   });
+
+  // Company Documents routes - must be registered before server creation
+  app.use("/api/company-documents", companyDocumentsRouter);
+  console.log("Company documents routes registered");
 
   const httpServer = createServer(app);
   return httpServer;
