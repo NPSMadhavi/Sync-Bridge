@@ -7,11 +7,11 @@ import { insertLicenseSchema, License, Asset } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Form,
   FormControl,
@@ -211,17 +211,18 @@ export default function LicenseForm({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent 
-        className="max-w-6xl w-[95vw] max-h-[95vh] overflow-hidden p-0"
+    <Sheet open={isOpen} onOpenChange={onClose}>
+      <SheetContent 
+        side="right"
+        className="w-full max-w-none p-0 overflow-hidden"
         onKeyDown={handleKeyDown}
       >
         <TooltipProvider>
           <Form {...form}>
-            <div className="flex flex-col h-full">
+            <div className="h-full flex flex-col">
               {/* Header */}
-              <DialogHeader className="flex-shrink-0 px-6 py-4 border-b bg-background">
-                <DialogTitle className="flex items-center gap-2 text-xl">
+              <SheetHeader className="flex-shrink-0 px-6 py-4 border-b bg-background">
+                <SheetTitle className="flex items-center gap-2 text-xl">
                   <Shield className="h-5 w-5 text-primary" />
                   {isEditMode ? "Edit License" : "Create New License"}
                   {isExpired && (
@@ -229,8 +230,8 @@ export default function LicenseForm({
                       Expired
                     </span>
                   )}
-                </DialogTitle>
-              </DialogHeader>
+                </SheetTitle>
+              </SheetHeader>
 
               {/* Form Content - Scrollable Area */}
               <div className="flex-1 overflow-y-auto px-6 py-6 pb-24">
@@ -819,7 +820,7 @@ export default function LicenseForm({
             </div>
           </Form>
         </TooltipProvider>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
