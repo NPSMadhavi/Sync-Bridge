@@ -152,13 +152,15 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
     const pdfBuffer = Buffer.from(base64PDF, 'base64');
     await writeFile(tempPdfPath, pdfBuffer);
 
-    // Convert first page of PDF to image
+    // Convert first page of PDF to image using pdftoppm
+    const timestamp = Date.now();
     const options = {
       format: 'jpeg' as const,
       out_dir: tempDir,
-      out_prefix: `pdf_page_${Date.now()}`,
+      out_prefix: `pdf_page_${timestamp}`,
       page: 1, // Only convert first page
-      single_file: true
+      single_file: true,
+      poppler_path: '/nix/store/1f2vbia1rg1rh5cs0ii49v3hln9i36rv-poppler-utils-24.02.0/bin'
     };
 
     console.log('Converting PDF with options:', options);
@@ -166,10 +168,16 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
     console.log('PDF conversion result:', result);
     
     if (!result || result.length === 0) {
-      throw new Error("Failed to convert PDF to image");
+      throw new Error("PDF conversion returned no results - possibly corrupted PDF or conversion issue");
     }
 
+    // The result should be the path to the converted image
     tempImagePath = result[0];
+    console.log('Converted image path:', tempImagePath);
+
+    if (!existsSync(tempImagePath)) {
+      throw new Error(`Converted image file not found at path: ${tempImagePath}`);
+    }
 
     // Read the converted image and convert to base64
     const { readFile } = await import('fs/promises');
@@ -201,8 +209,8 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
       console.error("Error cleaning up temp files:", cleanupError);
     }
 
-    // Return a meaningful error that won't crash the JSON response
-    throw new Error(`PDF analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or fill form manually.`);
+    // Re-throw the error to be handled by the main function
+    throw new Error(`PDF conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -210,10 +218,10 @@ export async function analyzePDF(base64PDF: string, filename?: string): Promise<
 export async function analyzeDocumentFile(base64Data: string, mimeType: string, filename?: string): Promise<DocumentAnalysisResult> {
   try {
     if (mimeType === 'application/pdf') {
-      // For PDFs, fallback to filename analysis since PDF conversion is complex
-      return analyzeFromFilename(filename);
+      // Use full PDF analysis with image conversion
+      return await analyzePDF(base64Data, filename);
     } else if (mimeType.startsWith('image/')) {
-      return analyzeDocument(base64Data, mimeType);
+      return await analyzeDocument(base64Data, mimeType);
     } else {
       return {
         title: "Unsupported File Type",
@@ -224,6 +232,10 @@ export async function analyzeDocumentFile(base64Data: string, mimeType: string, 
     }
   } catch (error) {
     console.error("Error in analyzeDocumentFile:", error);
+    // Fallback to filename analysis only if PDF conversion completely fails
+    if (mimeType === 'application/pdf' && filename) {
+      return analyzeFromFilename(filename);
+    }
     throw error;
   }
 }
