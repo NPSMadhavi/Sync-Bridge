@@ -33,6 +33,15 @@ const createCompanyDocumentSchema = z.object({
   })).optional(),
 });
 
+// Test endpoint to verify JSON response
+router.get("/test-analyze", (req, res) => {
+  res.json({ 
+    message: "Test endpoint working", 
+    timestamp: new Date().toISOString(),
+    status: "ok" 
+  });
+});
+
 // Analyze document with AI
 router.post("/analyze", async (req, res) => {
   console.log("Starting document analysis...");
@@ -58,19 +67,28 @@ router.post("/analyze", async (req, res) => {
     
     // Ensure we always return valid JSON
     if (!analysis || typeof analysis !== 'object') {
-      throw new Error('Invalid analysis result');
+      console.error("Invalid analysis result:", analysis);
+      return res.status(500).json({
+        error: "Invalid analysis result",
+        type: "validation_error"
+      });
     }
     
+    console.log("Sending successful response:", analysis);
     res.json(analysis);
   } catch (error) {
     console.error("Error analyzing document:", error);
     
     // Always ensure we return JSON, never HTML
-    res.status(500).json({ 
+    const errorResponse = {
       error: "Failed to analyze document",
       details: error instanceof Error ? error.message : 'Unknown error',
-      type: "analysis_error"
-    });
+      type: "analysis_error",
+      filename: filename || 'unknown'
+    };
+    
+    console.log("Sending error response:", errorResponse);
+    return res.status(500).json(errorResponse);
   }
 });
 

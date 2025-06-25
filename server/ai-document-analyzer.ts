@@ -243,13 +243,16 @@ export async function analyzeDocumentFile(base64Data: string, mimeType: string, 
       return analyzeFromFilename(filename);
     }
     
-    // For other errors, return a safe fallback result instead of throwing
-    return {
+    // For other errors, return a safe fallback result instead of throwing  
+    const fallbackResult = {
       title: filename ? filename.replace(/\.[^/.]+$/, "") : "Analysis Failed",
-      documentType: 'other',
+      documentType: 'other' as const,
       confidence: 0,
       extractedText: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };
+    
+    console.log("Returning fallback result:", fallbackResult);
+    return fallbackResult;
   }
 }
 
