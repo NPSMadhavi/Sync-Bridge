@@ -14,6 +14,8 @@ export const assetStatusEnum = pgEnum('asset_status', ['available', 'assigned', 
 export const documentTypeEnum = pgEnum('document_type', ['passport', 'visa', 'contract', 'certification', 'warranty', 'purchase_order', 'other']);
 export const notificationTypeEnum = pgEnum('notification_type', ['document_expiry', 'maintenance_due', 'assignment', 'license_expiry']);
 export const licenseTypeEnum = pgEnum('license_type', ['software', 'hardware', 'subscription', 'service', 'other']);
+export const licenseStatusEnum = pgEnum('license_status', ['active', 'expired', 'revoked', 'assigned']);
+export const renewalCycleEnum = pgEnum('renewal_cycle', ['none', 'monthly', 'yearly', 'custom']);
 export const subscriptionPlanEnum = pgEnum('subscription_plan', ['free', 'starter', 'business', 'enterprise']);
 export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'sent', 'paid', 'overdue', 'cancelled']);
 export const paymentMethodEnum = pgEnum('payment_method', ['bank_transfer', 'credit_card', 'cash', 'check', 'other']);
@@ -118,6 +120,9 @@ export const licenses = pgTable("licenses", {
   purchaseDate: timestamp("purchase_date"),
   expiryDate: timestamp("expiry_date"),
   cost: text("cost"),
+  vendor: text("vendor"),
+  renewalCycle: renewalCycleEnum("renewal_cycle").default('none'),
+  status: licenseStatusEnum("status").default('active'),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
