@@ -218,10 +218,10 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
           
           {/* Responsive two-column layout container */}
-          <div className="flex flex-col md:flex-row gap-x-6 gap-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             
             {/* Left Column */}
-            <div className="flex-1 space-y-4">
+            <div className="space-y-4">
               
               {/* Basic Details Section */}
               <Card>
@@ -444,7 +444,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
             </div>
             
             {/* Right Column */}
-            <div className="flex-1 space-y-4">
+            <div className="space-y-4">
 
               {/* Procurement Details Section */}
               <Card>
@@ -649,29 +649,31 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
             </div>
           </div>
 
-          {/* Form Actions - Full Width */}
-          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full sm:w-auto min-w-[100px]"
-              onClick={() => {
-                form.reset();
-                if (onSuccess) onSuccess();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button 
-              type="submit" 
-              disabled={createAssetMutation.isPending || updateAssetMutation.isPending}
-              className="w-full sm:w-auto min-w-[120px]"
-            >
-              {(createAssetMutation.isPending || updateAssetMutation.isPending) && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {isEditMode ? "Update Asset" : "Create Asset"}
-            </Button>
+          {/* Form Actions - Full Width - Spanning both columns */}
+          <div className="md:col-span-2">
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto min-w-[100px]"
+                onClick={() => {
+                  form.reset();
+                  if (onSuccess) onSuccess();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={createAssetMutation.isPending || updateAssetMutation.isPending}
+                className="w-full sm:w-auto min-w-[120px]"
+              >
+                {(createAssetMutation.isPending || updateAssetMutation.isPending) && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {isEditMode ? "Update Asset" : "Create Asset"}
+              </Button>
+            </div>
           </div>
         </form>
       </Form>
