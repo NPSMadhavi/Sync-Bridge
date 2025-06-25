@@ -178,14 +178,17 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
       
       if (result.extractedText) {
         const currentNotes = form.getValues("notes") || "";
-        const newNote = `AI Analysis: ${result.extractedText}`;
-        if (!currentNotes.includes("AI Analysis:")) {
-          console.log("Setting notes with AI analysis");
-          form.setValue("notes", currentNotes + (currentNotes ? "\n\n" : "") + newNote, { shouldValidate: true, shouldDirty: true });
+        // Only add meaningful analysis info, skip the generic confidence message
+        if (result.confidence >= 0.8 && (result.issueDate || result.expiryDate)) {
+          const analysisInfo = `Document analyzed: ${result.documentType === 'purchase_invoice' ? 'Invoice' : result.documentType}${result.issueDate ? `, Issue: ${result.issueDate}` : ''}${result.expiryDate ? `, Due: ${result.expiryDate}` : ''}`;
+          if (!currentNotes.includes("Document analyzed:")) {
+            console.log("Setting enhanced notes");
+            form.setValue("notes", currentNotes + (currentNotes ? "\n\n" : "") + analysisInfo, { shouldValidate: true, shouldDirty: true });
+          }
         }
       }
 
-      // Force form to re-render and validate
+      // Force form to re-render and validate all fields
       setTimeout(() => {
         form.trigger();
       }, 100);
@@ -419,7 +422,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Document Type*</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <Select onValueChange={field.onChange} value={field.value}>
                               <FormControl>
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select document type" />
