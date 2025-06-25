@@ -19,6 +19,9 @@ export const renewalCycleEnum = pgEnum('renewal_cycle', ['none', 'monthly', 'yea
 export const subscriptionPlanEnum = pgEnum('subscription_plan', ['free', 'starter', 'business', 'enterprise']);
 export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'sent', 'paid', 'overdue', 'cancelled']);
 export const paymentMethodEnum = pgEnum('payment_method', ['bank_transfer', 'credit_card', 'cash', 'check', 'other']);
+export const visaTypeEnum = pgEnum('visa_type', ['s_pass', 'work_permit', 'employment_pass', 'pr', 'dependent_pass', 'ltvp', 'student_pass', 'other']);
+export const employeeStatusEnum = pgEnum('employee_status', ['active', 'resigned', 'on_hold', 'terminated']);
+export const relationshipEnum = pgEnum('relationship', ['spouse', 'child', 'parent', 'sibling', 'other']);
 
 // Tables
 export const tenants = pgTable("tenants", {
@@ -73,10 +76,16 @@ export const employees = pgTable("employees", {
   department: text("department").notNull(),
   designation: text("designation").notNull(),
   joinDate: timestamp("join_date").notNull(),
+  status: employeeStatusEnum("status").notNull().default('active'),
   passportNumber: text("passport_number"),
   passportExpiry: timestamp("passport_expiry"),
   visaNumber: text("visa_number"),
   visaExpiry: timestamp("visa_expiry"),
+  visaType: visaTypeEnum("visa_type"),
+  visaRemarks: text("visa_remarks"),
+  passportScan: text("passport_scan"),
+  visaScan: text("visa_scan"),
+  nricScan: text("nric_scan"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -85,11 +94,14 @@ export const dependents = pgTable("dependents", {
   tenantId: integer("tenant_id").references(() => tenants.id),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
   name: text("name").notNull(),
-  relationship: text("relationship").notNull(),
+  relationship: relationshipEnum("relationship").notNull(),
   passportNumber: text("passport_number"),
   passportExpiry: timestamp("passport_expiry"),
   visaNumber: text("visa_number"),
   visaExpiry: timestamp("visa_expiry"),
+  visaType: visaTypeEnum("visa_type"),
+  passportScan: text("passport_scan"),
+  visaScan: text("visa_scan"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
