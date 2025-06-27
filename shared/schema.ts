@@ -298,6 +298,56 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+import { decimal, date, jsonb } from "drizzle-orm/pg-core";
+
+// Employee Payroll Configuration table
+export const employeePayroll = pgTable("employee_payroll", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  baseSalary: decimal("base_salary", { precision: 10, scale: 2 }).notNull(),
+  payrollPeriod: payrollPeriodEnum("payroll_period").notNull().default('monthly'),
+  hourlyRate: decimal("hourly_rate", { precision: 8, scale: 2 }),
+  overtimeRate: decimal("overtime_rate", { precision: 8, scale: 2 }),
+  allowances: jsonb("allowances").$type<Record<string, number>>().default({}),
+  deductions: jsonb("deductions").$type<Record<string, number>>().default({}),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default('0.00'),
+  cpfRate: decimal("cpf_rate", { precision: 5, scale: 2 }).default('20.00'),
+  isActive: boolean("is_active").default(true).notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdBy: integer("created_by").references(() => users.id).notNull(),
+});
+
+// Payroll Records table
+export const payrollRecords = pgTable("payroll_records", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  payrollConfigId: integer("payroll_config_id").references(() => employeePayroll.id).notNull(),
+  payPeriodStart: date("pay_period_start").notNull(),
+  payPeriodEnd: date("pay_period_end").notNull(),
+  baseSalary: decimal("base_salary", { precision: 10, scale: 2 }).notNull(),
+  overtimeHours: decimal("overtime_hours", { precision: 6, scale: 2 }).default('0.00'),
+  overtimePay: decimal("overtime_pay", { precision: 10, scale: 2 }).default('0.00'),
+  allowances: jsonb("allowances").$type<Record<string, number>>().default({}),
+  deductions: jsonb("deductions").$type<Record<string, number>>().default({}),
+  grossPay: decimal("gross_pay", { precision: 10, scale: 2 }).notNull(),
+  taxDeduction: decimal("tax_deduction", { precision: 10, scale: 2 }).default('0.00'),
+  cpfDeduction: decimal("cpf_deduction", { precision: 10, scale: 2 }).default('0.00'),
+  netPay: decimal("net_pay", { precision: 10, scale: 2 }).notNull(),
+  status: payrollStatusEnum("status").notNull().default('draft'),
+  paymentDate: date("payment_date"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdBy: integer("created_by").references(() => users.id).notNull(),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+});
+
 // Relations
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   users: many(users),
@@ -314,6 +364,8 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   customers: many(customers),
   invoices: many(invoices),
   payments: many(payments),
+  employeePayroll: many(employeePayroll),
+  payrollRecords: many(payrollRecords),
 }));
 
 export const usersRelations = relations(users, ({ many, one }) => ({
