@@ -24,6 +24,10 @@ export const employeeStatusEnum = pgEnum('employee_status', ['active', 'resigned
 export const relationshipEnum = pgEnum('relationship', ['spouse', 'child', 'parent', 'sibling', 'other']);
 export const companyDocumentTypeEnum = pgEnum("company_document_type", ["company_license", "government_certificate", "purchase_invoice", "rental_agreement", "utility_bill", "payment_reminder", "legal_agreement", "other"]);
 
+// Payroll Enums
+export const payrollStatusEnum = pgEnum('payroll_status', ['draft', 'pending', 'approved', 'paid', 'cancelled']);
+export const payrollPeriodEnum = pgEnum('payroll_period', ['monthly', 'bi_weekly', 'weekly']);
+
 // Tables
 export const tenants = pgTable("tenants", {
   id: serial("id").primaryKey(),
@@ -466,6 +470,45 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
   invoices: many(invoices),
 }));
 
+export const employeePayrollRelations = relations(employeePayroll, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [employeePayroll.tenantId],
+    references: [tenants.id],
+  }),
+  employee: one(employees, {
+    fields: [employeePayroll.employeeId],
+    references: [employees.id],
+  }),
+  createdByUser: one(users, {
+    fields: [employeePayroll.createdBy],
+    references: [users.id],
+  }),
+  payrollRecords: many(payrollRecords),
+}));
+
+export const payrollRecordsRelations = relations(payrollRecords, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [payrollRecords.tenantId],
+    references: [tenants.id],
+  }),
+  employee: one(employees, {
+    fields: [payrollRecords.employeeId],
+    references: [employees.id],
+  }),
+  payrollConfig: one(employeePayroll, {
+    fields: [payrollRecords.payrollConfigId],
+    references: [employeePayroll.id],
+  }),
+  createdByUser: one(users, {
+    fields: [payrollRecords.createdBy],
+    references: [users.id],
+  }),
+  approvedByUser: one(users, {
+    fields: [payrollRecords.approvedBy],
+    references: [users.id],
+  }),
+}));
+
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [invoices.tenantId],
@@ -561,6 +604,27 @@ export const insertInvoiceSchema = createInsertSchema(invoices)
 
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems)
   .omit({ id: true, createdAt: true });
+
+// Employee Payroll schema
+export const insertEmployeePayrollSchema = createInsertSchema(employeePayroll).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertEmployeePayroll = z.infer<typeof insertEmployeePayrollSchema>;
+export type EmployeePayroll = typeof employeePayroll.$inferSelect;
+
+// Payroll Records schema
+export const insertPayrollRecordSchema = createInsertSchema(payrollRecords).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  approvedAt: true,
+});
+
+export type InsertPayrollRecord = z.infer<typeof insertPayrollRecordSchema>;
+export type PayrollRecord = typeof payrollRecords.$inferSelect;
 
 export const insertPaymentSchema = createInsertSchema(payments)
   .omit({ id: true, createdAt: true });

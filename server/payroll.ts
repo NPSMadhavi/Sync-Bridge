@@ -333,10 +333,10 @@ export async function getPayrollSummary(req: Request, res: Response) {
     // Get payroll records summary for the period
     let payrollQuery = db
       .select({
-        totalGrossPay: sql<number>`sum(${payrollRecords.grossPay})`,
-        totalNetPay: sql<number>`sum(${payrollRecords.netPay})`,
-        totalTaxDeduction: sql<number>`sum(${payrollRecords.taxDeduction})`,
-        totalCpfDeduction: sql<number>`sum(${payrollRecords.cpfDeduction})`,
+        totalGrossPay: sql<string>`sum(${payrollRecords.grossPay})`,
+        totalNetPay: sql<string>`sum(${payrollRecords.netPay})`,
+        totalTaxDeduction: sql<string>`sum(${payrollRecords.taxDeduction})`,
+        totalCpfDeduction: sql<string>`sum(${payrollRecords.cpfDeduction})`,
         paidRecords: sql<number>`count(case when ${payrollRecords.status} = 'paid' then 1 end)`,
         pendingRecords: sql<number>`count(case when ${payrollRecords.status} = 'pending' then 1 end)`,
         draftRecords: sql<number>`count(case when ${payrollRecords.status} = 'draft' then 1 end)`,
@@ -361,10 +361,10 @@ export async function getPayrollSummary(req: Request, res: Response) {
 
     res.json({
       totalEmployees: totalEmployees[0]?.count || 0,
-      totalGrossPay: summary?.totalGrossPay || 0,
-      totalNetPay: summary?.totalNetPay || 0,
-      totalTaxDeduction: summary?.totalTaxDeduction || 0,
-      totalCpfDeduction: summary?.totalCpfDeduction || 0,
+      totalGrossPay: parseFloat(summary?.totalGrossPay || '0'),
+      totalNetPay: parseFloat(summary?.totalNetPay || '0'),
+      totalTaxDeduction: parseFloat(summary?.totalTaxDeduction || '0'),
+      totalCpfDeduction: parseFloat(summary?.totalCpfDeduction || '0'),
       paidRecords: summary?.paidRecords || 0,
       pendingRecords: summary?.pendingRecords || 0,
       draftRecords: summary?.draftRecords || 0,
