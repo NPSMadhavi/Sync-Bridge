@@ -25,14 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { format, isAfter } from "date-fns";
-import { CalendarIcon, Loader2, FileText, Upload, Plus, X, Clock } from "lucide-react";
+import { Loader2, FileText, Upload, Plus, X, Clock } from "lucide-react";
+import { SimpleDatePicker } from "@/components/ui/simple-date-picker";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -472,37 +467,17 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                         control={form.control}
                         name="issueDate"
                         render={({ field }) => (
-                          <FormItem className="flex flex-col">
+                          <FormItem>
                             <FormLabel>Issue Date</FormLabel>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    variant={"outline"}
-                                    className={cn(
-                                      "w-full pl-3 text-left font-normal",
-                                      !field.value && "text-muted-foreground"
-                                    )}
-                                  >
-                                    {field.value ? (
-                                      format(field.value, "PPP")
-                                    ) : (
-                                      <span>Pick a date</span>
-                                    )}
-                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  selected={field.value || undefined}
-                                  onSelect={field.onChange}
-                                  disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
-                                  initialFocus
-                                />
-                              </PopoverContent>
-                            </Popover>
+                            <FormControl>
+                              <SimpleDatePicker
+                                date={field.value}
+                                setDate={field.onChange}
+                                placeholder="Select issue date"
+                                max={new Date().toISOString().split('T')[0]}
+                                min="1900-01-01"
+                              />
+                            </FormControl>
                             <FormDescription className="text-xs">
                               When was this document issued (optional)
                             </FormDescription>
@@ -516,37 +491,16 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                         control={form.control}
                         name="expiryDate"
                         render={({ field }) => (
-                          <FormItem className="flex flex-col">
+                          <FormItem>
                             <FormLabel>Expiry Date</FormLabel>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    variant={"outline"}
-                                    className={cn(
-                                      "w-full pl-3 text-left font-normal",
-                                      !field.value && "text-muted-foreground"
-                                    )}
-                                  >
-                                    {field.value ? (
-                                      format(field.value, "PPP")
-                                    ) : (
-                                      <span>Pick a date</span>
-                                    )}
-                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  selected={field.value || undefined}
-                                  onSelect={field.onChange}
-                                  disabled={(date) => date < new Date("1900-01-01")}
-                                  initialFocus
-                                />
-                              </PopoverContent>
-                            </Popover>
+                            <FormControl>
+                              <SimpleDatePicker
+                                date={field.value}
+                                setDate={field.onChange}
+                                placeholder="Select expiry date"
+                                min="1900-01-01"
+                              />
+                            </FormControl>
                             <FormDescription className="text-xs">
                               When does this document expire (optional)
                             </FormDescription>
