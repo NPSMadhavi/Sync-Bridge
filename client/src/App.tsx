@@ -8,7 +8,7 @@ import AuthPage from "@/pages/auth-page";
 import AssetsPage from "@/pages/assets-page";
 import EmployeesPage from "@/pages/employees-page";
 import DocumentsPage from "@/pages/documents-page";
-import PayrollPage from "@/pages/payroll-page";
+import PayrollPage from "@/pages/simple-payroll-page";
 import VendorsPage from "@/pages/vendors-page";
 import SettingsPage from "@/pages/settings-page";
 import ReportsPage from "@/pages/reports-page";
