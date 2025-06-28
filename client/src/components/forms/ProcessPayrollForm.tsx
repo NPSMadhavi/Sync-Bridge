@@ -50,12 +50,12 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
 
   // Fetch employee payroll configurations
-  const { data: payrollConfigs = [], isLoading: configsLoading } = useQuery({
+  const { data: payrollConfigs = [], isLoading: configsLoading } = useQuery<any[]>({
     queryKey: ["/api/employee-payroll"],
   });
 
   // Fetch employees for dropdown
-  const { data: employees = [], isLoading: employeesLoading } = useQuery({
+  const { data: employees = [], isLoading: employeesLoading } = useQuery<any[]>({
     queryKey: ["/api/employees"],
   });
 

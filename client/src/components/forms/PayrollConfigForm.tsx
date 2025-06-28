@@ -56,7 +56,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
   const [calculationPreview, setCalculationPreview] = useState<any>(null);
 
   // Fetch employees for dropdown
-  const { data: employees = [], isLoading: employeesLoading } = useQuery({
+  const { data: employees = [], isLoading: employeesLoading } = useQuery<any[]>({
     queryKey: ["/api/employees"],
   });
 
@@ -106,7 +106,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
         deductions,
         // Calculate Singapore-compliant CPF rates based on age and citizenship
         cpfRate: citizenshipStatus === 'foreigner' ? 0 : getCPFRate(age),
-        taxRate: getTaxRate(data.baseSalary * 12), // Annual salary for tax calculation
+        taxRate: getTaxRate(parseFloat(data.baseSalary.toString()) * 12), // Annual salary for tax calculation
       };
 
       const res = await apiRequest("POST", "/api/employee-payroll", payload);

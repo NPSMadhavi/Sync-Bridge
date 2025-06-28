@@ -145,8 +145,8 @@ function calculateCPFContribution(
   const ageCategory = getAgeCategory(age);
   const cappedWage = Math.min(ordinaryWage, CPF_ORDINARY_WAGE_CEILING_MONTHLY);
   
-  const employeeRates = CPF_RATES_2024.employee[ageCategory];
-  const employerRates = CPF_RATES_2024.employer[ageCategory];
+  const employeeRates = CPF_RATES_2024.employee[ageCategory as keyof typeof CPF_RATES_2024.employee];
+  const employerRates = CPF_RATES_2024.employer[ageCategory as keyof typeof CPF_RATES_2024.employer];
   
   const employeeCpf = (cappedWage * employeeRates.total) / 100;
   const employerCpf = (cappedWage * employerRates.total) / 100;
