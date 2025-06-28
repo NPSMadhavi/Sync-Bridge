@@ -467,30 +467,14 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                     </span>
                                   )}
                                 </FormLabel>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <FormControl>
-                                      <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                          "w-full pl-3 text-left font-normal",
-                                          !field.value && "text-muted-foreground",
-                                          isPassportExpired && "border-red-500 bg-red-50 text-red-700"
-                                        )}
-                                      >
-                                        {field.value ? (
-                                          format(field.value, "PPP")
-                                        ) : (
-                                          <span>Pick a date</span>
-                                        )}
-                                    <SimpleDatePicker
-                                      date={field.value}
-                                      setDate={field.onChange}
-                                      placeholder="Select expiry date"
-                                      min="1900-01-01"
-                                    />
-                                  </PopoverContent>
-                                </Popover>
+                                <FormControl>
+                                  <SimpleDatePicker
+                                    date={field.value}
+                                    setDate={field.onChange}
+                                    placeholder="Select passport expiry"
+                                    min="1900-01-01"
+                                  />
+                                </FormControl>
                                 <FormDescription className={cn(
                                   "text-xs",
                                   isPassportExpired && "text-red-600"
