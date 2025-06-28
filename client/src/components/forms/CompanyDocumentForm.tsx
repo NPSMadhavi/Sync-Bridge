@@ -471,7 +471,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                             <FormLabel>Issue Date</FormLabel>
                             <FormControl>
                               <SimpleDatePicker
-                                date={field.value}
+                                date={field.value || undefined}
                                 setDate={field.onChange}
                                 placeholder="Select issue date"
                                 max={new Date().toISOString().split('T')[0]}
@@ -495,7 +495,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                             <FormLabel>Expiry Date</FormLabel>
                             <FormControl>
                               <SimpleDatePicker
-                                date={field.value}
+                                date={field.value || undefined}
                                 setDate={field.onChange}
                                 placeholder="Select expiry date"
                                 min="1900-01-01"

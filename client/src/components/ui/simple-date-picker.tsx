@@ -3,8 +3,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export interface SimpleDatePickerProps {
-  date?: Date;
-  setDate: (date?: Date) => void;
+  date?: Date | null;
+  setDate: (date?: Date | null) => void;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
@@ -30,7 +30,7 @@ export function SimpleDatePicker({
     }
   };
 
-  const formatDateForInput = (date?: Date) => {
+  const formatDateForInput = (date?: Date | null) => {
     if (!date) return "";
     return date.toISOString().split('T')[0];
   };
@@ -38,7 +38,7 @@ export function SimpleDatePicker({
   return (
     <Input
       type="date"
-      value={formatDateForInput(date)}
+      value={formatDateForInput(date || undefined)}
       onChange={handleDateChange}
       placeholder={placeholder}
       className={cn("w-full", className)}
