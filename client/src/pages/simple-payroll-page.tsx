@@ -1,9 +1,9 @@
 import { useState } from "react";
+import Dashboard from "@/components/layout/Dashboard";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -12,6 +12,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Plus,
   Users,
@@ -26,6 +32,8 @@ import {
 } from "lucide-react";
 
 export default function PayrollPage() {
+  const [showConfigForm, setShowConfigForm] = useState(false);
+  const [showRecordForm, setShowRecordForm] = useState(false);
   // Mock data for demonstration
   const mockConfigs = [
     {
@@ -113,9 +121,8 @@ export default function PayrollPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+    <Dashboard>
+      <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Payroll Management</h1>
           <p className="text-muted-foreground">
@@ -124,14 +131,14 @@ export default function PayrollPage() {
         </div>
         <div className="flex gap-2">
           <Button
-            onClick={() => alert("Payroll Configuration form coming soon!")}
+            onClick={() => setShowConfigForm(true)}
             className="bg-teal-600 hover:bg-teal-700 text-white"
           >
             <Plus className="h-4 w-4 mr-2" />
             Add Payroll Config
           </Button>
           <Button
-            onClick={() => alert("Payroll Processing form coming soon!")}
+            onClick={() => setShowRecordForm(true)}
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -141,7 +148,7 @@ export default function PayrollPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Employees</CardTitle>
@@ -196,17 +203,11 @@ export default function PayrollPage() {
       </div>
 
       {/* Main Content */}
-      <Tabs defaultValue="configs" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="configs">Payroll Configurations</TabsTrigger>
-          <TabsTrigger value="records">Payroll Records</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="configs" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Employee Payroll Configurations</CardTitle>
-            </CardHeader>
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Employee Payroll Configurations</CardTitle>
+          </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
@@ -257,16 +258,14 @@ export default function PayrollPage() {
                   ))}
                 </TableBody>
               </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
+          </CardContent>
+        </Card>
 
-        <TabsContent value="records" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Payroll Records</CardTitle>
-            </CardHeader>
-            <CardContent>
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Recent Payroll Records</CardTitle>
+          </CardHeader>
+          <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -329,10 +328,39 @@ export default function PayrollPage() {
                   ))}
                 </TableBody>
               </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Dialog for Payroll Config Form */}
+      <Dialog open={showConfigForm} onOpenChange={setShowConfigForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add Payroll Configuration</DialogTitle>
+          </DialogHeader>
+          <div className="p-6">
+            <p className="text-muted-foreground">Payroll configuration form will be implemented here.</p>
+            <Button onClick={() => setShowConfigForm(false)} className="mt-4">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog for Payroll Record Form */}
+      <Dialog open={showRecordForm} onOpenChange={setShowRecordForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Process Payroll</DialogTitle>
+          </DialogHeader>
+          <div className="p-6">
+            <p className="text-muted-foreground">Payroll processing form will be implemented here.</p>
+            <Button onClick={() => setShowRecordForm(false)} className="mt-4">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Dashboard>
   );
 }
