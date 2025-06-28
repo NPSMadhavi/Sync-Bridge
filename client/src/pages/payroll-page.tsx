@@ -24,8 +24,7 @@ import {
   Edit,
   Eye,
 } from "lucide-react";
-import { PayrollConfigForm } from "@/components/forms/PayrollConfigForm";
-import { PayrollRecordForm } from "@/components/forms/PayrollRecordForm";
+// Temporarily removed form imports until components are created
 
 interface PayrollConfig {
   id: number;

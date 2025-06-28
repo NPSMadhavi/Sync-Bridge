@@ -18,7 +18,8 @@ import {
   UserCheck,
   Menu,
   X,
-  Package
+  Package,
+  Calculator
 } from "lucide-react";
 
 type MenuItem = {
@@ -53,6 +54,12 @@ export default function Sidebar() {
       name: "Employees",
       href: "/employees",
       icon: <UsersIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
+    },
+    {
+      name: "Payroll",
+      href: "/payroll",
+      icon: <Calculator className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
+      roles: ["admin", "hr_manager"],
     },
     {
       name: "Documents",
