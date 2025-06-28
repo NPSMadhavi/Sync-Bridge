@@ -17,6 +17,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import PayrollConfigForm from "@/components/forms/PayrollConfigForm";
+import ProcessPayrollForm from "@/components/forms/ProcessPayrollForm";
 import {
   Plus,
   Users,
@@ -206,31 +208,21 @@ export default function PayrollPage() {
 
       {/* Dialog for Payroll Config Form */}
       <Dialog open={showConfigForm} onOpenChange={setShowConfigForm}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Add Payroll Configuration</DialogTitle>
-          </DialogHeader>
-          <div className="p-6">
-            <p className="text-muted-foreground">Payroll configuration form will be implemented here.</p>
-            <Button onClick={() => setShowConfigForm(false)} className="mt-4">
-              Close
-            </Button>
-          </div>
+        <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
+          <PayrollConfigForm
+            onSuccess={() => setShowConfigForm(false)}
+            onCancel={() => setShowConfigForm(false)}
+          />
         </DialogContent>
       </Dialog>
 
       {/* Dialog for Payroll Record Form */}
       <Dialog open={showRecordForm} onOpenChange={setShowRecordForm}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Process Payroll</DialogTitle>
-          </DialogHeader>
-          <div className="p-6">
-            <p className="text-muted-foreground">Payroll processing form will be implemented here.</p>
-            <Button onClick={() => setShowRecordForm(false)} className="mt-4">
-              Close
-            </Button>
-          </div>
+        <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
+          <ProcessPayrollForm
+            onSuccess={() => setShowRecordForm(false)}
+            onCancel={() => setShowRecordForm(false)}
+          />
         </DialogContent>
       </Dialog>
     </Dashboard>

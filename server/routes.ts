@@ -1336,6 +1336,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/company-documents", companyDocumentsRouter);
   console.log("Company documents routes registered");
 
+  // Singapore payroll calculation endpoint
+  app.post("/api/payroll/calculate", async (req, res) => {
+    try {
+      const { calculateSingaporePayroll, validatePayrollInput } = await import("./singapore-payroll-calculator");
+      
+      const errors = validatePayrollInput(req.body);
+      if (errors.length > 0) {
+        return res.status(400).json({ error: "Validation failed", details: errors });
+      }
+      
+      const calculation = calculateSingaporePayroll(req.body);
+      res.json(calculation);
+    } catch (error: any) {
+      console.error("Payroll calculation error:", error);
+      res.status(500).json({ error: "Failed to calculate payroll", details: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
