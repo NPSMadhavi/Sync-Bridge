@@ -560,8 +560,8 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                 </FormLabel>
                                 <FormControl>
                                   <SimpleDatePicker
-                                    value={field.value || ''}
-                                    onChange={field.onChange}
+                                    date={field.value}
+                                    setDate={field.onChange}
                                     placeholder="Select visa expiry date"
                                   />
                                 </FormControl>
@@ -825,35 +825,13 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                   render={({ field }) => (
                                     <FormItem className="flex flex-col">
                                       <FormLabel>Passport Expiry</FormLabel>
-                                      <Popover>
-                                        <PopoverTrigger asChild>
-                                          <FormControl>
-                                            <Button
-                                              variant={"outline"}
-                                              className={cn(
-                                                "w-full pl-3 text-left font-normal",
-                                                !field.value && "text-muted-foreground"
-                                              )}
-                                            >
-                                              {field.value ? (
-                                                format(field.value, "PPP")
-                                              ) : (
-                                                <span>Pick a date</span>
-                                              )}
-                                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                            </Button>
-                                          </FormControl>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0" align="start">
-                                          <Calendar
-                                            mode="single"
-                                            selected={field.value || undefined}
-                                            onSelect={field.onChange}
-                                            disabled={(date) => date < new Date("1900-01-01")}
-                                            initialFocus
-                                          />
-                                        </PopoverContent>
-                                      </Popover>
+                                      <FormControl>
+                                        <SimpleDatePicker
+                                          date={field.value}
+                                          setDate={field.onChange}
+                                          placeholder="Select passport expiry date"
+                                        />
+                                      </FormControl>
                                       <FormMessage />
                                     </FormItem>
                                   )}
@@ -883,8 +861,8 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                       <FormLabel>Visa Expiry</FormLabel>
                                       <FormControl>
                                         <SimpleDatePicker
-                                          value={field.value || ''}
-                                          onChange={field.onChange}
+                                          date={field.value}
+                                          setDate={field.onChange}
                                           placeholder="Select visa expiry date"
                                         />
                                       </FormControl>
