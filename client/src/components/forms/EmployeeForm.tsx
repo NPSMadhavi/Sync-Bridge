@@ -558,37 +558,12 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                     </span>
                                   )}
                                 </FormLabel>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <FormControl>
-                                      <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                          "w-full pl-3 text-left font-normal",
-                                          !field.value && "text-muted-foreground",
-                                          isVisaExpired && "border-red-500 bg-red-50 text-red-700"
-                                        )}
-                                      >
-                                        {field.value ? (
-                                          format(field.value, "PPP")
-                                        ) : (
-                                          <span>Pick a date</span>
-                                        )}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                      </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                      <Calendar
-                                        mode="single"
-                                        selected={field.value}
-                                        onSelect={field.onChange}
-                                        disabled={(date) =>
-                                          date > new Date() || date < new Date("1900-01-01")
-                                        }
-                                        initialFocus
-                                      />
-                                    </PopoverContent>
-                                  </Popover>
+                                <FormControl>
+                                  <SimpleDatePicker
+                                    value={field.value || ''}
+                                    onChange={field.onChange}
+                                    placeholder="Select visa expiry date"
+                                  />
                                 </FormControl>
                                 <FormDescription className={cn(
                                   "text-xs",
@@ -906,35 +881,13 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                   render={({ field }) => (
                                     <FormItem className="flex flex-col">
                                       <FormLabel>Visa Expiry</FormLabel>
-                                      <Popover>
-                                        <PopoverTrigger asChild>
-                                          <FormControl>
-                                            <Button
-                                              variant={"outline"}
-                                              className={cn(
-                                                "w-full pl-3 text-left font-normal",
-                                                !field.value && "text-muted-foreground"
-                                              )}
-                                            >
-                                              {field.value ? (
-                                                format(field.value, "PPP")
-                                              ) : (
-                                                <span>Pick a date</span>
-                                              )}
-                                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                            </Button>
-                                          </FormControl>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0" align="start">
-                                          <Calendar
-                                            mode="single"
-                                            selected={field.value || undefined}
-                                            onSelect={field.onChange}
-                                            disabled={(date) => date < new Date("1900-01-01")}
-                                            initialFocus
-                                          />
-                                        </PopoverContent>
-                                      </Popover>
+                                      <FormControl>
+                                        <SimpleDatePicker
+                                          value={field.value || ''}
+                                          onChange={field.onChange}
+                                          placeholder="Select visa expiry date"
+                                        />
+                                      </FormControl>
                                       <FormMessage />
                                     </FormItem>
                                   )}

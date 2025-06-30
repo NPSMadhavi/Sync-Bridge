@@ -19,7 +19,8 @@ import {
   Menu,
   X,
   Package,
-  Calculator
+  Calculator,
+  BellIcon
 } from "lucide-react";
 
 type MenuItem = {
@@ -88,6 +89,12 @@ export default function Sidebar() {
       name: "User Management",
       href: "/users",
       icon: <UsersIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
+      roles: ["super_admin", "admin"],
+    },
+    {
+      name: "Notifications",
+      href: "/notifications",
+      icon: <BellIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
       roles: ["super_admin", "admin"],
     },
     {
