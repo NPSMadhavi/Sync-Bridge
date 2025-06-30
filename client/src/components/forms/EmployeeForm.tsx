@@ -25,11 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+
 import { format, isAfter, isBefore } from "date-fns";
 import { Loader2, Users, FileText, Upload, Plus, Trash2, User, Shield, Building, AlertTriangle } from "lucide-react";
 import { SimpleDatePicker } from "@/components/ui/simple-date-picker";
@@ -579,22 +575,6 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                           <span>Pick a date</span>
                                         )}
                                         <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                      </Button>
-                                    </FormControl>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                      mode="single"
-                                      selected={field.value || undefined}
-                                      onSelect={field.onChange}
-                                      disabled={(date) => {
-                                        return date < new Date("1900-01-01") || 
-                                               (passportExpiry && isBefore(date, passportExpiry));
-                                      }}
-                                      initialFocus
-                                    />
-                                  </PopoverContent>
-                                </Popover>
                                 <FormDescription className={cn(
                                   "text-xs",
                                   isVisaExpired && "text-red-600"
