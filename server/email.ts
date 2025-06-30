@@ -16,7 +16,7 @@ const emailConfig = {
 let transporter: nodemailer.Transporter | null = null;
 
 if (emailConfig.auth.user && emailConfig.auth.pass) {
-  transporter = nodemailer.createTransporter(emailConfig);
+  transporter = nodemailer.createTransport(emailConfig);
 } else {
   console.warn("SMTP credentials not configured. Email functionality will be disabled.");
 }
@@ -200,4 +200,111 @@ Once verified, you'll have access to our complete enterprise management platform
 Best regards,
 The SyncBridge Team
   `.trim();
+}
+
+export function generateDocumentExpiryEmailHTML(documentTitle: string, expiryDate: string, daysUntilExpiry: number, employeeName?: string): string {
+  const isExpired = daysUntilExpiry <= 0;
+  const urgencyColor = isExpired ? '#dc2626' : daysUntilExpiry <= 7 ? '#ea580c' : '#d97706';
+  const statusText = isExpired ? 'EXPIRED' : `${daysUntilExpiry} days until expiry`;
+  
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Expiry Alert</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 28px;">📋 Document Expiry Alert</h1>
+        <p style="color: white; margin: 10px 0 0 0; opacity: 0.9;">SyncBridge Enterprise Platform</p>
+    </div>
+    
+    <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px;">
+        <div style="background: ${urgencyColor}; color: white; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 25px;">
+            <h2 style="margin: 0; font-size: 20px;">${isExpired ? '⚠️ DOCUMENT EXPIRED' : '⏰ DOCUMENT EXPIRING SOON'}</h2>
+            <p style="margin: 8px 0 0 0; font-size: 16px; font-weight: bold;">${statusText}</p>
+        </div>
+        
+        <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+            <h3 style="margin: 0 0 15px 0; color: #374151;">Document Details</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 8px 0; font-weight: bold; color: #6b7280;">Document:</td>
+                    <td style="padding: 8px 0; color: #111827;">${documentTitle}</td>
+                </tr>
+                ${employeeName ? `
+                <tr>
+                    <td style="padding: 8px 0; font-weight: bold; color: #6b7280;">Employee:</td>
+                    <td style="padding: 8px 0; color: #111827;">${employeeName}</td>
+                </tr>
+                ` : ''}
+                <tr>
+                    <td style="padding: 8px 0; font-weight: bold; color: #6b7280;">Expiry Date:</td>
+                    <td style="padding: 8px 0; color: #111827;">${new Date(expiryDate).toLocaleDateString('en-SG', { 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })}</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px; margin-bottom: 25px;">
+            <h4 style="margin: 0 0 10px 0; color: #1e40af;">📢 Required Action</h4>
+            <p style="margin: 0; color: #1e3a8a;">
+                ${isExpired 
+                  ? 'This document has expired and requires immediate attention. Please renew or update the document as soon as possible to maintain compliance.'
+                  : 'Please take action to renew or update this document before it expires to avoid any compliance issues.'
+                }
+            </p>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="#" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                Access SyncBridge Dashboard
+            </a>
+        </div>
+        
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; text-align: center; color: #6b7280; font-size: 14px;">
+            <p style="margin: 0;">This is an automated notification from SyncBridge Enterprise Platform</p>
+            <p style="margin: 5px 0 0 0;">Please do not reply to this email</p>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+export function generateDocumentExpiryEmailText(documentTitle: string, expiryDate: string, daysUntilExpiry: number, employeeName?: string): string {
+  const isExpired = daysUntilExpiry <= 0;
+  const statusText = isExpired ? 'EXPIRED' : `${daysUntilExpiry} days until expiry`;
+  
+  return `
+DOCUMENT EXPIRY ALERT - SyncBridge Enterprise Platform
+
+${isExpired ? 'DOCUMENT EXPIRED' : 'DOCUMENT EXPIRING SOON'}
+Status: ${statusText}
+
+Document Details:
+- Document: ${documentTitle}
+${employeeName ? `- Employee: ${employeeName}` : ''}
+- Expiry Date: ${new Date(expiryDate).toLocaleDateString('en-SG', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  })}
+
+Required Action:
+${isExpired 
+  ? 'This document has expired and requires immediate attention. Please renew or update the document as soon as possible to maintain compliance.'
+  : 'Please take action to renew or update this document before it expires to avoid any compliance issues.'
+}
+
+Please log in to your SyncBridge dashboard to manage this document.
+
+---
+This is an automated notification from SyncBridge Enterprise Platform
+Please do not reply to this email
+`;
 }

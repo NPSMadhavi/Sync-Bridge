@@ -3,7 +3,7 @@ import {
   users, employees, dependents, assets, assetAssignments, 
   maintenanceRecords, employeeDocuments, vendors, notifications, 
   auditLogs, licenses, tenants, customers, invoices, invoiceItems, payments,
-  userPermissions,
+  userPermissions, companyDocuments,
   User, InsertUser, Employee, InsertEmployee,
   Dependent, InsertDependent, Asset, InsertAsset, 
   AssetAssignment, InsertAssetAssignment, MaintenanceRecord,
@@ -12,7 +12,8 @@ import {
   AuditLog, InsertAuditLog, License, InsertLicense,
   Tenant, InsertTenant, Customer, InsertCustomer,
   Invoice, InsertInvoice, InvoiceItem, InsertInvoiceItem,
-  Payment, InsertPayment, UserPermission, InsertUserPermission
+  Payment, InsertPayment, UserPermission, InsertUserPermission,
+  CompanyDocument, InsertCompanyDocument
 } from "@shared/schema";
 import { eq, and, gt, lt, lte, desc, isNull, sql } from "drizzle-orm";
 import session from "express-session";
@@ -46,8 +47,10 @@ export interface IStorage {
   // User operations
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUsers(tenantId?: number): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, user: Partial<InsertUser>): Promise<User | undefined>;
+  deleteUser(id: number): Promise<void>;
   
   // Employee operations
   getEmployee(id: number): Promise<Employee | undefined>;
@@ -89,11 +92,19 @@ export interface IStorage {
   
   // Employee Document operations
   getEmployeeDocument(id: number): Promise<EmployeeDocument | undefined>;
+  getEmployeeDocuments(employeeId: number): Promise<EmployeeDocument[]>;
   getEmployeeDocumentsByEmployeeId(employeeId: number): Promise<EmployeeDocument[]>;
   getExpiringDocuments(daysThreshold: number, tenantId?: number): Promise<EmployeeDocument[]>;
   createEmployeeDocument(document: InsertEmployeeDocument): Promise<EmployeeDocument>;
   updateEmployeeDocument(id: number, document: Partial<InsertEmployeeDocument>): Promise<EmployeeDocument | undefined>;
   deleteEmployeeDocument(id: number): Promise<void>;
+  
+  // Company Document operations
+  getCompanyDocument(id: number): Promise<CompanyDocument | undefined>;
+  getCompanyDocuments(tenantId?: number): Promise<CompanyDocument[]>;
+  createCompanyDocument(document: InsertCompanyDocument): Promise<CompanyDocument>;
+  updateCompanyDocument(id: number, document: Partial<InsertCompanyDocument>): Promise<CompanyDocument | undefined>;
+  deleteCompanyDocument(id: number): Promise<void>;
   
   // Vendor operations
   getVendor(id: number): Promise<Vendor | undefined>;
@@ -1322,6 +1333,38 @@ export class DatabaseStorage implements IStorage {
     return `${buf.toString('hex')}.${salt}`;
   }
 
+  async getUsers(tenantId?: number): Promise<User[]> {
+    try {
+      const result = await db.select().from(users);
+      return result.map(user => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        password: user.password,
+        role: user.role as any,
+        tenantId: user.tenantId,
+        isEmailVerified: user.isEmailVerified || false,
+        emailVerificationToken: user.emailVerificationToken,
+        emailVerificationExpiry: user.emailVerificationExpiry,
+        createdAt: user.createdAt,
+        isActive: user.isActive || true,
+        allowedModules: user.allowedModules || []
+      }));
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      return [];
+    }
+  }
+
+  async deleteUser(id: number): Promise<void> {
+    try {
+      await db.delete(users).where(eq(users.id, id));
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  }
+
   async updateUser(id: number, userData: Partial<InsertUser>): Promise<User | undefined> {
     try {
       const updateData = {
@@ -1549,6 +1592,43 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEmployeeDocument(id: number): Promise<void> {
     await db.delete(employeeDocuments).where(eq(employeeDocuments.id, id));
+  }
+
+  async getEmployeeDocuments(employeeId: number): Promise<EmployeeDocument[]> {
+    return await db.select().from(employeeDocuments).where(eq(employeeDocuments.employeeId, employeeId));
+  }
+
+  // Company Document operations
+  async getCompanyDocument(id: number): Promise<CompanyDocument | undefined> {
+    const [document] = await db.select().from(companyDocuments).where(eq(companyDocuments.id, id));
+    return document || undefined;
+  }
+
+  async getCompanyDocuments(tenantId?: number): Promise<CompanyDocument[]> {
+    try {
+      const documents = await db.select().from(companyDocuments);
+      return documents;
+    } catch (error) {
+      console.error('Error fetching company documents:', error);
+      return [];
+    }
+  }
+
+  async createCompanyDocument(document: InsertCompanyDocument): Promise<CompanyDocument> {
+    const [newDocument] = await db.insert(companyDocuments).values(document).returning();
+    return newDocument;
+  }
+
+  async updateCompanyDocument(id: number, document: Partial<InsertCompanyDocument>): Promise<CompanyDocument | undefined> {
+    const [updatedDocument] = await db.update(companyDocuments)
+      .set(document)
+      .where(eq(companyDocuments.id, id))
+      .returning();
+    return updatedDocument || undefined;
+  }
+
+  async deleteCompanyDocument(id: number): Promise<void> {
+    await db.delete(companyDocuments).where(eq(companyDocuments.id, id));
   }
   
   // Vendor operations
