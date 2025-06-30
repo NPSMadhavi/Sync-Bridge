@@ -17,6 +17,7 @@ import LicensesPage from "@/pages/licenses-page";
 import CustomersPage from "@/pages/customers-page";
 import InvoicesPage from "@/pages/invoices-page";
 import UserManagementPage from "@/pages/user-management-page";
+import NotificationsPage from "@/pages/notifications-page";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "@/hooks/use-auth";
 import { useEffect } from "react";
@@ -50,6 +51,7 @@ function Router() {
       <ProtectedRoute path="/customers" component={CustomersPage} />
       <ProtectedRoute path="/invoices" component={InvoicesPage} />
       <ProtectedRoute path="/users" component={UserManagementPage} />
+      <ProtectedRoute path="/notifications" component={NotificationsPage} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />
       <ProtectedRoute path="/audit-logs" component={AuditLogsPage} />

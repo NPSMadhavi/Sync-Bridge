@@ -37,6 +37,16 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize document expiry monitoring with proper delay
+  setTimeout(() => {
+    import('./document-expiry-notifier').then(({ initializeDocumentExpiryMonitoring }) => {
+      initializeDocumentExpiryMonitoring();
+      console.log("Document expiry monitoring initialized");
+    }).catch(error => {
+      console.warn("Document expiry monitoring not available:", error.message);
+    });
+  }, 30000); // 30 seconds delay to allow database connection
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

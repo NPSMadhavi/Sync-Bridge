@@ -1336,6 +1336,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/company-documents", companyDocumentsRouter);
   console.log("Company documents routes registered");
 
+  // Document expiry notification routes
+  app.post('/api/notifications/test-expiry', async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      const { documentId } = req.body;
+      if (!documentId) {
+        return res.status(400).json({ error: 'Document ID is required' });
+      }
+      
+      const { documentExpiryNotifier } = await import('./document-expiry-notifier');
+      const success = await documentExpiryNotifier.sendTestExpiryNotification(documentId);
+      
+      if (success) {
+        res.json({ message: 'Test notification sent successfully' });
+      } else {
+        res.status(400).json({ error: 'Failed to send test notification' });
+      }
+    } catch (error) {
+      console.error('Error sending test notification:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/notifications/check-expiring', async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      const { documentExpiryNotifier } = await import('./document-expiry-notifier');
+      await documentExpiryNotifier.checkAndNotifyExpiringDocuments();
+      res.json({ message: 'Document expiry check completed' });
+    } catch (error) {
+      console.error('Error checking expiring documents:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.get('/api/notifications/settings', async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      res.json({
+        emailConfigured: !!process.env.SMTP_HOST,
+        monitoringEnabled: true,
+        alertDays: [30, 14, 7, 1],
+        lastCheck: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error getting notification settings:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Singapore payroll calculation endpoint
   app.post("/api/payroll/calculate", async (req, res) => {
     try {
