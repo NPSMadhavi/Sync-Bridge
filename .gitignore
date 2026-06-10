@@ -4,4 +4,9 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
-!server/.env
+
+.env
+*.env
+client/.env
+server/.env
+temp/syncbridge-asar/server/.env
