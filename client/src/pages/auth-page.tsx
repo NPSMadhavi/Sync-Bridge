@@ -157,6 +157,10 @@ export default function AuthPage() {
   }
 
   if (user) {
+    // Redirect vendors to vendor dashboard, others to main dashboard
+    if (user.role === 'vendor') {
+      return <Redirect to="/vendor-dashboard" />;
+    }
     return <Redirect to="/" />;
   }
 

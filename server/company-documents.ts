@@ -7,6 +7,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 import { analyzeDocumentFile } from "./ai-document-analyzer";
+import { requireTenant } from "./middleware/tenant";
 
 const router = Router();
 
@@ -34,7 +35,7 @@ const createCompanyDocumentSchema = z.object({
 });
 
 // Test endpoint to verify JSON response
-router.get("/test-analyze", (req, res) => {
+router.get("/test-analyze", requireTenant, (req, res) => {
   res.json({ 
     message: "Test endpoint working", 
     timestamp: new Date().toISOString(),
@@ -43,7 +44,7 @@ router.get("/test-analyze", (req, res) => {
 });
 
 // Analyze document with AI
-router.post("/analyze", async (req, res) => {
+router.post("/analyze", requireTenant, async (req, res) => {
   console.log("Starting document analysis...");
   
   try {
@@ -84,7 +85,7 @@ router.post("/analyze", async (req, res) => {
       error: "Failed to analyze document",
       details: error instanceof Error ? error.message : 'Unknown error',
       type: "analysis_error",
-      filename: filename || 'unknown'
+      filename: req.body.filename || 'unknown'
     };
     
     console.log("Sending error response:", errorResponse);
@@ -93,30 +94,54 @@ router.post("/analyze", async (req, res) => {
 });
 
 // Get all company documents
-router.get("/", async (req, res) => {
+router.get("/", requireTenant, async (req, res) => {
   try {
-    const tenantId = req.user?.tenantId;
-    if (!tenantId) {
-      return res.status(401).json({ error: "Unauthorized" });
+    const user = (req as any).user;
+    const tenant = (req as any).tenant;
+
+    // Define and validate select fields
+    const selectFields = {
+      id: companyDocuments.id,
+      title: companyDocuments.title,
+      documentType: companyDocuments.documentType,
+      customType: companyDocuments.customType,
+      filePath: companyDocuments.filePath,
+      issueDate: companyDocuments.issueDate,
+      expiryDate: companyDocuments.expiryDate,
+      notes: companyDocuments.notes,
+      createdAt: companyDocuments.createdAt,
+      uploadedBy: users.name,
+    };
+
+    // Validate that all fields exist on their respective tables
+    Object.entries(selectFields).forEach(([key, value]) => {
+      if (!value) {
+        console.error(`Field ${key} is undefined in company documents or users table`);
+        throw new Error(`Invalid field in select: ${key}`);
+      }
+    });
+
+    console.log('Fields being selected:', selectFields);
+
+    let query = db
+      .select(selectFields)
+      .from(companyDocuments)
+      .leftJoin(users, eq(companyDocuments.uploadedBy, users.id));
+
+    // Apply tenant filter based on user role
+    if (user?.role === 'super_admin' || user?.isSuperAdmin) {
+      if (tenant) {
+        query = query.where(eq(companyDocuments.tenantId, tenant.id));
+      }
+      // If no tenant, fetch all (global access for super admin)
+    } else {
+      if (!tenant) {
+        return res.status(400).json({ message: 'Tenant context required for regular users' });
+      }
+      query = query.where(eq(companyDocuments.tenantId, tenant.id));
     }
 
-    const docs = await db
-      .select({
-        id: companyDocuments.id,
-        title: companyDocuments.title,
-        documentType: companyDocuments.documentType,
-        customType: companyDocuments.customType,
-        filePath: companyDocuments.filePath,
-        issueDate: companyDocuments.issueDate,
-        expiryDate: companyDocuments.expiryDate,
-        notes: companyDocuments.notes,
-        createdAt: companyDocuments.createdAt,
-        uploadedBy: users.name,
-      })
-      .from(companyDocuments)
-      .leftJoin(users, eq(companyDocuments.uploadedBy, users.id))
-      .where(eq(companyDocuments.tenantId, tenantId))
-      .orderBy(desc(companyDocuments.createdAt));
+    const docs = await query.orderBy(desc(companyDocuments.createdAt));
 
     res.json(docs);
   } catch (error) {
@@ -126,13 +151,18 @@ router.get("/", async (req, res) => {
 });
 
 // Create new company document
-router.post("/", async (req, res) => {
+router.post("/", requireTenant, async (req, res) => {
   try {
-    const tenantId = req.user?.tenantId;
-    const userId = req.user?.id;
-    
-    if (!tenantId || !userId) {
+    const tenant = (req as any).tenant;
+    const user = (req as any).user;
+    const userId = user?.id;
+
+    // Allow super_admin without tenant; regular users must have tenant
+    if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!(user?.role === 'super_admin' || user?.isSuperAdmin) && !tenant) {
+      return res.status(401).json({ error: "Tenant context required" });
     }
 
     const validatedData = createCompanyDocumentSchema.parse(req.body);
@@ -174,7 +204,7 @@ router.post("/", async (req, res) => {
     const [newDocument] = await db
       .insert(companyDocuments)
       .values({
-        tenantId,
+        tenantId: tenant?.id ?? null,
         title: validatedData.title,
         documentType: validatedData.documentType,
         customType: validatedData.customType || null,
@@ -187,11 +217,11 @@ router.post("/", async (req, res) => {
       .returning();
 
     // Create reminders if provided
-    if (validatedData.reminders && validatedData.reminders.length > 0) {
+    if (validatedData.reminders?.length) {
       await db.insert(documentReminders).values(
         validatedData.reminders.map(reminder => ({
           documentId: newDocument.id,
-          daysBefore: reminder.daysBefore,
+          daysBefore: reminder.daysBefore
         }))
       );
     }
@@ -200,21 +230,26 @@ router.post("/", async (req, res) => {
   } catch (error) {
     console.error("Error creating company document:", error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "Invalid data", details: error.errors });
+      res.status(400).json({ error: "Validation error", details: error.errors });
+    } else {
+      res.status(500).json({ error: "Failed to create document" });
     }
-    res.status(500).json({ error: "Failed to create document" });
   }
 });
 
 // Update company document
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireTenant, async (req, res) => {
   try {
-    const tenantId = req.user?.tenantId;
-    const userId = req.user?.id;
+    const tenant = (req as any).tenant;
+    const user = (req as any).user;
+    const userId = user?.id;
     const documentId = parseInt(req.params.id);
-    
-    if (!tenantId || !userId || isNaN(documentId)) {
+
+    if (!userId || isNaN(documentId)) {
       return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!(user?.role === 'super_admin' || user?.isSuperAdmin) && !tenant) {
+      return res.status(401).json({ error: "Tenant context required" });
     }
 
     const validatedData = createCompanyDocumentSchema.omit({ fileData: true }).parse(req.body);
@@ -223,10 +258,11 @@ router.put("/:id", async (req, res) => {
     const existingDoc = await db
       .select()
       .from(companyDocuments)
-      .where(and(
-        eq(companyDocuments.id, documentId),
-        eq(companyDocuments.tenantId, tenantId)
-      ))
+      .where(
+        tenant
+          ? and(eq(companyDocuments.id, documentId), eq(companyDocuments.tenantId, tenant.id))
+          : eq(companyDocuments.id, documentId)
+      )
       .limit(1);
 
     if (existingDoc.length === 0) {
@@ -270,23 +306,25 @@ router.put("/:id", async (req, res) => {
 });
 
 // Delete company document
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireTenant, async (req, res) => {
   try {
-    const tenantId = req.user?.tenantId;
+    const tenant = (req as any).tenant;
+    const user = (req as any).user;
     const documentId = parseInt(req.params.id);
-    
-    if (!tenantId || isNaN(documentId)) {
-      return res.status(401).json({ error: "Unauthorized" });
+
+    if (isNaN(documentId)) {
+      return res.status(400).json({ error: "Invalid document ID" });
     }
 
     // Check if document exists and belongs to tenant
     const existingDoc = await db
       .select()
       .from(companyDocuments)
-      .where(and(
-        eq(companyDocuments.id, documentId),
-        eq(companyDocuments.tenantId, tenantId)
-      ))
+      .where(
+        tenant
+          ? and(eq(companyDocuments.id, documentId), eq(companyDocuments.tenantId, tenant.id))
+          : eq(companyDocuments.id, documentId)
+      )
       .limit(1);
 
     if (existingDoc.length === 0) {
@@ -306,30 +344,61 @@ router.delete("/:id", async (req, res) => {
 // Get documents expiring soon
 router.get("/expiring", async (req, res) => {
   try {
-    const tenantId = req.user?.tenantId;
-    if (!tenantId) {
+    const user = (req as any).user;
+    const tenant = (req as any).tenant;
+    
+    if (!user) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
-    const expiringDocs = await db
-      .select({
-        id: companyDocuments.id,
-        title: companyDocuments.title,
-        documentType: companyDocuments.documentType,
-        customType: companyDocuments.customType,
-        expiryDate: companyDocuments.expiryDate,
-        uploadedBy: users.name,
-      })
+    // Define and validate select fields
+    const selectFields = {
+      id: companyDocuments.id,
+      title: companyDocuments.title,
+      documentType: companyDocuments.documentType,
+      customType: companyDocuments.customType,
+      expiryDate: companyDocuments.expiryDate,
+      uploadedBy: users.name,
+    };
+
+    // Validate that all fields exist on their respective tables
+    Object.entries(selectFields).forEach(([key, value]) => {
+      if (!value) {
+        console.error(`Field ${key} is undefined in company documents or users table`);
+        throw new Error(`Invalid field in select: ${key}`);
+      }
+    });
+
+    console.log('Fields being selected:', selectFields);
+
+    let query = db
+      .select(selectFields)
       .from(companyDocuments)
-      .leftJoin(users, eq(companyDocuments.uploadedBy, users.id))
-      .where(and(
-        eq(companyDocuments.tenantId, tenantId),
-        lt(companyDocuments.expiryDate, thirtyDaysFromNow),
-        gte(companyDocuments.expiryDate, new Date())
-      ))
+      .leftJoin(users, eq(companyDocuments.uploadedBy, users.id));
+
+    // Apply tenant filter based on user role
+    let conditions = [
+      lt(companyDocuments.expiryDate, thirtyDaysFromNow),
+      gte(companyDocuments.expiryDate, new Date())
+    ];
+
+    if (user?.role === 'super_admin' || user?.isSuperAdmin) {
+      if (tenant) {
+        conditions.push(eq(companyDocuments.tenantId, tenant.id));
+      }
+      // If no tenant, fetch all (global access for super admin)
+    } else {
+      if (!tenant) {
+        return res.status(400).json({ message: 'Tenant context required for regular users' });
+      }
+      conditions.push(eq(companyDocuments.tenantId, tenant.id));
+    }
+
+    const expiringDocs = await query
+      .where(and(...conditions))
       .orderBy(companyDocuments.expiryDate);
 
     res.json(expiringDocs);

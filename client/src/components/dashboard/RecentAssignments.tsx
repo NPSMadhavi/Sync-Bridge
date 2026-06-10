@@ -155,7 +155,7 @@ export default function RecentAssignments({
       </div>
       {assignments.length > 0 && (
         <div className="px-5 py-3 border-t border-gray-200 text-center">
-          <Link href="/assets/assignments">
+          <Link href="/assets">
             <Button variant="link" className="text-sm font-medium">
               View all assignments
             </Button>

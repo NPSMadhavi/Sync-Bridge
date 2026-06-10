@@ -55,6 +55,14 @@ export default function RecentActivity({ activities, className }: RecentActivity
           bgColor: "bg-teal-100",
           textColor: "text-teal-500"
         };
+      default:
+        // Default icon for unknown types
+        console.warn(`Unknown activity type: ${type}`);
+        return {
+          icon: <Settings size={16} />,
+          bgColor: "bg-gray-200",
+          textColor: "text-gray-500"
+        };
     }
   };
   
@@ -77,10 +85,9 @@ export default function RecentActivity({ activities, className }: RecentActivity
                     </div>
                   </div>
                   <div>
-                    <p 
-                      className="text-sm text-gray-800"
-                      dangerouslySetInnerHTML={{ __html: activity.message }}
-                    />
+                    <p className="text-sm text-gray-800">
+                      {typeof activity.message === 'string' ? activity.message : JSON.stringify(activity.message)}
+                    </p>
                     <p className="text-xs text-gray-500">{activity.timestamp}</p>
                   </div>
                 </div>

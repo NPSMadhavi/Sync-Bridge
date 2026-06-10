@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertEmployeeSchema, insertDependentSchema, Employee } from "@shared/schema";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ import {
 } from "@/components/ui/select";
 
 import { format, isAfter, isBefore } from "date-fns";
-import { Loader2, Users, FileText, Upload, Plus, Trash2, User, Shield, Building, AlertTriangle } from "lucide-react";
+import { Loader2, Users, FileText, Upload, Plus, Trash2, User, Shield, Building, AlertTriangle, X } from "lucide-react";
 import { SimpleDatePicker } from "@/components/ui/simple-date-picker";
 import { cn } from "@/lib/utils";
 import {
@@ -54,9 +55,9 @@ const dependentSchema = z.object({
   name: z.string().min(1, "Name is required"),
   relationship: z.enum(["spouse", "child", "parent", "sibling", "other"]),
   passportNumber: z.string().optional(),
-  passportExpiry: z.date().optional().nullable(),
+  passportExpiry: z.string().datetime().optional().nullable(),
   visaNumber: z.string().optional(),
-  visaExpiry: z.date().optional().nullable(),
+  visaExpiry: z.string().datetime().optional().nullable(),
   visaType: z.enum(["s_pass", "work_permit", "employment_pass", "pr", "dependent_pass", "ltvp", "student_pass", "other"]).optional().nullable(),
   passportScan: z.string().optional(),
   visaScan: z.string().optional(),
@@ -68,12 +69,15 @@ const employeeFormSchema = insertEmployeeSchema.extend({
   name: z.string().min(2, "Name must be at least 2 characters"),
   department: z.string().min(2, "Department must be at least 2 characters"),
   designation: z.string().min(2, "Designation must be at least 2 characters"),
-  joinDate: z.date({ required_error: "Join date is required" }),
+  joinDate: z.string().min(1, "Join date is required"),
   status: z.enum(["active", "resigned", "on_hold", "terminated"]),
+  nationality: z.enum(["singaporean_pr", "foreigner"]),
+  nricNumber: z.string().optional(),
+  finNumber: z.string().optional(),
   passportNumber: z.string().optional(),
-  passportExpiry: z.date().optional().nullable(),
+  passportExpiry: z.string().optional().nullable(),
   visaNumber: z.string().optional(),
-  visaExpiry: z.date().optional().nullable(),
+  visaExpiry: z.string().optional().nullable(),
   visaType: z.enum(["s_pass", "work_permit", "employment_pass", "pr", "dependent_pass", "ltvp", "student_pass", "other"]).optional().nullable(),
   visaRemarks: z.string().optional(),
   passportScan: z.string().optional(),
@@ -82,28 +86,62 @@ const employeeFormSchema = insertEmployeeSchema.extend({
   dependents: z.array(dependentSchema).optional(),
 }).refine((data) => {
   // Validate that visa expiry is after passport expiry
-  if (data.passportExpiry && data.visaExpiry) {
-    return isAfter(data.visaExpiry, data.passportExpiry);
+  if (data.passportExpiry && data.visaExpiry && data.passportExpiry.trim() && data.visaExpiry.trim()) {
+    try {
+      return isAfter(new Date(data.visaExpiry), new Date(data.passportExpiry));
+    } catch {
+      return true; // If date parsing fails, skip validation
+    }
   }
   return true;
 }, {
   message: "Visa expiry must be after passport expiry",
   path: ["visaExpiry"],
+}).refine((data) => {
+  // Validate nationality-specific required fields
+  if (data.nationality === 'singaporean_pr') {
+    return data.nricNumber && data.nricNumber.length > 0;
+  }
+  return true;
+}, {
+  message: "NRIC Number is required for Singaporean/PR",
+  path: ["nricNumber"],
+}).refine((data) => {
+  if (data.nationality === 'foreigner') {
+    return data.finNumber && data.finNumber.length > 0;
+  }
+  return true;
+}, {
+  message: "FIN Number is required for Foreigners",
+  path: ["finNumber"],
 });
 
 type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
 interface EmployeeFormProps {
   employee?: Employee;
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
+  embedded?: boolean; // New prop to indicate if form is embedded in another component
 }
 
-export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeFormProps) {
+export default function EmployeeForm({ employee, isOpen, onClose, embedded = false }: EmployeeFormProps) {
   const { toast } = useToast();
+  const { user, tenantId } = useAuth();
   const [isEditMode] = useState(!!employee);
   const isExpired = employee?.passportExpiry && isBefore(employee.passportExpiry, new Date());
   
+  // Helper function to safely convert date to ISO string
+  const safeDateToISO = (dateValue: any): string | null => {
+    if (!dateValue) return null;
+    try {
+      const date = new Date(dateValue);
+      return isNaN(date.getTime()) ? null : date.toISOString();
+    } catch {
+      return null;
+    }
+  };
+
   const form = useForm<EmployeeFormData>({
     resolver: zodResolver(employeeFormSchema),
     defaultValues: {
@@ -111,12 +149,15 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
       name: employee?.name || "",
       department: employee?.department || "",
       designation: employee?.designation || "",
-      joinDate: employee?.joinDate || new Date(),
+      joinDate: safeDateToISO(employee?.joinDate) || new Date().toISOString(),
       status: employee?.status || "active",
+      nationality: employee?.nationality || undefined,
+      nricNumber: employee?.nricNumber || "",
+      finNumber: employee?.finNumber || "",
       passportNumber: employee?.passportNumber || "",
-      passportExpiry: employee?.passportExpiry || null,
+      passportExpiry: safeDateToISO(employee?.passportExpiry),
       visaNumber: employee?.visaNumber || "",
-      visaExpiry: employee?.visaExpiry || null,
+      visaExpiry: safeDateToISO(employee?.visaExpiry),
       visaType: employee?.visaType || null,
       visaRemarks: employee?.visaRemarks || "",
       passportScan: employee?.passportScan || "",
@@ -134,7 +175,15 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
   // Create employee mutation
   const createMutation = useMutation({
     mutationFn: async (data: EmployeeFormData) => {
-      const response = await apiRequest("POST", "/api/employees", data);
+      // For super admin users, tenantId can be null (global access)
+      if (!(user?.role === 'super_admin' || user?.isSuperAdmin) && !tenantId) {
+        throw new Error("Tenant ID is required");
+      }
+      
+      const response = await apiRequest("POST", "/api/employees", {
+        ...data,
+        tenantId: tenantId || null
+      });
       return response.json();
     },
     onSuccess: () => {
@@ -144,7 +193,7 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
       });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       form.reset();
-      onClose();
+      onClose?.();
     },
     onError: (error: Error) => {
       toast({
@@ -158,7 +207,15 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
   // Update employee mutation
   const updateMutation = useMutation({
     mutationFn: async (data: EmployeeFormData) => {
-      const response = await apiRequest("PUT", `/api/employees/${employee!.id}`, data);
+      // For super admin users, tenantId can be null (global access)
+      if (!(user?.role === 'super_admin' || user?.isSuperAdmin) && !tenantId) {
+        throw new Error("Tenant ID is required");
+      }
+      
+      const response = await apiRequest("PUT", `/api/employees/${employee!.id}`, {
+        ...data,
+        tenantId: tenantId || null
+      });
       return response.json();
     },
     onSuccess: () => {
@@ -167,7 +224,7 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
         description: "Employee updated successfully!",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      onClose();
+      onClose?.();
     },
     onError: (error: Error) => {
       toast({
@@ -189,54 +246,79 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
   };
 
   // Handle form submission
-  const onSubmit = (values: EmployeeFormData) => {
-    // Auto-set status based on document expiry
-    const updatedValues = { ...values };
-    if (values.passportExpiry && isBefore(values.passportExpiry, new Date())) {
-      // Could add logic here for expired document handling
+  const onSubmit = async (values: EmployeeFormData) => {
+    // Ensure user is available, and tenant is available for non-super-admin users
+    if (!user || (!tenantId && !(user.role === 'super_admin' || user.isSuperAdmin))) {
+      toast({
+        title: "Error",
+        description: "User authentication or tenant information is missing",
+        variant: "destructive",
+      });
+      return;
     }
 
-    if (employee) {
-      updateMutation.mutate(updatedValues);
-    } else {
-      createMutation.mutate(updatedValues);
+    // Convert dates to ISO strings if they're not already
+    const updatedValues = {
+      ...values,
+      joinDate: values.joinDate ? new Date(values.joinDate).toISOString() : new Date().toISOString(),
+      passportExpiry: values.passportExpiry ? new Date(values.passportExpiry).toISOString() : null,
+      visaExpiry: values.visaExpiry ? new Date(values.visaExpiry).toISOString() : null,
+      dependents: values.dependents?.map(dependent => ({
+        ...dependent,
+        passportExpiry: dependent.passportExpiry ? new Date(dependent.passportExpiry).toISOString() : null,
+        visaExpiry: dependent.visaExpiry ? new Date(dependent.visaExpiry).toISOString() : null,
+      })),
+    };
+
+    try {
+      if (isEditMode) {
+        await updateMutation.mutateAsync(updatedValues);
+      } else {
+        await createMutation.mutateAsync(updatedValues);
+      }
+      // Force an immediate refetch
+      await queryClient.refetchQueries({ queryKey: ["/api/employees"], type: 'active' });
+    } catch (error) {
+      console.error('Error submitting form:', error);
     }
   };
 
   // Handle keyboard shortcuts
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
-      onClose();
+      onClose?.();
     }
   };
 
-  return (
-    <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent 
-        side="right"
-        className="w-full max-w-[1200px] p-0 overflow-hidden sm:max-w-[900px] md:max-w-[1000px] lg:max-w-[1200px]"
-        onKeyDown={handleKeyDown}
-      >
-        <TooltipProvider>
-          <Form {...form}>
-            <div className="h-full flex flex-col">
-              {/* Header */}
-              <SheetHeader className="flex-shrink-0 px-8 py-4 border-b bg-background">
-                <SheetTitle className="flex items-center gap-2 text-xl">
-                  <Users className="h-5 w-5 text-primary" />
-                  {isEditMode ? "Edit Employee" : "Add New Employee"}
-                  {isExpired && (
-                    <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded-full">
-                      Documents Expired
-                    </span>
-                  )}
-                </SheetTitle>
-              </SheetHeader>
+  const formContent = (
+    <>
+      <TooltipProvider>
+        <Form {...form}>
+          <div className={embedded ? "w-full" : "h-full flex flex-col"}>
+            {/* Sticky Header - Only show if not embedded */}
+            {!embedded && (
+              <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
+                <SheetHeader className="flex-row flex-1 justify-between items-center">
+                  <SheetTitle className="flex items-center gap-2 text-xl">
+                    <Users className="h-5 w-5 text-primary" />
+                    {isEditMode ? "Edit Employee" : "Add New Employee"}
+                    {isExpired && (
+                      <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                        Documents Expired
+                      </span>
+                    )}
+                  </SheetTitle>
+                </SheetHeader>
+                <Button variant="ghost" size="sm" onClick={() => onClose?.()}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
 
-              {/* Form Content - Scrollable Area */}
-              <div className="flex-1 overflow-y-auto px-8 py-6 pb-24">
-                {/* Responsive grid layout container */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto">
+            {/* Form Content - Scrollable Area */}
+            <div className={embedded ? "w-full" : "flex-1 overflow-y-auto px-6 pb-24"}>
+              {/* Responsive grid layout container */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto py-6">
                 
                   {/* Left Column */}
                   <div className="space-y-6">
@@ -344,16 +426,11 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                               <FormLabel>Join Date*</FormLabel>
                               <FormControl>
                                 <SimpleDatePicker
-                                  date={field.value}
-                                  setDate={field.onChange}
-                                  placeholder="Select join date"
-                                  max={new Date().toISOString().split('T')[0]}
-                                  min="1900-01-01"
+                                  date={field.value ? new Date(field.value) : new Date()}
+                                  setDate={(date) => field.onChange(date ? date.toISOString() : new Date().toISOString())}
                                 />
                               </FormControl>
-                              <FormDescription className="text-xs">
-                                When did the employee join the company
-                              </FormDescription>
+                              <FormDescription>When did the employee join the company</FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -406,6 +483,32 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                             </FormItem>
                           )}
                         />
+
+                        {/* Nationality */}
+                        <FormField
+                          control={form.control}
+                          name="nationality"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nationality</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select nationality" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="singaporean_pr">Singaporean / PR</SelectItem>
+                                  <SelectItem value="foreigner">Foreigner</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormDescription className="text-xs">
+                                Employee's nationality status
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       </CardContent>
                     </Card>
                     
@@ -423,6 +526,53 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
+
+                        {/* Conditional ID Fields based on Nationality */}
+                        {form.watch("nationality") === "singaporean_pr" && (
+                          <FormField
+                            control={form.control}
+                            name="nricNumber"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>NRIC/ID Number</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="e.g., S1234567A"
+                                    {...field}
+                                    value={field.value || ""}
+                                  />
+                                </FormControl>
+                                <FormDescription className="text-xs">
+                                  Singapore NRIC or ID number
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
+
+                        {form.watch("nationality") === "foreigner" && (
+                          <FormField
+                            control={form.control}
+                            name="finNumber"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>FIN (Foreigner ID)</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="e.g., G1234567X"
+                                    {...field}
+                                    value={field.value || ""}
+                                  />
+                                </FormControl>
+                                <FormDescription className="text-xs">
+                                  Foreigner Identification Number
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
 
                         {/* Passport Number */}
                         <FormField
@@ -450,158 +600,123 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                         <FormField
                           control={form.control}
                           name="passportExpiry"
-                          render={({ field }) => {
-                            const isPassportExpired = field.value && isBefore(field.value, new Date());
-                            
-                            return (
-                              <FormItem className="flex flex-col">
-                                <FormLabel className="flex items-center gap-2">
-                                  Passport Expiry
-                                  {isPassportExpired && (
-                                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-medium">
-                                      Expired
-                                    </span>
-                                  )}
-                                </FormLabel>
-                                <FormControl>
-                                  <SimpleDatePicker
-                                    date={field.value}
-                                    setDate={field.onChange}
-                                    placeholder="Select passport expiry"
-                                    min="1900-01-01"
-                                  />
-                                </FormControl>
-                                <FormDescription className={cn(
-                                  "text-xs",
-                                  isPassportExpired && "text-red-600"
-                                )}>
-                                  {isPassportExpired 
-                                    ? "Passport has expired - renewal required"
-                                    : "When does the passport expire"
-                                  }
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            );
-                          }}
-                        />
-
-                        {/* Visa Type */}
-                        <FormField
-                          control={form.control}
-                          name="visaType"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Visa Type</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value || undefined}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select visa type" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="s_pass">S Pass</SelectItem>
-                                  <SelectItem value="work_permit">Work Permit</SelectItem>
-                                  <SelectItem value="employment_pass">Employment Pass</SelectItem>
-                                  <SelectItem value="pr">Permanent Resident</SelectItem>
-                                  <SelectItem value="dependent_pass">Dependent Pass</SelectItem>
-                                  <SelectItem value="ltvp">Long Term Visit Pass</SelectItem>
-                                  <SelectItem value="student_pass">Student Pass</SelectItem>
-                                  <SelectItem value="other">Other</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormDescription className="text-xs">
-                                Type of work visa or permit
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        {/* Visa Number */}
-                        <FormField
-                          control={form.control}
-                          name="visaNumber"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Visa/Work Permit Number</FormLabel>
+                              <FormLabel>Passport Expiry</FormLabel>
                               <FormControl>
-                                <Input
-                                  placeholder="e.g., WP1234567"
-                                  {...field}
-                                  value={field.value || ""}
+                                <SimpleDatePicker
+                                  date={field.value ? new Date(field.value) : null}
+                                  setDate={(date) => field.onChange(date ? date.toISOString() : null)}
                                 />
                               </FormControl>
-                              <FormDescription className="text-xs">
-                                Visa or work permit reference number
-                              </FormDescription>
+                              <FormDescription>When does the passport expire</FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
 
-                        {/* Visa Expiry */}
-                        <FormField
-                          control={form.control}
-                          name="visaExpiry"
-                          render={({ field }) => {
-                            const isVisaExpired = field.value && isBefore(field.value, new Date());
-                            const passportExpiry = form.watch("passportExpiry");
-                            
-                            return (
-                              <FormItem className="flex flex-col">
-                                <FormLabel className="flex items-center gap-2">
-                                  Visa Expiry
-                                  {isVisaExpired && (
-                                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-medium">
-                                      Expired
-                                    </span>
-                                  )}
-                                </FormLabel>
-                                <FormControl>
-                                  <SimpleDatePicker
-                                    date={field.value}
-                                    setDate={field.onChange}
-                                    placeholder="Select visa expiry date"
-                                  />
-                                </FormControl>
-                                <FormDescription className={cn(
-                                  "text-xs",
-                                  isVisaExpired && "text-red-600"
-                                )}>
-                                  {isVisaExpired 
-                                    ? "Visa has expired - renewal required"
-                                    : "When does the visa expire"
-                                  }
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            );
-                          }}
-                        />
+                        {/* Conditional Visa Fields - Only show for Foreigners */}
+                        {form.watch("nationality") === "foreigner" && (
+                          <>
+                            {/* Visa Type */}
+                            <FormField
+                              control={form.control}
+                              name="visaType"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Visa Type</FormLabel>
+                                  <Select onValueChange={field.onChange} defaultValue={field.value || undefined}>
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select visa type" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      <SelectItem value="s_pass">S Pass</SelectItem>
+                                      <SelectItem value="work_permit">Work Permit</SelectItem>
+                                      <SelectItem value="employment_pass">Employment Pass</SelectItem>
+                                      <SelectItem value="pr">Permanent Resident</SelectItem>
+                                      <SelectItem value="dependent_pass">Dependent Pass</SelectItem>
+                                      <SelectItem value="ltvp">Long Term Visit Pass</SelectItem>
+                                      <SelectItem value="student_pass">Student Pass</SelectItem>
+                                      <SelectItem value="other">Other</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription className="text-xs">
+                                    Type of work visa or permit
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
 
-                        {/* Visa Remarks */}
-                        <FormField
-                          control={form.control}
-                          name="visaRemarks"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Visa Remarks</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  placeholder="Any additional notes about visa status..."
-                                  className="min-h-[60px]"
-                                  {...field}
-                                  value={field.value || ""}
-                                />
-                              </FormControl>
-                              <FormDescription className="text-xs">
-                                Optional notes about visa conditions or restrictions
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                            {/* Visa Number */}
+                            <FormField
+                              control={form.control}
+                              name="visaNumber"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Work Permit Number</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="e.g., WP1234567"
+                                      {...field}
+                                      value={field.value || ""}
+                                    />
+                                  </FormControl>
+                                  <FormDescription className="text-xs">
+                                    Work permit reference number
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            {/* Visa Expiry */}
+                            <FormField
+                              control={form.control}
+                              name="visaExpiry"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Visa Expiry</FormLabel>
+                                  <FormControl>
+                                    <SimpleDatePicker
+                                      date={field.value ? new Date(field.value) : null}
+                                      setDate={(date) => field.onChange(date ? date.toISOString() : null)}
+                                    />
+                                  </FormControl>
+                                  <FormDescription>When does the visa expire</FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            {/* Visa Remarks */}
+                            <FormField
+                              control={form.control}
+                              name="visaRemarks"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Visa Remarks</FormLabel>
+                                  <FormControl>
+                                    <Textarea
+                                      placeholder="Any additional notes about visa status..."
+                                      className="min-h-[60px]"
+                                      {...field}
+                                      value={field.value || ""}
+                                    />
+                                  </FormControl>
+                                  <FormDescription className="text-xs">
+                                    Optional notes about visa conditions or restrictions
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </>
+                        )}
+
+
                       </CardContent>
                     </Card>
                     
@@ -628,9 +743,10 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                             <FormLabel>Passport Scan</FormLabel>
                             <FormControl>
                               <div className="flex flex-col gap-2">
-                                <Input
+                                <input
                                   type="file"
                                   accept=".pdf,.jpg,.jpeg,.png"
+                                  className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
                                   onChange={(e) => {
                                     const file = e.target.files?.[0];
                                     if (file) handleFileUpload(file, "passportScan");
@@ -649,65 +765,71 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                         )}
                       />
 
-                      {/* Visa Scan */}
-                      <FormField
-                        control={form.control}
-                        name="visaScan"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Visa/Work Permit Scan</FormLabel>
-                            <FormControl>
-                              <div className="flex flex-col gap-2">
-                                <Input
-                                  type="file"
-                                  accept=".pdf,.jpg,.jpeg,.png"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) handleFileUpload(file, "visaScan");
-                                  }}
-                                />
-                                {field.value && (
-                                  <p className="text-xs text-green-600">File uploaded successfully</p>
-                                )}
-                              </div>
-                            </FormControl>
-                            <FormDescription className="text-xs">
-                              Upload visa or work permit scan
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      {/* Visa Scan - Only show for Foreigners */}
+                      {form.watch("nationality") === "foreigner" && (
+                        <FormField
+                          control={form.control}
+                          name="visaScan"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Visa/Work Permit Scan</FormLabel>
+                              <FormControl>
+                                <div className="flex flex-col gap-2">
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleFileUpload(file, "visaScan");
+                                    }}
+                                  />
+                                  {field.value && (
+                                    <p className="text-xs text-green-600">File uploaded successfully</p>
+                                  )}
+                                </div>
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                Upload visa or work permit scan
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
 
-                      {/* NRIC Scan */}
-                      <FormField
-                        control={form.control}
-                        name="nricScan"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>NRIC/ID Scan (Optional)</FormLabel>
-                            <FormControl>
-                              <div className="flex flex-col gap-2">
-                                <Input
-                                  type="file"
-                                  accept=".pdf,.jpg,.jpeg,.png"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) handleFileUpload(file, "nricScan");
-                                  }}
-                                />
-                                {field.value && (
-                                  <p className="text-xs text-green-600">File uploaded successfully</p>
-                                )}
-                              </div>
-                            </FormControl>
-                            <FormDescription className="text-xs">
-                              Upload NRIC or ID copy (optional)
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      {/* NRIC Scan - Only show for Singaporean/PR */}
+                      {form.watch("nationality") === "singaporean_pr" && (
+                        <FormField
+                          control={form.control}
+                          name="nricScan"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>NRIC/ID Scan</FormLabel>
+                              <FormControl>
+                                <div className="flex flex-col gap-2">
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleFileUpload(file, "nricScan");
+                                    }}
+                                  />
+                                  {field.value && (
+                                    <p className="text-xs text-green-600">File uploaded successfully</p>
+                                  )}
+                                </div>
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                Upload NRIC or ID copy
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
                     </CardContent>
                   </Card>
                 </div>
@@ -827,9 +949,8 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                       <FormLabel>Passport Expiry</FormLabel>
                                       <FormControl>
                                         <SimpleDatePicker
-                                          date={field.value}
-                                          setDate={field.onChange}
-                                          placeholder="Select passport expiry date"
+                                          date={field.value ? new Date(field.value) : null}
+                                          setDate={(date) => field.onChange(date ? date.toISOString() : null)}
                                         />
                                       </FormControl>
                                       <FormMessage />
@@ -861,9 +982,8 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                                       <FormLabel>Visa Expiry</FormLabel>
                                       <FormControl>
                                         <SimpleDatePicker
-                                          date={field.value}
-                                          setDate={field.onChange}
-                                          placeholder="Select visa expiry date"
+                                          date={field.value ? new Date(field.value) : null}
+                                          setDate={(date) => field.onChange(date ? date.toISOString() : null)}
                                         />
                                       </FormControl>
                                       <FormMessage />
@@ -890,7 +1010,7 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
                       className="w-full sm:w-auto min-w-[120px]"
                       onClick={() => {
                         form.reset();
-                        onClose();
+                        onClose?.();
                       }}
                       disabled={createMutation.isPending || updateMutation.isPending}
                     >
@@ -912,6 +1032,22 @@ export default function EmployeeForm({ employee, isOpen, onClose }: EmployeeForm
             </div>
           </Form>
         </TooltipProvider>
+      </>
+    );
+
+  // Return the form wrapped in Sheet if not embedded, otherwise return just the form content
+  if (embedded) {
+    return formContent;
+  }
+
+  return (
+    <Sheet open={isOpen} onOpenChange={onClose}>
+      <SheetContent 
+        side="right"
+        className="!w-screen !max-w-none fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-white"
+        onKeyDown={handleKeyDown}
+      >
+        {formContent}
       </SheetContent>
     </Sheet>
   );

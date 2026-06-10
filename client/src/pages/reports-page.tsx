@@ -16,11 +16,11 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { StringDatePicker } from "@/components/ui/string-date-picker";
+import { parseYmd } from "@/components/ui/sync-bridge-date-picker";
 import { 
   CalendarIcon, 
   Download, 
@@ -39,8 +39,8 @@ import {
 export default function ReportsPage() {
   const { user } = useAuth();
   const [reportType, setReportType] = useState<string>("expiringDocuments");
-  const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
-  const [toDate, setToDate] = useState<Date | undefined>(undefined);
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate]     = useState<string>("");
   const [daysThreshold, setDaysThreshold] = useState<string>("90");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   
@@ -73,9 +73,7 @@ export default function ReportsPage() {
         break;
       case "customDateRange":
         if (fromDate && toDate) {
-          const from = format(fromDate, "yyyy-MM-dd");
-          const to = format(toDate, "yyyy-MM-dd");
-          url = `/api/reports/custom?from=${from}&to=${to}`;
+          url = `/api/reports/custom?from=${fromDate}&to=${toDate}`;
         }
         break;
     }
@@ -130,53 +128,22 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="from-date">From Date</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start text-left font-normal"
-                    id="from-date"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {fromDate ? format(fromDate, "PPP") : "Select date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    selected={fromDate}
-                    onSelect={setFromDate}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              <StringDatePicker
+                value={fromDate}
+                onChange={setFromDate}
+              />
             </div>
             
             <div className="space-y-2">
               <Label htmlFor="to-date">To Date</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start text-left font-normal"
-                    id="to-date"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {toDate ? format(toDate, "PPP") : "Select date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    selected={toDate}
-                    onSelect={setToDate}
-                    initialFocus
-                    disabled={(date) => 
-                      fromDate ? date < fromDate : false
-                    }
-                  />
-                </PopoverContent>
-              </Popover>
+              <StringDatePicker
+                value={toDate}
+                onChange={setToDate}
+                disabledDate={(date) => {
+                  const from = parseYmd(fromDate);
+                  return from ? date < from : false;
+                }}
+              />
             </div>
           </div>
         );

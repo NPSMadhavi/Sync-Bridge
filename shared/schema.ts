@@ -1,10 +1,10 @@
-import { pgTable, text, integer, serial, timestamp, boolean, pgEnum, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, serial, timestamp, boolean, pgEnum, uuid, foreignKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
 // Enums
-export const userRoleEnum = pgEnum('user_role', ['super_admin', 'admin', 'hr_manager', 'it_manager', 'accountant', 'employee']);
+export const userRoleEnum = pgEnum('user_role', ['super_admin', 'admin', 'hr_manager', 'it_manager', 'accountant', 'employee', 'vendor']);
 export const moduleEnum = pgEnum('module', [
   'dashboard', 'assets', 'licenses', 'employees', 'documents', 
   'vendors', 'customers', 'invoices', 'reports', 'audit_logs', 
@@ -21,12 +21,15 @@ export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'sent', 'pai
 export const paymentMethodEnum = pgEnum('payment_method', ['bank_transfer', 'credit_card', 'cash', 'check', 'other']);
 export const visaTypeEnum = pgEnum('visa_type', ['s_pass', 'work_permit', 'employment_pass', 'pr', 'dependent_pass', 'ltvp', 'student_pass', 'other']);
 export const employeeStatusEnum = pgEnum('employee_status', ['active', 'resigned', 'on_hold', 'terminated']);
+export const nationalityEnum = pgEnum('nationality', ['citizen', 'pr', 'foreigner', 'singaporean_pr']);
+export const prStatusEnum = pgEnum('pr_status', ['year_1', 'year_2', 'year_3_plus']);
 export const relationshipEnum = pgEnum('relationship', ['spouse', 'child', 'parent', 'sibling', 'other']);
 export const companyDocumentTypeEnum = pgEnum("company_document_type", ["company_license", "government_certificate", "purchase_invoice", "rental_agreement", "utility_bill", "payment_reminder", "legal_agreement", "other"]);
 
 // Payroll Enums
 export const payrollStatusEnum = pgEnum('payroll_status', ['draft', 'pending', 'approved', 'paid', 'cancelled']);
 export const payrollPeriodEnum = pgEnum('payroll_period', ['monthly', 'bi_weekly', 'weekly']);
+export const smtpSecureEnum = pgEnum('smtp_secure', ['None', 'SSL/TLS', 'STARTTLS']);
 
 // Tables
 export const tenants = pgTable("tenants", {
@@ -44,6 +47,27 @@ export const tenants = pgTable("tenants", {
   createdAt: timestamp("created_at").defaultNow(),
   expiryDate: timestamp("expiry_date"),
 });
+
+export const emailSettings = pgTable("email_settings", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  smtpHost: text("smtp_host").notNull(),
+  smtpPort: integer("smtp_port").notNull().default(587),
+  smtpSecure: smtpSecureEnum("smtp_secure").notNull().default('STARTTLS'),
+  smtpUser: text("smtp_user").notNull(),
+  smtpPass: text("smtp_pass").notNull(),
+  emailFrom: text("email_from").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  tenantIdFk: foreignKey({
+    columns: [table.tenantId],
+    foreignColumns: [tenants.id],
+    name: "email_settings_tenant_id_fk"
+  }).onDelete("cascade"),
+}));
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").references(() => tenants.id),
@@ -58,6 +82,12 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").default(true),
   allowedModules: text("allowed_modules").array(),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const sessions = pgTable("session", {
+  sid: text("sid").primaryKey(),
+  sess: text("sess").notNull(),
+  expire: timestamp("expire").notNull(),
 });
 
 export const userPermissions = pgTable("user_permissions", {
@@ -81,7 +111,13 @@ export const employees = pgTable("employees", {
   department: text("department").notNull(),
   designation: text("designation").notNull(),
   joinDate: timestamp("join_date").notNull(),
+  dateOfBirth: date("date_of_birth"),
+  salary: decimal("salary", { precision: 12, scale: 2 }),
   status: employeeStatusEnum("status").notNull().default('active'),
+  nationality: nationalityEnum("nationality"),
+  prStatus: text("pr_status"),
+  nricNumber: text("nric_number"),
+  finNumber: text("fin_number"),
   passportNumber: text("passport_number"),
   passportExpiry: timestamp("passport_expiry"),
   visaNumber: text("visa_number"),
@@ -206,7 +242,20 @@ export const vendors = pgTable("vendors", {
   name: text("name").notNull(),
   contact: text("contact").notNull(),
   email: text("email").notNull(),
+  phone: text("phone"),
+  website: text("website"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  country: text("country"),
+  taxId: text("tax_id"),
+  registrationNumber: text("registration_number"),
   assetTypesSupplied: text("asset_types_supplied"),
+  paymentTerms: text("payment_terms"),
+  creditLimit: text("credit_limit"),
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -298,6 +347,20 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const invoiceDesigns = pgTable("invoice_designs", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().unique().references(() => invoices.id),
+  primaryColor: text("primary_color"),
+  fontFamily: text("font_family"),
+  fontSize: text("font_size"),
+  logoUrl: text("logo_url"),
+  headerNote: text("header_note"),
+  footerNote: text("footer_note"),
+  templateStyle: text("template_style"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 import { decimal, date, jsonb } from "drizzle-orm/pg-core";
 
 // Employee Payroll Configuration table
@@ -312,7 +375,13 @@ export const employeePayroll = pgTable("employee_payroll", {
   allowances: jsonb("allowances").$type<Record<string, number>>().default({}),
   deductions: jsonb("deductions").$type<Record<string, number>>().default({}),
   taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default('0.00'),
+  taxAmount: decimal("tax_amount", { precision: 12, scale: 2 }),
   cpfRate: decimal("cpf_rate", { precision: 5, scale: 2 }).default('20.00'),
+  cpfAmount: decimal("cpf_amount", { precision: 12, scale: 2 }),
+  employerCpfRate: decimal("employer_cpf_rate", { precision: 5, scale: 2 }).default('0.00'),
+  employerCpfAmount: decimal("employer_cpf_amount", { precision: 12, scale: 2 }),
+  incomeTax: decimal("income_tax", { precision: 12, scale: 2 }),
+  netSalary: decimal("net_salary", { precision: 12, scale: 2 }),
   isActive: boolean("is_active").default(true).notNull(),
   effectiveFrom: date("effective_from").notNull(),
   effectiveTo: date("effective_to"),
@@ -346,6 +415,54 @@ export const payrollRecords = pgTable("payroll_records", {
   createdBy: integer("created_by").references(() => users.id).notNull(),
   approvedBy: integer("approved_by").references(() => users.id),
   approvedAt: timestamp("approved_at"),
+});
+
+// Vendor-specific tables
+export const products = pgTable("products", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const vendorProductPrices = pgTable("vendor_product_prices", {
+  id: serial("id").primaryKey(),
+  vendorEmail: text("vendor_email").notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  buyingPrice: integer("buying_price").notNull(), // in cents
+  sellingPrice: integer("selling_price").notNull(), // in cents
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const vendorCustomers = pgTable("vendor_customers", {
+  id: serial("id").primaryKey(),
+  vendorEmail: text("vendor_email").notNull(),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  customerAddress: text("customer_address"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const vendorOrders = pgTable("vendor_orders", {
+  id: serial("id").primaryKey(),
+  vendorEmail: text("vendor_email").notNull(),
+  customerName: text("customer_name").notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantity: integer("quantity").notNull(),
+  buyingPrice: integer("buying_price").notNull(), // in cents
+  sellingPrice: integer("selling_price").notNull(), // in cents
+  totalCost: integer("total_cost").notNull(), // in cents
+  totalSale: integer("total_sale").notNull(), // in cents
+  profit: integer("profit").notNull(), // in cents
+  orderDate: timestamp("order_date").notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Relations
@@ -490,6 +607,9 @@ export const vendorsRelations = relations(vendors, ({ many, one }) => ({
     references: [tenants.id],
   }),
   assets: many(assets),
+  productPrices: many(vendorProductPrices),
+  customers: many(vendorCustomers),
+  orders: many(vendorOrders),
 }));
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({
@@ -592,6 +712,28 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
   }),
 }));
 
+// Vendor-specific relations
+export const productsRelations = relations(products, ({ many }) => ({
+  vendorPrices: many(vendorProductPrices),
+  orders: many(vendorOrders),
+}));
+
+export const vendorProductPricesRelations = relations(vendorProductPrices, ({ one }) => ({
+  product: one(products, {
+    fields: [vendorProductPrices.productId],
+    references: [products.id],
+  }),
+}));
+
+export const vendorCustomersRelations = relations(vendorCustomers, ({ }) => ({}));
+
+export const vendorOrdersRelations = relations(vendorOrders, ({ one }) => ({
+  product: one(products, {
+    fields: [vendorOrders.productId],
+    references: [products.id],
+  }),
+}));
+
 // Insert Schemas
 export const insertUserSchema = createInsertSchema(users).omit({ 
   id: true, 
@@ -609,14 +751,84 @@ export const insertUserPermissionSchema = createInsertSchema(userPermissions).om
   tenantId: true
 });
 
-export const insertEmployeeSchema = createInsertSchema(employees)
-  .omit({ id: true, createdAt: true });
+export const insertEmployeeSchema = createInsertSchema(employees, {
+  nationality: z.enum(['citizen', 'pr', 'foreigner', 'singaporean_pr']).optional().nullable(),
+  prStatus: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? null : val),
+    z.enum(['year_1', 'year_2', 'year_3_plus']).nullable().optional()
+  ),
+  // joinDate is a timestamp column — accept YYYY-MM-DD or ISO datetime
+  joinDate: z.preprocess(
+    (val) => (val === null || val === undefined ? '' : String(val)),
+    z.string().min(1, "Join date is required").transform((str) => {
+      let cleanStr = str;
+      if (str.includes('+05') && str.startsWith('+05')) {
+        cleanStr = str.replace(/^\+05/, '');
+      }
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(cleanStr)
+        ? new Date(`${cleanStr}T12:00:00`)
+        : new Date(cleanStr);
+      if (isNaN(d.getTime())) {
+        throw new Error("Invalid join date format");
+      }
+      return d;
+    })
+  ),
+  // dateOfBirth is a `date` column — must be a YYYY-MM-DD string, not a Date object
+  dateOfBirth: z.string().optional().nullable().transform(str => {
+    if (!str || str.trim() === '') return null;
+    try {
+      let cleanStr = str;
+      if (str.includes('+05') && str.startsWith('+05')) {
+        cleanStr = str.replace(/^\+05/, '');
+      }
+      const d = new Date(cleanStr);
+      if (isNaN(d.getTime())) return null;
+      return d.toISOString().split('T')[0];
+    } catch {
+      return null;
+    }
+  }),
+  salary: z.union([z.string(), z.number()]).optional().nullable().transform(val => {
+    if (val === null || val === undefined || val === '') return null;
+    if (typeof val === 'string') return val;
+    return val?.toString() || null;
+  }),
+  // passportExpiry and visaExpiry are timestamp columns — use ISO strings
+  passportExpiry: z.string().optional().nullable().transform(str => {
+    if (!str || str.trim() === '') return null;
+    try {
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  }),
+  visaExpiry: z.string().optional().nullable().transform(str => {
+    if (!str || str.trim() === '') return null;
+    try {
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  }),
+}).omit({ id: true, createdAt: true });
 
-export const insertDependentSchema = createInsertSchema(dependents)
-  .omit({ id: true, createdAt: true });
+export const insertDependentSchema = createInsertSchema(dependents, {
+  passportExpiry: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
+  visaExpiry: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
+}).omit({ id: true, createdAt: true });
 
-export const insertAssetSchema = createInsertSchema(assets)
-  .omit({ id: true, createdAt: true });
+export const insertAssetSchema = createInsertSchema(assets, {
+  purchaseDate: z.string().datetime().nullable().optional().transform(str => str ? new Date(str).toISOString() : null),
+  warrantyExpiry: z.string().datetime().nullable().optional().transform(str => str ? new Date(str).toISOString() : null),
+})
+  .omit({ id: true, createdAt: true })
+  .extend({
+    location: z.string().optional(),
+    vendorId: z.number().optional(),
+  });
 
 export const insertAssetAssignmentSchema = createInsertSchema(assetAssignments)
   .omit({ id: true, createdAt: true });
@@ -624,8 +836,10 @@ export const insertAssetAssignmentSchema = createInsertSchema(assetAssignments)
 export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecords)
   .omit({ id: true, createdAt: true });
 
-export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments)
-  .omit({ id: true, createdAt: true });
+export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments, {
+  issueDate: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
+  expiryDate: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
+}).omit({ id: true, createdAt: true });
 
 export const insertCompanyDocumentSchema = createInsertSchema(companyDocuments)
   .omit({ id: true, createdAt: true, uploadedBy: true });
@@ -633,14 +847,30 @@ export const insertCompanyDocumentSchema = createInsertSchema(companyDocuments)
 export const insertDocumentReminderSchema = createInsertSchema(documentReminders)
   .omit({ id: true, createdAt: true });
 
-export const insertVendorSchema = createInsertSchema(vendors)
-  .omit({ id: true, createdAt: true });
+export const insertVendorSchema = createInsertSchema(vendors, {
+  phone: z.string().nullable().transform(val => val || ""),
+  website: z.string().nullable().transform(val => val || ""),
+  address: z.string().nullable().transform(val => val || ""),
+  city: z.string().nullable().transform(val => val || ""),
+  state: z.string().nullable().transform(val => val || ""),
+  zipCode: z.string().nullable().transform(val => val || ""),
+  country: z.string().nullable().transform(val => val || ""),
+  taxId: z.string().nullable().transform(val => val || ""),
+  registrationNumber: z.string().nullable().transform(val => val || ""),
+  assetTypesSupplied: z.string().nullable().transform(val => val || ""),
+  paymentTerms: z.string().nullable().transform(val => val || ""),
+  creditLimit: z.string().nullable().transform(val => val || ""),
+  isActive: z.boolean().nullable().transform(val => val ?? true),
+  notes: z.string().nullable().transform(val => val || ""),
+}).omit({ id: true, createdAt: true });
 
 export const insertNotificationSchema = createInsertSchema(notifications)
   .omit({ id: true, createdAt: true });
 
-export const insertLicenseSchema = createInsertSchema(licenses)
-  .omit({ id: true, createdAt: true });
+export const insertLicenseSchema = createInsertSchema(licenses, {
+  purchaseDate: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
+  expiryDate: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
+}).omit({ id: true, createdAt: true });
 
 export const insertAuditLogSchema = createInsertSchema(auditLogs)
   .omit({ id: true });
@@ -648,17 +878,70 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs)
 export const insertTenantSchema = createInsertSchema(tenants)
   .omit({ id: true, createdAt: true });
 
-export const insertCustomerSchema = createInsertSchema(customers)
-  .omit({ id: true, createdAt: true });
-
-export const insertInvoiceSchema = createInsertSchema(invoices)
+export const insertEmailSettingsSchema = createInsertSchema(emailSettings)
   .omit({ id: true, createdAt: true, updatedAt: true });
 
-export const insertInvoiceItemSchema = createInsertSchema(invoiceItems)
-  .omit({ id: true, createdAt: true });
+export const insertCustomerSchema = createInsertSchema(customers, {
+  phone: z.string().nullable().transform(val => val || ""),
+  company: z.string().nullable().transform(val => val || ""),
+  address: z.string().nullable().transform(val => val || ""),
+  city: z.string().nullable().transform(val => val || ""),
+  state: z.string().nullable().transform(val => val || ""),
+  zipCode: z.string().nullable().transform(val => val || ""),
+  country: z.string().nullable().transform(val => val || ""),
+  taxId: z.string().nullable().transform(val => val || ""),
+  isActive: z.boolean().nullable().transform(val => val ?? true),
+  notes: z.string().nullable().transform(val => val || ""),
+}).omit({ id: true, createdAt: true });
+
+export const insertInvoiceSchema = createInsertSchema(invoices, {
+  issueDate: z.string().datetime().transform(str => new Date(str).toISOString()),
+  dueDate: z.string().datetime().transform(str => new Date(str).toISOString()),
+  subtotal: z.number().transform(val => Math.round(val)),
+  totalAmount: z.number().transform(val => Math.round(val)),
+  balanceAmount: z.number().transform(val => Math.round(val)),
+  taxAmount: z.number().transform(val => Math.round(val)),
+  discountAmount: z.number().transform(val => Math.round(val)),
+  paidAmount: z.number().optional().transform(val => Math.round(val || 0)),
+})
+.omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertInvoiceItemSchema = createInsertSchema(invoiceItems, {
+  unitPrice: z.number().transform(val => Math.round(val)),
+  totalPrice: z.number().transform(val => Math.round(val)),
+})
+.omit({ id: true, createdAt: true });
+
+export const insertInvoiceDesignSchema = createInsertSchema(invoiceDesigns)
+  .omit({ id: true, createdAt: true, updatedAt: true });
 
 // Employee Payroll schema
-export const insertEmployeePayrollSchema = createInsertSchema(employeePayroll).omit({
+export const insertEmployeePayrollSchema = createInsertSchema(employeePayroll, {
+  baseSalary: z.number().transform(val => val.toString()),
+  hourlyRate: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? 0 : Number(val)),
+    z.number().optional().transform(val => val?.toString() || '0')
+  ),
+  overtimeRate: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? 0 : Number(val)),
+    z.number().optional().transform(val => val?.toString() || '0')
+  ),
+  taxRate: z.union([z.string(), z.number()]).optional().transform(val => {
+    if (typeof val === 'string') return val;
+    return val?.toString() || '0.00';
+  }),
+  cpfRate: z.union([z.string(), z.number()]).optional().transform(val => {
+    if (typeof val === 'string') return val;
+    return val?.toString() || '20.00';
+  }),
+  annualSalary: z.union([z.string(), z.number()]).optional().transform(val => val?.toString() || '0.00'),
+  incomeTax: z.union([z.string(), z.number()]).optional().transform(val => val?.toString() || '0.00'),
+  cpfAmount: z.union([z.string(), z.number()]).optional().transform(val => val?.toString() || '0.00'),
+  taxAmount: z.union([z.string(), z.number()]).optional().transform(val => val?.toString() || '0.00'),
+  employerCpfRate: z.union([z.string(), z.number()]).optional().transform(val => val?.toString() || '0.00'),
+  employerCpfAmount: z.union([z.string(), z.number()]).optional().transform(val => val?.toString() || '0.00'),
+  netSalary: z.union([z.string(), z.number()]).optional().transform(val => val?.toString() || '0.00'),
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -668,7 +951,21 @@ export type InsertEmployeePayroll = z.infer<typeof insertEmployeePayrollSchema>;
 export type EmployeePayroll = typeof employeePayroll.$inferSelect;
 
 // Payroll Records schema
-export const insertPayrollRecordSchema = createInsertSchema(payrollRecords).omit({
+export const insertPayrollRecordSchema = createInsertSchema(payrollRecords, {
+  baseSalary: z.number().transform(val => val.toString()),
+  overtimeHours: z.number().optional().transform(val => val?.toString() || '0.00'),
+  overtimePay: z.number().optional().transform(val => val?.toString() || '0.00'),
+  grossPay: z.number().transform(val => val.toString()),
+  taxDeduction: z.union([z.string(), z.number()]).optional().transform(val => {
+    if (typeof val === 'string') return val;
+    return val?.toString() || '0.00';
+  }),
+  cpfDeduction: z.union([z.string(), z.number()]).optional().transform(val => {
+    if (typeof val === 'string') return val;
+    return val?.toString() || '0.00';
+  }),
+  netPay: z.number().transform(val => val.toString()),
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -678,12 +975,45 @@ export const insertPayrollRecordSchema = createInsertSchema(payrollRecords).omit
 export type InsertPayrollRecord = z.infer<typeof insertPayrollRecordSchema>;
 export type PayrollRecord = typeof payrollRecords.$inferSelect;
 
-export const insertPaymentSchema = createInsertSchema(payments)
-  .omit({ id: true, createdAt: true });
+// Vendor-specific insert schemas
+export const insertProductSchema = createInsertSchema(products).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertVendorProductPriceSchema = createInsertSchema(vendorProductPrices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertVendorCustomerSchema = createInsertSchema(vendorCustomers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertVendorOrderSchema = createInsertSchema(vendorOrders, {
+  orderDate: z.string().datetime().transform(str => new Date(str).toISOString()),
+  buyingPrice: z.number().transform(val => Math.round(val)),
+  sellingPrice: z.number().transform(val => Math.round(val)),
+  totalCost: z.number().transform(val => Math.round(val)),
+  totalSale: z.number().transform(val => Math.round(val)),
+  profit: z.number().transform(val => Math.round(val)),
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPaymentSchema = createInsertSchema(payments, {
+  amount: z.number().transform(val => Math.round(val)),
+})
+.omit({ id: true, createdAt: true });
 
 // Types
 export type Tenant = typeof tenants.$inferSelect;
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
+export type EmailSettings = typeof emailSettings.$inferSelect;
+export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Invoice = typeof invoices.$inferSelect;
@@ -732,3 +1062,16 @@ export type CompanyDocument = typeof companyDocuments.$inferSelect;
 export type InsertCompanyDocument = z.infer<typeof insertCompanyDocumentSchema>;
 export type DocumentReminder = typeof documentReminders.$inferSelect;
 export type InsertDocumentReminder = z.infer<typeof insertDocumentReminderSchema>;
+
+export type InvoiceDesign = typeof invoiceDesigns.$inferSelect;
+export type InsertInvoiceDesign = typeof invoiceDesigns.$inferInsert;
+
+// Vendor-specific types
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type VendorProductPrice = typeof vendorProductPrices.$inferSelect;
+export type InsertVendorProductPrice = z.infer<typeof insertVendorProductPriceSchema>;
+export type VendorCustomer = typeof vendorCustomers.$inferSelect;
+export type InsertVendorCustomer = z.infer<typeof insertVendorCustomerSchema>;
+export type VendorOrder = typeof vendorOrders.$inferSelect;
+export type InsertVendorOrder = z.infer<typeof insertVendorOrderSchema>;

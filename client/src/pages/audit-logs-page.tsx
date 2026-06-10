@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { AuditLog } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import {
   ChevronLeft,
   ChevronRight,
@@ -42,10 +44,16 @@ export default function AuditLogsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [entity, setEntity] = useState<string | null>(null);
+  const { user, tenantId } = useAuth();
   
   // Fetch audit logs
   const { data: auditLogs = [], isLoading } = useQuery<AuditLog[]>({
     queryKey: ["/api/audit-logs"],
+    queryFn: () => apiRequest("GET", "/api/audit-logs").then((res: Response) => res.json()),
+    enabled: !!user, // Allow all authenticated users
+    staleTime: 0, // Consider data stale immediately
+    refetchOnMount: true, // Refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
   
   // Filter logs based on search query and entity
@@ -166,7 +174,7 @@ export default function AuditLogsPage() {
                         <TableCell className="whitespace-nowrap">
                           {format(new Date(log.timestamp), "MMM dd, yyyy HH:mm:ss")}
                         </TableCell>
-                        <TableCell>{log.userName || "System"}</TableCell>
+                        <TableCell>{log.userId || "System"}</TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
                             log.action === 'create' ? 'bg-green-100 text-green-800' :
@@ -201,7 +209,7 @@ export default function AuditLogsPage() {
                       <PaginationItem>
                         <PaginationPrevious
                           onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={currentPage === 1}
+                          className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
                         />
                       </PaginationItem>
                       
@@ -238,7 +246,7 @@ export default function AuditLogsPage() {
                       <PaginationItem>
                         <PaginationNext
                           onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                          disabled={currentPage === totalPages}
+                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
                         />
                       </PaginationItem>
                     </PaginationContent>

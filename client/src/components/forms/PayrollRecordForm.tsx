@@ -25,7 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { Input, NumberInput } from "@/components/ui/input";
+import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -237,8 +238,7 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
 
     const grossPay = baseSalary + overtimePay + allowancesTotal;
     const taxDeduction = (grossPay * taxRate) / 100;
-    const cpfDeduction = (grossPay * cpfRate) / 100;
-    const netPay = grossPay - taxDeduction - cpfDeduction - deductionsTotal;
+    const netPay = grossPay - taxDeduction - deductionsTotal;
 
     return {
       baseSalary,
@@ -247,7 +247,7 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
       deductionsTotal,
       grossPay,
       taxDeduction,
-      cpfDeduction,
+      cpfDeduction: null, // Only use backend value
       netPay,
     };
   };
@@ -376,9 +376,9 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                           <FormItem>
                             <FormLabel>Pay Period Start*</FormLabel>
                             <FormControl>
-                              <Input 
-                                type="date" 
-                                {...field} 
+                              <StringDatePicker
+                                value={field.value || ""}
+                                onChange={field.onChange}
                                 disabled={isEditMode}
                               />
                             </FormControl>
@@ -395,9 +395,9 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                           <FormItem>
                             <FormLabel>Pay Period End*</FormLabel>
                             <FormControl>
-                              <Input 
-                                type="date" 
-                                {...field} 
+                              <StringDatePicker
+                                value={field.value || ""}
+                                onChange={field.onChange}
                                 disabled={isEditMode}
                               />
                             </FormControl>
@@ -415,8 +415,7 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                         <FormItem>
                           <FormLabel>Overtime Hours</FormLabel>
                           <FormControl>
-                            <Input
-                              type="number"
+                            <NumberInput
                               step="0.5"
                               placeholder="0.0"
                               {...field}
@@ -496,7 +495,7 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                               <span>-{formatCurrency(record!.taxDeduction)}</span>
                             </div>
                             <div className="flex justify-between text-red-600">
-                              <span>CPF Deduction:</span>
+                              <span>CPF Deduction{record!.cpfRate ? ` (${record!.cpfRate}%)` : ''}:</span>
                               <span>-{formatCurrency(record!.cpfDeduction)}</span>
                             </div>
                             {Object.entries(record!.deductions || {}).map(([name, amount]) => (
@@ -543,10 +542,12 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                               <span>Tax Deduction:</span>
                               <span>-{formatCurrency(projectedPay.taxDeduction)}</span>
                             </div>
-                            <div className="flex justify-between text-red-600">
-                              <span>CPF Deduction:</span>
-                              <span>-{formatCurrency(projectedPay.cpfDeduction)}</span>
-                            </div>
+                            {projectedPay.cpfDeduction !== null && (
+                              <div className="flex justify-between text-red-600">
+                                <span>CPF Deduction:</span>
+                                <span>-{formatCurrency(projectedPay.cpfDeduction)}</span>
+                              </div>
+                            )}
                             {Object.entries(selectedEmployee?.deductions || {}).map(([name, amount]) => (
                               <div key={name} className="flex justify-between text-red-600">
                                 <span>{name}:</span>

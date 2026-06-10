@@ -1,330 +1,456 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Edit, Trash2, Users, Shield, Settings } from "lucide-react";
+import React, { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Plus, Search, Edit, Trash2, ArrowLeft, Mail, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import Dashboard from "@/components/layout/Dashboard";
+import { TableRowActions } from "@/components/ui/table-row-actions";
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import type { User } from "@shared/schema";
-import UserForm from "@/components/forms/UserForm";
-import Sidebar from "@/components/layout/Sidebar";
 
-const roleLabels = {
-  super_admin: "Super Admin",
-  admin: "Administrator", 
-  hr_manager: "HR Manager",
-  it_manager: "IT Manager",
-  accountant: "Accountant",
-  employee: "Employee"
-};
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'super_admin' | 'admin' | 'hr_manager' | 'employee' | 'vendor';
+  isActive: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
-const roleColors = {
-  super_admin: "bg-purple-100 text-purple-800",
-  admin: "bg-red-100 text-red-800",
-  hr_manager: "bg-blue-100 text-blue-800", 
-  it_manager: "bg-green-100 text-green-800",
-  accountant: "bg-yellow-100 text-yellow-800",
-  employee: "bg-gray-100 text-gray-800"
-};
+interface UserFormData {
+  name: string;
+  email: string;
+  password: string;
+  role: string;
+}
 
 export default function UserManagementPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [deletingUser, setDeletingUser] = useState<User | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const { toast } = useToast();
-  const { user: currentUser } = useAuth();
-  const queryClient = useQueryClient();
-
-  const { data: users = [], isLoading } = useQuery<User[]>({
-    queryKey: ["/api/users"],
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [formData, setFormData] = useState<UserFormData>({
+    name: '',
+    email: '',
+    password: '',
+    role: 'employee'
   });
 
-  const deleteUserMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const response = await fetch(`/api/users/${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        throw new Error("Failed to delete user");
-      }
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const { user: currentUser } = useAuth();
+
+  // Role-based access: only super_admin and admin can manage users
+  const canManageUsers = currentUser?.role === 'super_admin' || (currentUser as any)?.isSuperAdmin || currentUser?.role === 'admin';
+
+  // Fetch users
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/users');
+      return response.json();
+    }
+  });
+
+  // Add user mutation
+  const addUserMutation = useMutation({
+    mutationFn: async (data: UserFormData) => {
+      const response = await apiRequest('POST', '/api/users', data);
+      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setIsAddDialogOpen(false);
+      resetForm();
       toast({
         title: "Success",
-        description: "User deleted successfully.",
+        description: "User added successfully",
       });
-      setDeletingUser(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete user.",
+        description: error.message || "Failed to add user",
         variant: "destructive",
       });
-    },
+    }
   });
 
-  const filteredUsers = users.filter((user) =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Update user mutation
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<UserFormData> }) => {
+      const response = await apiRequest('PUT', `/api/users/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/users'] });
+      setIsEditDialogOpen(false);
+      setSelectedUser(null);
+      resetForm();
+      toast({
+        title: "Success",
+        description: "User updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update user",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Delete user mutation
+  const deleteUserMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest('DELETE', `/api/users/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/users'] });
+      toast({
+        title: "Success",
+        description: "User deleted successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete user",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      email: '',
+      password: '',
+      role: 'employee'
+    });
+  };
 
   const handleEdit = (user: User) => {
-    setEditingUser(user);
-    setShowForm(true);
+    setSelectedUser(user);
+    setFormData({
+      name: user.name,
+      email: user.email,
+      password: '',
+      role: user.role
+    });
+    setIsEditDialogOpen(true);
   };
 
-  const handleDelete = (user: User) => {
-    setDeletingUser(user);
+  const handleDelete = (id: string) => {
+    deleteUserMutation.mutate(id);
   };
 
-  const handleFormSuccess = () => {
-    setShowForm(false);
-    setEditingUser(null);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedUser) {
+      updateUserMutation.mutate({ id: selectedUser.id, data: formData });
+    } else {
+      addUserMutation.mutate(formData);
+    }
   };
 
-  // Check if current user has permission to manage users
-  if (!currentUser || !["super_admin", "admin"].includes(currentUser.role)) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <Shield className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">Access Denied</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            You don't have permission to manage users.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const filteredUsers = users.filter((user: User) =>
+    (user.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (user.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (user.role?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+  );
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const roles = [
+    { value: 'super_admin', label: 'Super Admin' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'hr_manager', label: 'HR Manager' },
+    { value: 'employee', label: 'Employee' },
+    { value: 'vendor', label: 'Vendor' }
+  ];
 
-  const totalUsers = users.length;
-  const activeUsers = users.filter(u => u.isActive).length;
-  const adminUsers = users.filter(u => ["super_admin", "admin"].includes(u.role)).length;
+  const getRoleBadgeVariant = (role: string) => {
+    switch (role) {
+      case 'super_admin':
+        return 'destructive';
+      case 'admin':
+        return 'default';
+      case 'hr_manager':
+        return 'secondary';
+      case 'employee':
+        return 'outline';
+      case 'vendor':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
+
+  const getStatusBadgeVariant = (isActive: boolean) => {
+    return isActive ? 'default' : 'secondary';
+  };
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-              <p className="text-gray-600 mt-1">Manage user accounts, roles, and permissions</p>
-            </div>
-            <Button onClick={() => { setEditingUser(null); setShowForm(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add User
-            </Button>
-          </div>
+    <Dashboard>
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold">User Management</h1>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="space-y-6">
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{totalUsers}</div>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-                  <Users className="h-4 w-4 text-green-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-green-600">{activeUsers}</div>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Administrators</CardTitle>
-                  <Shield className="h-4 w-4 text-red-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-red-600">{adminUsers}</div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Search */}
-            <div className="flex items-center space-x-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search users..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
-                />
-              </div>
-            </div>
-
-            {/* User Table */}
-            <Card>
-              <CardHeader>
-                <CardTitle>All Users</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredUsers.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium">{user.name}</TableCell>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell>
-                          <Badge className={roleColors[user.role as keyof typeof roleColors]}>
-                            {roleLabels[user.role as keyof typeof roleLabels]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={user.isActive ? "default" : "secondary"}>
-                            {user.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEdit(user)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            {user.id !== currentUser?.id && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete(user)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-
-                {filteredUsers.length === 0 && (
-                  <div className="text-center py-12">
-                    <Users className="mx-auto h-12 w-12 text-gray-400" />
-                    <h3 className="mt-2 text-sm font-semibold text-gray-900">No users found</h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                      {searchTerm ? "Try adjusting your search terms." : "Get started by adding your first user."}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        {canManageUsers && (
+          <Button onClick={() => {
+            resetForm();
+            setIsAddDialogOpen(true);
+          }}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add User
+          </Button>
+        )}
       </div>
 
-      {/* Forms */}
-      {showForm && (
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {editingUser ? "Edit User" : "Add New User"}
-              </DialogTitle>
-              <DialogDescription>
-                Create a new user account with appropriate permissions.
-              </DialogDescription>
-            </DialogHeader>
-            <UserForm 
-              user={editingUser} 
-              onSuccess={handleFormSuccess} 
-            />
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* Add User Sheet */}
+      <Sheet open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <SheetContent 
+          side="right" 
+          className="p-0 flex flex-col"
+          style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          {/* Sticky Header */}
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-2xl font-bold text-gray-900">
+                Add New User
+              </SheetTitle>
+              <p className="text-sm text-gray-600 mt-2">
+                Add a new user to your organization
+              </p>
+            </SheetHeader>
+          </div>
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto px-6 pb-24">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="role">Role</Label>
+                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((role) => (
+                      <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end space-x-2">
+                <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={addUserMutation.isPending}>
+                  {addUserMutation.isPending ? 'Adding...' : 'Add User'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </SheetContent>
+      </Sheet>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog
-        open={!!deletingUser}
-        onOpenChange={() => setDeletingUser(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the user
-              "{deletingUser?.name}" and revoke their access to the system.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deletingUser && deleteUserMutation.mutate(deletingUser.id)}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>User Management</CardTitle>
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8 w-64"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="text-center py-8">Loading users...</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  {canManageUsers && <TableHead>Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredUsers.map((user: User) => (
+                  <TableRow key={user.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        {user.name}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4" />
+                        {user.email}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getRoleBadgeVariant(user.role)}>
+                        {roles.find(r => r.value === user.role)?.label || user.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusBadgeVariant(user.isActive)}>
+                        {user.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </TableCell>
+                    {canManageUsers && (
+                      <TableCell>
+                        <TableRowActions
+                          actions={[
+                            {
+                              icon: Edit,
+                              label: "Edit",
+                              variant: "edit",
+                              onClick: () => handleEdit(user),
+                            },
+                            {
+                              icon: Trash2,
+                              label: "Delete",
+                              variant: "delete",
+                              onClick: () => handleDelete(user.id),
+                            },
+                          ]}
+                        />
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Edit User Sheet */}
+      <Sheet open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <SheetContent 
+          side="right" 
+          className="p-0 flex flex-col"
+          style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          {/* Sticky Header */}
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-2xl font-bold text-gray-900">
+                Edit User
+              </SheetTitle>
+              <p className="text-sm text-gray-600 mt-2">
+                Update user information
+              </p>
+            </SheetHeader>
+          </div>
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="edit_name">Name</Label>
+              <Input
+                id="edit_name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_email">Email</Label>
+              <Input
+                id="edit_email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_password">New Password (leave blank to keep current)</Label>
+              <Input
+                id="edit_password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_role">Role</Label>
+              <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updateUserMutation.isPending}>
+                {updateUserMutation.isPending ? 'Updating...' : 'Update User'}
+              </Button>
+            </div>
+          </form>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </Dashboard>
   );
-}
+} 

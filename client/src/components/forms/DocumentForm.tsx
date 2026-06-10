@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertEmployeeDocumentSchema, documentTypeEnum } from "@shared/schema";
@@ -63,28 +63,40 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
   
   const form = useForm<DocumentFormData>({
     resolver: zodResolver(formSchema),
+    mode: "onChange",
     defaultValues: {
-      employeeId: employeeId || "",
+      employeeId: employeeId || 0,
       documentType: "passport",
-      issueDate: undefined,
-      expiryDate: undefined,
+      issueDate: null,
+      expiryDate: null,
       notes: "",
     },
   });
   
+  // Helper function to safely convert date to ISO string
+  const safeDateToISO = (dateValue: any): string | null => {
+    if (!dateValue) return null;
+    try {
+      const date = new Date(dateValue);
+      return isNaN(date.getTime()) ? null : date.toISOString();
+    } catch {
+      return null;
+    }
+  };
+
   // Update form when document data is loaded
-  useState(() => {
+  useEffect(() => {
     if (documentData) {
       form.reset({
         ...documentData,
-        employeeId: documentData.employeeId,
-        issueDate: documentData.issueDate ? new Date(documentData.issueDate) : undefined,
-        expiryDate: documentData.expiryDate ? new Date(documentData.expiryDate) : undefined,
+        employeeId: documentData.employeeId || 0,
+        issueDate: safeDateToISO(documentData.issueDate),
+        expiryDate: safeDateToISO(documentData.expiryDate),
       });
     } else if (employeeId) {
       form.setValue("employeeId", employeeId);
     }
-  });
+  }, [documentData, employeeId, form]);
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0] || null;
@@ -160,7 +172,7 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
               <FormItem>
                 <FormLabel>Employee</FormLabel>
                 <Select
-                  onValueChange={field.onChange}
+                  onValueChange={(value) => field.onChange(parseInt(value))}
                   defaultValue={field.value.toString()}
                   value={field.value.toString()}
                   disabled={!!employeeId}
@@ -225,8 +237,8 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
               <FormItem className="flex flex-col">
                 <FormLabel>Issue Date</FormLabel>
                 <DatePicker
-                  date={field.value}
-                  setDate={(date) => field.onChange(date)}
+                  value={field.value}
+                  onChange={field.onChange}
                 />
                 <FormDescription>
                   Date when the document was issued
@@ -243,8 +255,8 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
               <FormItem className="flex flex-col">
                 <FormLabel>Expiry Date</FormLabel>
                 <DatePicker
-                  date={field.value}
-                  setDate={(date) => field.onChange(date)}
+                  value={field.value}
+                  onChange={field.onChange}
                 />
                 <FormDescription>
                   Date when the document expires
@@ -266,6 +278,7 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
                       placeholder="Any additional information about this document"
                       className="resize-none"
                       {...field}
+                      value={field.value || ""}
                     />
                   </FormControl>
                   <FormMessage />
@@ -275,40 +288,47 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
           </div>
           
           <div className="col-span-2">
-            <FormLabel>Document File</FormLabel>
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-              <div className="space-y-1 text-center">
-                <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                <div className="flex text-sm text-gray-600">
-                  <label
-                    htmlFor="file-upload"
-                    className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-700 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
-                  >
-                    <span>Upload a file</span>
-                    <input
-                      id="file-upload"
-                      name="file-upload"
-                      type="file"
-                      className="sr-only"
-                      onChange={handleFileChange}
-                      accept=".pdf,.jpg,.jpeg,.png"
-                    />
-                  </label>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-gray-500">
-                  PDF, JPG, JPEG, PNG up to 10MB
-                </p>
-              </div>
-            </div>
-            {file && (
-              <p className="mt-2 text-sm text-green-600">
-                File selected: {file.name}
-              </p>
-            )}
+            <FormField
+              control={form.control}
+              name="fileData"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Document File</FormLabel>
+                  <FormControl>
+                    <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-gray-400 transition-colors cursor-pointer">
+                      <input
+                        id="file-upload"
+                        name="file-upload"
+                        type="file"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={handleFileChange}
+                        accept=".pdf,.jpg,.jpeg,.png"
+                      />
+                      <div className="space-y-1 text-center pointer-events-none">
+                        <Upload className="mx-auto h-12 w-12 text-gray-400" />
+                        <div className="flex text-sm text-gray-600">
+                          <span className="font-medium text-primary-600">Upload a file</span>
+                          <p className="pl-1">or drag and drop</p>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          PDF, JPG, JPEG, PNG up to 10MB
+                        </p>
+                      </div>
+                    </div>
+                  </FormControl>
+                  {file && (
+                    <p className="mt-2 text-sm text-green-600">
+                      File selected: {file.name}
+                    </p>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
         </div>
         
+        <pre style={{fontSize:12, color:'#888', background:'#f8f8f8', padding:8, borderRadius:4, marginBottom:8}}>{JSON.stringify(form.formState, null, 2)}</pre>
         <div className="flex justify-end space-x-4">
           <Button
             type="button"
@@ -319,7 +339,7 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
           </Button>
           <Button
             type="submit"
-            disabled={uploadDocumentMutation.isPending}
+            disabled={uploadDocumentMutation.isPending || !form.formState.isValid || (!file && !isEditMode)}
           >
             {uploadDocumentMutation.isPending ? (
               <>

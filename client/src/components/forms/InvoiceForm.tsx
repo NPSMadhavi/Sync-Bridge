@@ -12,7 +12,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Input, NumberInput } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -28,7 +28,8 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Invoice, Customer } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getQueryFn } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 
 const invoiceItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
@@ -52,14 +53,47 @@ type InvoiceFormData = z.infer<typeof invoiceFormSchema>;
 interface InvoiceFormProps {
   invoice?: Invoice | null;
   onSuccess?: () => void;
+  onCancel?: () => void;
 }
 
-export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
+export default function InvoiceForm({ invoice, onSuccess, onCancel }: InvoiceFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
+  // Fetch customers based on user role
   const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+    queryKey: user?.role === 'vendor' ? ['/api/vendor/customers', user?.email] : ["/api/customers"],
+    queryFn: async () => {
+      if (user?.role === 'vendor') {
+        // For vendors, fetch vendor customers
+        const response = await apiRequest('GET', `/api/vendor/customers?vendorEmail=${user.email}`);
+        const vendorCustomers = await response.json();
+        // Transform vendor customers to match Customer interface
+        return vendorCustomers.map((vc: any) => ({
+          id: vc.id,
+          tenantId: 0, // Vendor customers don't have tenantId
+          name: vc.customerName,
+          email: vc.customerEmail,
+          phone: vc.customerPhone,
+          company: vc.customerName,
+          address: vc.customerAddress,
+          city: '',
+          state: '',
+          zipCode: '',
+          country: '',
+          taxId: '',
+          isActive: true,
+          notes: '',
+          createdAt: vc.createdAt,
+        }));
+      } else {
+        // For regular users, fetch tenant customers
+        const response = await apiRequest('GET', '/api/customers');
+        return response.json();
+      }
+    },
+    enabled: !!user,
   });
 
   const form = useForm<InvoiceFormData>({
@@ -68,11 +102,11 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
       customerId: invoice?.customerId || 0,
       issueDate: invoice ? new Date(invoice.issueDate) : new Date(),
       dueDate: invoice ? new Date(invoice.dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-      taxRate: invoice ? invoice.taxRate / 100 : 9, // Default 9% GST for Singapore
-      discountRate: invoice ? invoice.discountRate / 100 : 0,
+      taxRate: invoice ? (invoice.taxRate || 0) / 100 : 9, // Default 9% GST for Singapore
+      discountRate: invoice ? (invoice.discountRate || 0) / 100 : 0,
       paymentTerms: invoice?.paymentTerms || "Net 30 days",
       notes: invoice?.notes || "",
-      items: invoice?.items || [{ description: "", quantity: 1, unitPrice: 0 }],
+      items: [{ description: "", quantity: 1, unitPrice: 0 }],
     },
   });
 
@@ -97,19 +131,26 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
 
   const mutation = useMutation({
     mutationFn: async (data: InvoiceFormData) => {
+      // Generate invoice number if creating new invoice
+      const invoiceNumber = invoice ? invoice.invoiceNumber : `INV-${Date.now()}`;
+      
       const invoiceData = {
+        invoiceNumber,
         customerId: data.customerId,
-        issueDate: data.issueDate,
-        dueDate: data.dueDate,
+        issueDate: data.issueDate.toISOString(),
+        dueDate: data.dueDate.toISOString(),
         taxRate: Math.round(data.taxRate * 100), // Convert to basis points
         discountRate: Math.round(data.discountRate * 100),
         paymentTerms: data.paymentTerms,
         notes: data.notes,
-        subtotal,
-        taxAmount,
-        discountAmount,
-        totalAmount,
-        balanceAmount: totalAmount,
+        subtotal: Math.round(subtotal),
+        taxAmount: Math.round(taxAmount),
+        discountAmount: Math.round(discountAmount),
+        totalAmount: Math.round(totalAmount),
+        balanceAmount: Math.round(totalAmount),
+        paidAmount: 0, // New invoices start with 0 paid amount
+        currency: 'USD',
+        status: 'draft',
         items: data.items.map(item => ({
           description: item.description,
           quantity: item.quantity,
@@ -243,8 +284,7 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
               <FormItem>
                 <FormLabel>GST Rate (%)</FormLabel>
                 <FormControl>
-                  <Input
-                    type="number"
+                  <NumberInput
                     step="0.01"
                     placeholder="9.00"
                     {...field}
@@ -264,8 +304,7 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
               <FormItem>
                 <FormLabel>Discount Rate (%)</FormLabel>
                 <FormControl>
-                  <Input
-                    type="number"
+                  <NumberInput
                     step="0.01"
                     placeholder="0.00"
                     {...field}
@@ -319,8 +358,7 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
                     <FormItem>
                       <FormLabel>Qty</FormLabel>
                       <FormControl>
-                        <Input
-                          type="number"
+                        <NumberInput
                           min="1"
                           {...field}
                           onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
@@ -340,8 +378,7 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
                     <FormItem>
                       <FormLabel>Unit Price</FormLabel>
                       <FormControl>
-                        <Input
-                          type="number"
+                        <NumberInput
                           step="0.01"
                           min="0"
                           placeholder="0.00"
@@ -422,6 +459,14 @@ export default function InvoiceForm({ invoice, onSuccess }: InvoiceFormProps) {
         />
 
         <div className="flex justify-end space-x-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={mutation.isPending}
+          >
+            Cancel
+          </Button>
           <Button
             type="submit"
             disabled={mutation.isPending}

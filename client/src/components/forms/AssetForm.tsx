@@ -28,13 +28,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { 
-  Loader2, 
-  ChevronDown, 
-  ChevronUp, 
-  Package, 
-  User, 
-  CreditCard, 
+import {
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  Package,
+  User,
+  CreditCard,
   Calculator,
   FileText,
   HelpCircle
@@ -48,19 +48,19 @@ import {
 
 // Asset types for dropdown
 const assetTypes = [
-  "Laptop", "Desktop", "Monitor", "Phone", "Tablet", "Server", 
+  "Laptop", "Desktop", "Monitor", "Phone", "Tablet", "Server",
   "Printer", "Scanner", "Router", "Switch", "Projector", "Camera", "Other"
 ];
 
 // Manufacturers for dropdown
 const manufacturers = [
-  "Apple", "Dell", "HP", "Lenovo", "Microsoft", "Samsung", "LG", 
+  "Apple", "Dell", "HP", "Lenovo", "Microsoft", "Samsung", "LG",
   "Asus", "Acer", "Canon", "Epson", "Cisco", "Netgear", "Other"
 ];
 
 // Locations for dropdown
 const locations = [
-  "Headquarters", "Branch Office", "Remote", "Warehouse", "IT Room", 
+  "Headquarters", "Branch Office", "Remote", "Warehouse", "IT Room",
   "Conference Room", "Reception", "Other"
 ];
 
@@ -99,20 +99,22 @@ interface AssetFormProps {
 
 export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
   const { toast } = useToast();
-  const [isEditMode] = useState(!!assetId);
+  const isEditMode = !!assetId;
   const [isFinanceOpen, setIsFinanceOpen] = useState(false);
-  
+
   // Fetch vendors for dropdown
   const { data: vendors = [] } = useQuery({
     queryKey: ["/api/vendors"],
+    queryFn: () => apiRequest("GET", "/api/vendors").then((res) => res.json()),
   });
-  
+
   // Fetch asset data if in edit mode
-  const { data: assetData, isLoading: isLoadingAsset } = useQuery({
+  const { data: assetData, isLoading: isLoadingAsset } = useQuery<Record<string, any>>({
     queryKey: ["/api/assets", assetId],
+    queryFn: () => apiRequest("GET", `/api/assets/${assetId}`).then((res) => res.json()),
     enabled: !!assetId,
   });
-  
+
   const form = useForm<AssetFormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -135,24 +137,47 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
       depreciationMethod: "Straight Line",
       description: "",
       vendorId: undefined,
-      cost: undefined,
     },
   });
-  
+
   // Update form when asset data is loaded
   useEffect(() => {
     if (assetData) {
       form.reset({
         ...assetData,
+        category: assetData.category ?? "",
         purchaseDate: assetData.purchaseDate ? new Date(assetData.purchaseDate) : undefined,
-        warrantyExpiry: assetData.warrantyExpiry ? new Date(assetData.warrantyExpiry) : undefined,
+        warrantyExpiryDate: assetData.warrantyExpiry ? new Date(assetData.warrantyExpiry) : undefined,
+        model: assetData.model ?? "",
+        manufacturer: assetData.manufacturer ?? "",
+        condition: assetData.condition ?? "new",
+        assignedTo: assetData.assignedTo ?? "",
+        location: assetData.location ?? "",
+        vendor: assetData.vendor ?? "",
+        invoiceNumber: assetData.invoiceNumber ?? "",
+        description: assetData.description ?? "",
+        depreciationMethod: assetData.depreciationMethod ?? "Straight Line",
+        usefulLifeYears: assetData.usefulLifeYears ?? 3,
+        depreciationStartDate: assetData.depreciationStartDate ? new Date(assetData.depreciationStartDate) : undefined,
+        vendorId: assetData.vendorId ?? undefined,
       });
     }
   }, [assetData, form]);
-  
+
   const createAssetMutation = useMutation({
     mutationFn: async (data: AssetFormData) => {
-      const res = await apiRequest("POST", "/api/assets", data);
+      const payload = {
+        tag: data.tag,
+        type: data.type,
+        category: data.category || data.type, // fallback to type if category empty
+        serial: data.serial,
+        status: data.status || "available",
+        location: data.location || undefined,
+        vendorId: data.vendorId ?? undefined,
+        purchaseDate: data.purchaseDate ? data.purchaseDate.toISOString() : undefined,
+        warrantyExpiry: data.warrantyExpiryDate ? data.warrantyExpiryDate.toISOString() : undefined,
+      };
+      const res = await apiRequest("POST", "/api/assets", payload);
       return await res.json();
     },
     onSuccess: () => {
@@ -172,10 +197,21 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
       });
     },
   });
-  
+
   const updateAssetMutation = useMutation({
     mutationFn: async (data: AssetFormData) => {
-      const res = await apiRequest("PUT", `/api/assets/${assetId}`, data);
+      const payload = {
+        tag: data.tag,
+        type: data.type,
+        category: data.category || data.type, // fallback to type if category empty
+        serial: data.serial,
+        status: data.status || "available",
+        location: data.location || undefined,
+        vendorId: data.vendorId ?? undefined,
+        purchaseDate: data.purchaseDate ? data.purchaseDate.toISOString() : undefined,
+        warrantyExpiry: data.warrantyExpiryDate ? data.warrantyExpiryDate.toISOString() : undefined,
+      };
+      const res = await apiRequest("PUT", `/api/assets/${assetId}`, payload);
       return await res.json();
     },
     onSuccess: () => {
@@ -195,7 +231,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
       });
     },
   });
-  
+
   const onSubmit = (data: AssetFormData) => {
     if (isEditMode) {
       updateAssetMutation.mutate(data);
@@ -210,7 +246,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
       if (onSuccess) onSuccess();
     }
   };
-  
+
   if (isEditMode && isLoadingAsset) {
     return (
       <div className="flex justify-center items-center p-8">
@@ -218,23 +254,19 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
       </div>
     );
   }
-  
+
   return (
     <TooltipProvider>
       <Form {...form}>
-        <div 
-          className="h-[calc(100vh-160px)] flex flex-col"
-          onKeyDown={handleKeyDown}
-        >
-          {/* Form Content - Scrollable Area */}
-          <div className="flex-1 overflow-y-auto px-1 pb-24">
-            <div className="py-6">
+        <div onKeyDown={handleKeyDown}>
+          {/* Form Content */}
+          <div className="py-6">
               {/* Responsive grid layout container */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
+
               {/* Left Column */}
               <div className="space-y-6">
-                
+
                 {/* Basic Details Section */}
                 <Card>
                   <CardHeader className="pb-4">
@@ -262,11 +294,11 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                               </Tooltip>
                             </FormLabel>
                             <FormControl>
-                              <Input 
-                                placeholder="IT-LAP-001" 
-                                className="w-full" 
+                              <Input
+                                placeholder="IT-LAP-001"
+                                className="w-full"
                                 autoFocus
-                                {...field} 
+                                {...field}
                               />
                             </FormControl>
                             <FormMessage />
@@ -294,6 +326,20 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="category"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium">Category *</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g., Hardware, Software, Furniture" className="w-full" {...field} />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -457,9 +503,9 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                   </div>
                 </CardContent>
               </Card>
-              
+
             </div>
-            
+
               {/* Right Column */}
               <div className="space-y-6">
 
@@ -509,9 +555,8 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                           <FormLabel>Purchase Date</FormLabel>
                           <FormControl>
                             <DatePicker
-                              date={field.value}
-                              onDateChange={field.onChange}
-                              placeholder="Select purchase date"
+                              value={field.value ? field.value.toISOString() : null}
+                              onChange={(val) => field.onChange(val ? new Date(val) : undefined)}
                             />
                           </FormControl>
                           <FormMessage />
@@ -527,9 +572,8 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                           <FormLabel>Warranty Expiry Date</FormLabel>
                           <FormControl>
                             <DatePicker
-                              date={field.value}
-                              onDateChange={field.onChange}
-                              placeholder="Select warranty expiry"
+                              value={field.value ? field.value.toISOString() : null}
+                              onChange={(val) => field.onChange(val ? new Date(val) : undefined)}
                             />
                           </FormControl>
                           <FormMessage />
@@ -567,9 +611,8 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                               <FormLabel>Depreciation Start Date</FormLabel>
                               <FormControl>
                                 <DatePicker
-                                  date={field.value}
-                                  onDateChange={field.onChange}
-                                  placeholder="Select start date"
+                                  value={field.value ? field.value.toISOString() : null}
+                                  onChange={(val) => field.onChange(val ? new Date(val) : undefined)}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -662,40 +705,36 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
                   />
                 </CardContent>
               </Card>
-              
+
             </div>
-            
-            </div>
+
             </div>
           </div>
-          
-          {/* Sticky Footer with Actions - Outside scrollable area */}
-          <div className="flex-shrink-0 bg-background border-t px-4 py-4">
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <div className="flex flex-col sm:flex-row justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full sm:w-auto min-w-[120px]"
-                  onClick={() => {
-                    form.reset();
-                    if (onSuccess) onSuccess();
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  type="submit" 
-                  disabled={createAssetMutation.isPending || updateAssetMutation.isPending}
-                  className="w-full sm:w-auto min-w-[140px]"
-                >
-                  {(createAssetMutation.isPending || updateAssetMutation.isPending) && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {isEditMode ? "Update Asset" : "Create Asset"}
-                </Button>
-              </div>
-            </form>
+
+          {/* Footer Buttons */}
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t mt-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto min-w-[120px]"
+              onClick={() => {
+                form.reset();
+                if (onSuccess) onSuccess();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={createAssetMutation.isPending || updateAssetMutation.isPending}
+              className="w-full sm:w-auto min-w-[140px]"
+              onClick={form.handleSubmit(onSubmit)}
+            >
+              {(createAssetMutation.isPending || updateAssetMutation.isPending) && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              {isEditMode ? "Update Asset" : "Create Asset"}
+            </Button>
           </div>
         </div>
       </Form>

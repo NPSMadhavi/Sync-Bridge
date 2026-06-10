@@ -1,11 +1,41 @@
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { config } from 'dotenv';
+import { join } from 'path';
+import cors from 'cors';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+config({ path: join(__dirname, '.env') });
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { setupAuth } from "./auth";
+import { dataProtectionMiddleware } from "./middleware/data-protection";
 
 const app = express();
+
+// Basic middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+app.use(cors({
+  origin: ['http://localhost:5000', 'http://localhost:5173'],
+  credentials: true
+}));
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Set up authentication before routes
+setupAuth(app);
+
+// Set up data protection middleware
+app.use(dataProtectionMiddleware());
+
+// Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -47,8 +77,10 @@ app.use((req, res, next) => {
     });
   }, 30000); // 30 seconds delay to allow database connection
 
+  // Register routes
   const server = await registerRoutes(app);
 
+  // Error handling middleware
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -66,15 +98,21 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+  // Use PORT from environment or default to 5000
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 5000;
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`\nPort ${port} is already in use. Stop the other server first:`);
+      console.error(`  npm run predev`);
+      console.error(`  or: powershell -File scripts/free-port-5000.ps1\n`);
+      process.exit(1);
+    }
+    throw err;
   });
-})();
+  server.listen(port, () => {
+    console.log(`🚀 Server running on port ${port}`);
+    console.log(`📱 Environment: ${app.get("env")}`);
+    console.log(`🔗 API: http://localhost:${port}/api`);
+    console.log(`🌐 Web: http://localhost:${port}`);
+  });
+})(); 

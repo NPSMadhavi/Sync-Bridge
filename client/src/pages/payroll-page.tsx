@@ -13,6 +13,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Plus,
   Users,
   DollarSign,
@@ -24,15 +30,21 @@ import {
   Edit,
   Eye,
 } from "lucide-react";
-// Temporarily removed form imports until components are created
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
+import { formatTaxRate, formatCpfRate, isEmployeeCpfEligible } from "@/lib/payroll-utils";
+import PayrollConfigForm from "@/components/forms/PayrollConfigForm";
+import ProcessPayrollForm from "@/components/forms/ProcessPayrollForm";
+import Dashboard from "@/components/layout/Dashboard";
 
 interface PayrollConfig {
   id: number;
   employeeId: number;
   employeeName: string;
-  employeeEmail: string;
+  employeeEmail?: string;
   department: string;
   designation: string;
+  nationality?: string;
   baseSalary: string;
   payrollPeriod: 'monthly' | 'bi_weekly' | 'weekly';
   hourlyRate?: string;
@@ -52,7 +64,7 @@ interface PayrollRecord {
   id: number;
   employeeId: number;
   employeeName: string;
-  employeeEmail: string;
+  employeeEmail?: string;
   department: string;
   designation: string;
   payPeriodStart: string;
@@ -89,20 +101,40 @@ export default function PayrollPage() {
   const [recordFormOpen, setRecordFormOpen] = useState(false);
   const [selectedConfig, setSelectedConfig] = useState<PayrollConfig | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<PayrollRecord | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailMode, setDetailMode] = useState<"config" | "record" | null>(null);
 
-  // Fetch payroll summary
+  // Get user and tenant context
+  const { user, isLoading: userLoading, error: userError } = useAuth();
+  const tenantId = user?.tenantId;
+
+  // Show loading or error state for user context
+  if (userLoading) {
+    return <div className="flex items-center justify-center h-64">Loading user...</div>;
+  }
+  if (userError || !user) {
+    return <div className="flex items-center justify-center h-64 text-red-600">Unable to load user context. Please log in again.</div>;
+  }
+
+  // Fetch payroll summary - tenant-aware
   const { data: summary, isLoading: summaryLoading } = useQuery<PayrollSummary>({
-    queryKey: ["/api/payroll/summary"],
+    queryKey: ["/api/payroll/summary", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/summary`).then(res => res.json()),
+    enabled: !!user,
   });
 
-  // Fetch payroll configurations
+  // Fetch payroll configurations - tenant-aware
   const { data: configs, isLoading: configsLoading } = useQuery<PayrollConfig[]>({
-    queryKey: ["/api/payroll/configs"],
+    queryKey: ["/api/payroll/configs", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/configs`).then(res => res.json()),
+    enabled: !!user,
   });
 
-  // Fetch payroll records
+  // Fetch payroll records - tenant-aware
   const { data: records, isLoading: recordsLoading } = useQuery<PayrollRecord[]>({
-    queryKey: ["/api/payroll/records"],
+    queryKey: ["/api/payroll/records", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/records`).then(res => res.json()),
+    enabled: !!user,
   });
 
   const formatCurrency = (amount: string | number) => {
@@ -132,7 +164,7 @@ export default function PayrollPage() {
     };
 
     const colors: Record<string, string> = {
-      draft: "text-gray-600",
+      draft: "text-muted-foreground",
       pending: "text-yellow-600",
       approved: "text-blue-600",
       paid: "text-green-600",
@@ -167,38 +199,57 @@ export default function PayrollPage() {
     setRecordFormOpen(true);
   };
 
+  const openConfigDetails = (config: PayrollConfig) => {
+    setSelectedConfig(config);
+    setSelectedRecord(null);
+    setDetailMode("config");
+    setDetailOpen(true);
+  };
+
+  const openRecordDetails = (record: PayrollRecord) => {
+    setSelectedRecord(record);
+    setSelectedConfig(null);
+    setDetailMode("record");
+    setDetailOpen(true);
+  };
+
+  const closeDetails = () => {
+    setDetailOpen(false);
+    setDetailMode(null);
+    setSelectedConfig(null);
+    setSelectedRecord(null);
+  };
+
   return (
-    <div className="flex-1 space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Payroll Management</h1>
-          <p className="text-muted-foreground">
-            Manage employee payroll configurations and process monthly payments
-          </p>
+  <Dashboard
+    title={<span className="text-[32px] font-bold">Payroll Management</span>}
+    description="Manage your organization's assets."
+  >
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex gap-2">
+            <Button onClick={() => openConfigForm()}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Payroll Config
+            </Button>
+            <Button onClick={() => openRecordForm()}>
+              <Calculator className="h-4 w-4 mr-2" />
+              Process Payroll
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => openConfigForm()}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Payroll Config
-          </Button>
-          <Button onClick={() => openRecordForm()}>
-            <Calculator className="h-4 w-4 mr-2" />
-            Process Payroll
-          </Button>
-        </div>
-      </div>
 
       {/* Summary Cards */}
       {!summaryLoading && summary && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Employees</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{summary.totalEmployees}</div>
+              <div className="text-2xl font-bold text-foreground">{summary.totalEmployees}</div>
               <p className="text-xs text-muted-foreground">
                 Active payroll configurations
               </p>
@@ -211,9 +262,35 @@ export default function PayrollPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(summary.totalGrossPay)}</div>
+              <div className="text-2xl font-bold text-foreground">{formatCurrency(summary.totalGrossPay)}</div>
               <p className="text-xs text-muted-foreground">
                 Before deductions
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Income Tax</CardTitle>
+              <AlertCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-foreground">{formatCurrency(summary.totalTaxDeduction)}</div>
+              <p className="text-xs text-muted-foreground">
+                Foreign workers only
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">CPF Contributions</CardTitle>
+              <Calculator className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-foreground">{formatCurrency(summary.totalCpfDeduction)}</div>
+              <p className="text-xs text-muted-foreground">
+                Citizens & PRs
               </p>
             </CardContent>
           </Card>
@@ -224,22 +301,9 @@ export default function PayrollPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(summary.totalNetPay)}</div>
+              <div className="text-2xl font-bold text-foreground">{formatCurrency(summary.totalNetPay)}</div>
               <p className="text-xs text-muted-foreground">
                 After deductions
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Records</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summary.pendingRecords}</div>
-              <p className="text-xs text-muted-foreground">
-                Awaiting approval
               </p>
             </CardContent>
           </Card>
@@ -247,16 +311,17 @@ export default function PayrollPage() {
       )}
 
       {/* Main Content */}
-      <Tabs defaultValue="configs" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="configs">Payroll Configurations</TabsTrigger>
-          <TabsTrigger value="records">Payroll Records</TabsTrigger>
-        </TabsList>
+      <div className="h-full overflow-y-auto">
+        <Tabs defaultValue="configs" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="configs">Payroll Configurations</TabsTrigger>
+            <TabsTrigger value="records">Payroll Records</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="configs" className="space-y-4">
+          <TabsContent value="configs" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Employee Payroll Configurations</CardTitle>
+              <CardTitle> Payroll Configurations</CardTitle>
             </CardHeader>
             <CardContent>
               {configsLoading ? (
@@ -286,6 +351,7 @@ export default function PayrollPage() {
                       <TableHead>Tax Rate</TableHead>
                       <TableHead>CPF Rate</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Effective From</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -303,12 +369,18 @@ export default function PayrollPage() {
                         <TableCell>{config.department}</TableCell>
                         <TableCell>{formatCurrency(config.baseSalary)}</TableCell>
                         <TableCell>{formatPeriod(config.payrollPeriod)}</TableCell>
-                        <TableCell>{config.taxRate}%</TableCell>
-                        <TableCell>{config.cpfRate}%</TableCell>
+                        <TableCell>{formatTaxRate(config.taxRate, config.nationality)}</TableCell>
                         <TableCell>
+  {config.nationality === 'foreigner'
+    ? '-'
+    : formatCpfRate(config.cpfRate, config.nationality)}
+</TableCell>                        <TableCell>
                           <Badge variant={config.isActive ? "default" : "secondary"}>
                             {config.isActive ? "Active" : "Inactive"}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(config.effectiveFrom).toLocaleDateString()}
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
@@ -318,6 +390,13 @@ export default function PayrollPage() {
                               onClick={() => openConfigForm(config)}
                             >
                               <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openConfigDetails(config)}
+                            >
+                              <Eye className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>
@@ -385,8 +464,26 @@ export default function PayrollPage() {
                         <TableCell>{formatCurrency(record.grossPay)}</TableCell>
                         <TableCell>
                           <div className="text-sm">
-                            Tax: {formatCurrency(record.taxDeduction)}<br />
-                            CPF: {formatCurrency(record.cpfDeduction)}
+                            {parseFloat(record.taxDeduction) > 0 ? (
+                              <>
+                                <div className="text-red-600 font-medium">
+                                  Tax: {formatCurrency(record.taxDeduction)}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-muted-foreground text-xs">
+                                Tax: Not Applicable
+                              </div>
+                            )}
+                            {parseFloat(record.cpfDeduction) > 0 ? (
+                              <div className="text-blue-600 font-medium">
+                                CPF: {formatCurrency(record.cpfDeduction)}
+                              </div>
+                            ) : (
+                              <div className="text-muted-foreground text-xs">
+                                CPF: Not Applicable
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="font-medium">
@@ -398,7 +495,7 @@ export default function PayrollPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => openRecordForm(record)}
+                              onClick={() => openRecordDetails(record)}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -413,25 +510,126 @@ export default function PayrollPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      </div>
 
-      {/* Forms */}
-      <PayrollConfigForm
-        isOpen={configFormOpen}
-        onClose={() => {
-          setConfigFormOpen(false);
-          setSelectedConfig(null);
-        }}
-        config={selectedConfig}
-      />
+      {/* Payroll Config Form Sheet */}
+      <Sheet open={configFormOpen} onOpenChange={(open) => { if (!open) { setConfigFormOpen(false); setSelectedConfig(null); } }}>
+        <SheetContent
+          side="right"
+          className="p-0 flex flex-col"
+          style={{ width: "55vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-2xl font-bold text-gray-900">
+                {selectedConfig ? "Edit Payroll Config" : "Add Payroll Config"}
+              </SheetTitle>
+            </SheetHeader>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 pb-24">
+            {configFormOpen && (
+              <PayrollConfigForm
+                onSuccess={() => { setConfigFormOpen(false); setSelectedConfig(null); }}
+                onCancel={() => { setConfigFormOpen(false); setSelectedConfig(null); }}
+                editData={selectedConfig}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
-      <PayrollRecordForm
-        isOpen={recordFormOpen}
-        onClose={() => {
-          setRecordFormOpen(false);
-          setSelectedRecord(null);
-        }}
-        record={selectedRecord}
-      />
-    </div>
+      {/* Process Payroll Form Sheet */}
+      <Sheet open={recordFormOpen} onOpenChange={(open) => { if (!open) { setRecordFormOpen(false); setSelectedRecord(null); } }}>
+        <SheetContent
+          side="right"
+          className="p-0 flex flex-col"
+          style={{ width: "55vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-2xl font-bold text-gray-900">
+                Process Payroll
+              </SheetTitle>
+            </SheetHeader>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 pb-24">
+            {recordFormOpen && (
+              <ProcessPayrollForm
+                onSuccess={() => { setRecordFormOpen(false); setSelectedRecord(null); }}
+                onCancel={() => { setRecordFormOpen(false); setSelectedRecord(null); }}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={detailOpen} onOpenChange={(open) => !open && closeDetails()}>
+        <SheetContent
+          side="right"
+          className="p-0 flex flex-col"
+          style={{ width: "42vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-2xl font-bold text-gray-900">
+                {detailMode === "record" ? "Payroll Record Details" : "Payroll Configuration Details"}
+              </SheetTitle>
+            </SheetHeader>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            {detailMode === "record" && selectedRecord && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">{selectedRecord.employeeName}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div><span className="font-medium">Department:</span> {selectedRecord.department}</div>
+                  <div><span className="font-medium">Designation:</span> {selectedRecord.designation}</div>
+                  <div>
+                    <span className="font-medium">Pay Period:</span>{" "}
+                    {new Date(selectedRecord.payPeriodStart).toLocaleDateString()} - {new Date(selectedRecord.payPeriodEnd).toLocaleDateString()}
+                  </div>
+                  <div><span className="font-medium">Gross Pay:</span> {formatCurrency(selectedRecord.grossPay)}</div>
+                  <div><span className="font-medium">Tax Deduction:</span> {formatCurrency(selectedRecord.taxDeduction)}</div>
+                  <div><span className="font-medium">CPF Deduction:</span> {formatCurrency(selectedRecord.cpfDeduction)}</div>
+                  <div><span className="font-medium">Net Pay:</span> {formatCurrency(selectedRecord.netPay)}</div>
+                  <div><span className="font-medium">Status:</span> {selectedRecord.status}</div>
+                  <div><span className="font-medium">Notes:</span> {selectedRecord.notes || "No notes"}</div>
+                  <div><span className="font-medium">Created:</span> {new Date(selectedRecord.createdAt).toLocaleString()}</div>
+                </CardContent>
+              </Card>
+            )}
+
+            {detailMode === "config" && selectedConfig && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">{selectedConfig.employeeName}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div><span className="font-medium">Department:</span> {selectedConfig.department}</div>
+                  <div><span className="font-medium">Designation:</span> {selectedConfig.designation}</div>
+                  <div><span className="font-medium">Base Salary:</span> {formatCurrency(selectedConfig.baseSalary)}</div>
+                  <div><span className="font-medium">Period:</span> {formatPeriod(selectedConfig.payrollPeriod)}</div>
+                  <div><span className="font-medium">Tax Rate:</span> {formatTaxRate(selectedConfig.taxRate, selectedConfig.nationality)}</div>
+                  <div>
+                    <span className="font-medium">CPF Rate:</span>{" "}
+                    {selectedConfig.nationality === "foreigner" ? "-" : formatCpfRate(selectedConfig.cpfRate, selectedConfig.nationality)}
+                  </div>
+                  <div><span className="font-medium">Status:</span> {selectedConfig.isActive ? "Active" : "Inactive"}</div>
+                  <div><span className="font-medium">Effective From:</span> {new Date(selectedConfig.effectiveFrom).toLocaleDateString()}</div>
+                  <div>
+                    <span className="font-medium">Effective To:</span>{" "}
+                    {selectedConfig.effectiveTo ? new Date(selectedConfig.effectiveTo).toLocaleDateString() : "Not set"}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      </div>
+    </Dashboard>
   );
 }

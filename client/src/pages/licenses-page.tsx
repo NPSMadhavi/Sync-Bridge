@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import Dashboard from "@/components/layout/Dashboard";
 import {
   Card,
@@ -18,12 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { TableRowActions } from "@/components/ui/table-row-actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -37,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AlertTriangle, CalendarIcon, DownloadIcon, Edit, MoreHorizontal, Plus, Trash2, Key } from "lucide-react";
+import { AlertTriangle, CalendarIcon, DownloadIcon, Edit, Plus, Trash2, Key } from "lucide-react";
 import { License } from "@shared/schema";
 import { format, isAfter, isBefore, addDays } from "date-fns";
 import LicenseForm from "@/components/forms/LicenseForm";
@@ -54,6 +49,7 @@ export default function LicensesPage() {
   // Fetch licenses
   const { data: licenses = [], isLoading } = useQuery<License[]>({
     queryKey: ["/api/licenses"],
+    queryFn: () => apiRequest("GET", "/api/licenses").then((res) => res.json()),
   });
 
   // Filtered licenses based on tab
@@ -77,9 +73,7 @@ export default function LicensesPage() {
   // Delete license mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`/api/licenses/${id}`, {
-        method: "DELETE",
-      });
+      await apiRequest("DELETE", `/api/licenses/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/licenses"] });
@@ -106,8 +100,25 @@ export default function LicensesPage() {
   };
 
   // Generate CSV report
-  const handleGenerateReport = () => {
-    window.open("/api/reports/expiring-licenses", "_blank");
+  const handleGenerateReport = async () => {
+    try {
+      const res = await apiRequest("GET", "/api/reports/expiring-licenses");
+      if (!res.ok) {
+        toast({ title: "Export failed", description: "Could not generate the report.", variant: "destructive" });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `licenses-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Export failed", description: "Could not generate the report.", variant: "destructive" });
+    }
   };
 
   // Calculate license status badge
@@ -130,7 +141,7 @@ export default function LicensesPage() {
     <Dashboard>
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Licenses</h2>
+          <h2 className="text-[32px] font-bold tracking-tight">Licenses</h2>
           <p className="text-muted-foreground">
             Manage software and hardware licenses
           </p>
@@ -190,7 +201,7 @@ export default function LicensesPage() {
                     <TableHead>Status</TableHead>
                     <TableHead>Asset</TableHead>
                     <TableHead>Seats</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -225,34 +236,28 @@ export default function LicensesPage() {
                       </TableCell>
                       <TableCell>{license.seats || "-"}</TableCell>
                       <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => {
+                        <TableRowActions
+                          actions={[
+                            {
+                              icon: Edit,
+                              label: "Edit",
+                              variant: "edit",
+                              onClick: () => {
                                 setSelectedLicense(license);
                                 setIsEditModalOpen(true);
-                              }}
-                            >
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => {
+                              },
+                            },
+                            {
+                              icon: Trash2,
+                              label: "Delete",
+                              variant: "delete",
+                              onClick: () => {
                                 setSelectedLicense(license);
                                 setIsDeleteAlertOpen(true);
-                              }}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              },
+                            },
+                          ]}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

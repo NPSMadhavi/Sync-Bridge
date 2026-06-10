@@ -22,17 +22,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import AssetForm from "@/components/forms/AssetForm";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { TableRowActions } from "@/components/ui/table-row-actions";
 import {
   Plus,
   Loader2,
-  MoreHorizontal,
-  Pencil,
+  Edit,
   Trash2,
   AlertCircle,
   Laptop,
@@ -62,6 +56,10 @@ export default function AssetsPage() {
   // Fetch assets
   const { data: assets = [], isLoading } = useQuery<Asset[]>({
     queryKey: ["/api/assets"],
+    queryFn: () => apiRequest("GET", "/api/assets").then((res) => res.json()),
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
   
   // Delete asset mutation
@@ -75,6 +73,7 @@ export default function AssetsPage() {
         description: "The asset has been deleted successfully.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDeleteDialogOpen(false);
     },
     onError: (error: Error) => {
@@ -119,7 +118,7 @@ export default function AssetsPage() {
   // Helper function to get the right color for status badges
   const getStatusColorVariant = (status: string) => {
     switch (status) {
-      case 'available': return 'success';
+      case 'available': return 'default';
       case 'assigned': return 'secondary';
       case 'maintenance': return 'warning';
       case 'retired': return 'destructive';
@@ -128,19 +127,24 @@ export default function AssetsPage() {
   };
   
   return (
-    <Dashboard title="Assets" description="Manage your organization's assets.">
-      <div className="mb-6 flex justify-between items-center">
-        <div>
-          <Button
-            onClick={() => {
-              setSelectedAssetId(null);
-              setIsFormDialogOpen(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" /> Add Asset
-          </Button>
-        </div>
-      </div>
+<Dashboard
+  title={
+    <div className="flex justify-between items-center w-full">
+      <span className="text-[32px] font-bold">Assets</span>
+
+      <Button
+        onClick={() => {
+          setSelectedAssetId(null);
+          setIsFormDialogOpen(true);
+        }}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Add Asset
+      </Button>
+    </div>
+  }
+  description="Manage your organization's assets."
+>
       
       <Card>
         <CardHeader>
@@ -162,7 +166,7 @@ export default function AssetsPage() {
                     <TableHead>Status</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Warranty Expiry</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -192,34 +196,31 @@ export default function AssetsPage() {
                           ? new Date(asset.warrantyExpiry).toLocaleDateString() 
                           : "—"}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <span className="sr-only">Open menu</span>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditAsset(asset.id)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            {asset.status === 'available' && (
-                              <DropdownMenuItem onClick={() => handleAssignAsset(asset.id)}>
-                                <Laptop className="mr-2 h-4 w-4" />
-                                Assign
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                              className="text-red-600"
-                              onClick={() => handleDeleteAsset(asset.id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                      <TableCell>
+                        <TableRowActions
+                          actions={[
+                            {
+                              icon: Edit,
+                              label: "Edit",
+                              variant: "edit",
+                              onClick: () => handleEditAsset(asset.id),
+                            },
+                            ...(asset.status === "available"
+                              ? [{
+                                  icon: Laptop,
+                                  label: "Assign",
+                                  variant: "default" as const,
+                                  onClick: () => handleAssignAsset(asset.id),
+                                }]
+                              : []),
+                            {
+                              icon: Trash2,
+                              label: "Delete",
+                              variant: "delete",
+                              onClick: () => handleDeleteAsset(asset.id),
+                            },
+                          ]}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -248,20 +249,27 @@ export default function AssetsPage() {
       <Sheet open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
         <SheetContent 
           side="right" 
-          className="w-full sm:max-w-none p-0 flex flex-col"
+          style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }}
+          className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-white"
         >
           {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
             <SheetHeader>
               <SheetTitle className="text-xl font-semibold">
                 {selectedAssetId ? "Edit Asset" : "Add New Asset"}
               </SheetTitle>
             </SheetHeader>
+            <Button variant="ghost" size="sm" onClick={() => setIsFormDialogOpen(false)}>
+              <span className="sr-only">Close</span>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </Button>
           </div>
-          
           {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto px-6 pb-24">
             <AssetForm
+              key={selectedAssetId ?? "new"}
               assetId={selectedAssetId || undefined}
               onSuccess={() => setIsFormDialogOpen(false)}
             />

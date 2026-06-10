@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -27,12 +28,16 @@ export default function AssignAssetModal({ open, onClose }: AssignAssetModalProp
   // Fetch available assets
   const { data: assets = [] } = useQuery<Asset[]>({
     queryKey: ["/api/assets"],
+    queryFn: () => apiRequest("GET", "/api/assets").then((res) => res.json()),
     select: (data) => data.filter(asset => asset.status === 'available'),
+    enabled: open,
   });
   
   // Fetch employees
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
+    queryFn: () => apiRequest("GET", "/api/employees").then((res) => res.json()),
+    enabled: open,
   });
   
   // Create asset assignment mutation
@@ -139,11 +144,9 @@ export default function AssignAssetModal({ open, onClose }: AssignAssetModalProp
           
           <div className="space-y-2">
             <Label htmlFor="date">Assignment Date</Label>
-            <Input
-              id="date"
-              type="date"
+            <StringDatePicker
               value={assignmentDate}
-              onChange={(e) => setAssignmentDate(e.target.value)}
+              onChange={setAssignmentDate}
             />
           </div>
           

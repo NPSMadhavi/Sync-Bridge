@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -12,7 +12,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Input, NumberInput } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -23,16 +23,22 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { insertPayrollRecordSchema } from "@shared/schema";
-import { CalendarIcon, Calculator, CheckCircle, AlertTriangle } from "lucide-react";
+import { Calculator, CheckCircle, AlertTriangle } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  calculateAgeFromDob,
+  mapEmployeeResidency,
+} from "@shared/singapore-payroll";
 
 const processPayrollSchema = z.object({
   employeeId: z.coerce.number().min(1, "Please select an employee"),
   payPeriodStart: z.string().min(1, "Start date is required"),
   payPeriodEnd: z.string().min(1, "End date is required"),
-  overtimeHours: z.coerce.number().min(0).default(0),
+  overtimeHours: z.coerce.number().min(0, "Overtime hours must be positive").default(0),
   notes: z.string().optional(),
 });
 
@@ -49,15 +55,45 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
   const [payrollCalculation, setPayrollCalculation] = useState<any>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
 
-  // Fetch employee payroll configurations
-  const { data: payrollConfigs = [], isLoading: configsLoading } = useQuery<any[]>({
-    queryKey: ["/api/employee-payroll"],
+  // Get user and tenant context
+  const { user, isLoading: userLoading, error: userError } = useAuth();
+  const tenantId = user?.tenantId;
+
+  // Show loading or error state for user context
+  if (userLoading) {
+    return <div>Loading user...</div>;
+  }
+  if (userError || !user) {
+    return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
+  }
+
+  // Only enable queries if user is available (allow super admins without tenantId)
+  const {
+    data: payrollConfigs = [],
+    isLoading: configsLoading,
+    isError: configsError,
+  } = useQuery<any[]>({
+    queryKey: ["/api/payroll/configs", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/configs`).then(res => res.json()),
+    enabled: !!user && (!!tenantId || user.isSuperAdmin || user.role === 'super_admin'),
   });
 
-  // Fetch employees for dropdown
-  const { data: employees = [], isLoading: employeesLoading } = useQuery<any[]>({
-    queryKey: ["/api/employees"],
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    isError: employeesError,
+  } = useQuery<any[]>({
+    queryKey: ["/api/employees", tenantId],
+    queryFn: () => apiRequest("GET", `/api/employees`).then(res => res.json()),
+    enabled: !!user && (!!tenantId || user.isSuperAdmin || user.role === 'super_admin'),
   });
+
+  // Debug logging
+  console.log('ProcessPayrollForm - Payroll Configs:', payrollConfigs);
+  console.log('ProcessPayrollForm - Employees:', employees);
+  console.log('ProcessPayrollForm - Configs Loading:', configsLoading);
+  console.log('ProcessPayrollForm - Employees Loading:', employeesLoading);
+  console.log('ProcessPayrollForm - Tenant ID:', tenantId);
 
   const form = useForm<ProcessPayrollFormData>({
     resolver: zodResolver(processPayrollSchema),
@@ -70,43 +106,68 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
 
   const processPayrollMutation = useMutation({
     mutationFn: async (data: ProcessPayrollFormData) => {
+      // Validate required data
       if (!payrollCalculation) {
         throw new Error("Please calculate payroll first");
       }
+      if (!selectedEmployee || !selectedEmployee.payrollConfig) {
+        throw new Error("No employee or payroll configuration selected.");
+      }
+
+      // Ensure all numeric fields are properly converted to numbers
+      const breakdown = payrollCalculation.breakdown || {};
+      const allowances = breakdown.allowances ? Object.fromEntries(Object.entries(breakdown.allowances).map(([k, v]) => [k, Number(v)])) : {};
+      const deductions = breakdown.deductions ? Object.fromEntries(Object.entries(breakdown.deductions).map(([k, v]) => [k, Number(v)])) : {};
 
       const payload = {
-        employeeId: data.employeeId,
-        payrollConfigId: selectedEmployee.payrollConfig.id,
+        employeeId: Number(data.employeeId),
+        payrollConfigId: Number(selectedEmployee.payrollConfig.id),
         payPeriodStart: data.payPeriodStart,
         payPeriodEnd: data.payPeriodEnd,
-        baseSalary: payrollCalculation.breakdown.baseSalary,
-        overtimeHours: data.overtimeHours,
-        overtimePay: payrollCalculation.breakdown.overtimePay,
-        allowances: payrollCalculation.breakdown.allowances,
-        deductions: payrollCalculation.breakdown.deductions,
-        grossPay: payrollCalculation.grossPay,
-        taxDeduction: payrollCalculation.monthlyTaxDeduction,
-        cpfDeduction: payrollCalculation.employeeCpf,
-        netPay: payrollCalculation.netPay,
+        baseSalary: Number(breakdown.baseSalary || 0),
+        overtimeHours: Number(data.overtimeHours || 0),
+        overtimePay: Number(breakdown.overtimePay || 0),
+        allowances,
+        deductions,
+        grossPay: Number(payrollCalculation.grossPay || 0),
+        taxDeduction: 0,
+        cpfDeduction: Number(payrollCalculation.employeeCpf || 0),
+        netPay: Number(payrollCalculation.netPay || 0),
         status: 'pending',
-        notes: data.notes,
+        notes: data.notes || '',
       };
 
-      const res = await apiRequest("POST", "/api/payroll-records", payload);
+      console.log('Process Payroll Payload:', payload);
+      console.log('Payload types:', Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, typeof v])));
+
+      const res = await apiRequest("POST", "/api/payroll/records", payload);
+      
+      if (!res.ok) {
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          const text = await res.text();
+          throw new Error("Server error: " + text.slice(0, 200));
+        }
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Failed to process payroll");
+      }
+      
       return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/payroll-records"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
       toast({
-        title: "Success",
-        description: "Payroll processed successfully and sent for approval",
+        title: "Payroll Processed Successfully - Ready for Export",
+        description: "Payroll record has been saved and is ready for export.",
       });
       onSuccess();
     },
     onError: (error: Error) => {
+      console.error('Process payroll error:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Failed to process payroll",
         variant: "destructive",
       });
     },
@@ -133,46 +194,49 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
       const payrollConfig = payrollConfigs.find((config: any) => config.employeeId === formData.employeeId && config.isActive);
       
       if (!employee || !payrollConfig) {
-        throw new Error("Employee or payroll configuration not found");
+        toast({
+          title: "Error",
+          description: "Employee or payroll configuration not found",
+          variant: "destructive",
+        });
+        setPayrollCalculation(null);
+        setIsCalculating(false);
+        return;
       }
 
       setSelectedEmployee({ ...employee, payrollConfig });
 
-      // Calculate age from date of birth for CPF calculations
-      const today = new Date();
-      const birthDate = new Date(employee.dateOfBirth || '1990-01-01');
-      const age = today.getFullYear() - birthDate.getFullYear();
-      
-      // Determine citizenship status from visa type or default to citizen
-      const citizenshipStatus = employee.visaType === 'employment_pass' || employee.visaType === 'work_permit' || employee.visaType === 's_pass' 
-        ? 'foreigner' 
-        : employee.visaType === 'pr' 
-        ? 'pr' 
-        : 'citizen';
+      const age = calculateAgeFromDob(employee.dateOfBirth);
+      const { residencyType, prYear } = mapEmployeeResidency(employee);
 
       const calculationInput = {
-        grossSalary: parseFloat(payrollConfig.baseSalary),
+        grossSalary: Number(payrollConfig.baseSalary),
         age,
-        citizenshipStatus,
-        cpfStatus: 'full',
+        citizenshipStatus: residencyType,
+        prYear: residencyType === "pr" ? prYear : null,
         monthlyAllowances: payrollConfig.allowances || {},
         monthlyDeductions: payrollConfig.deductions || {},
-        overtimeHours: formData.overtimeHours,
-        overtimeRate: parseFloat(payrollConfig.overtimeRate || '0'),
+        overtimeHours: Number(formData.overtimeHours) || 0,
+        overtimeRate: Number(payrollConfig.overtimeRate) || 0,
       };
 
+      console.log('Calculating payroll with input:', calculationInput);
+
       const res = await apiRequest("POST", "/api/payroll/calculate", calculationInput);
-      const calculation = await res.json();
-      setPayrollCalculation(calculation);
       
-      toast({
-        title: "Calculation Complete",
-        description: "Singapore payroll calculation completed successfully",
-      });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Backend calculation error');
+      }
+      
+      const calculation = await res.json();
+      console.log('Payroll calculation result:', calculation);
+      setPayrollCalculation(calculation);
     } catch (error: any) {
+      console.error('Calculation error:', error);
       toast({
         title: "Calculation Error",
-        description: error.message,
+        description: error.message || "Unable to calculate payroll",
         variant: "destructive",
       });
       setPayrollCalculation(null);
@@ -182,15 +246,48 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-SG", {
-      style: "currency",
-      currency: "SGD",
+    return new Intl.NumberFormat('en-SG', {
+      style: 'currency',
+      currency: 'SGD',
     }).format(amount);
   };
 
+  const watchedEmployeeId = form.watch("employeeId");
+  const watchedOvertimeHours = form.watch("overtimeHours");
+
+  useEffect(() => {
+    if (!watchedEmployeeId) {
+      setPayrollCalculation(null);
+      setSelectedEmployee(null);
+      return;
+    }
+
+    if (!employees.length || !payrollConfigs.length) return;
+
+    void calculatePayroll();
+  }, [watchedEmployeeId, watchedOvertimeHours, employees, payrollConfigs]);
+
   const onSubmit = (data: ProcessPayrollFormData) => {
+    console.log('Submitting process payroll form:', data);
     processPayrollMutation.mutate(data);
   };
+
+  // Show loading states
+  if (employeesLoading || configsLoading) {
+    return <div>Loading payroll data...</div>;
+  }
+
+  if (employeesError || configsError) {
+    return <div className="text-red-600">Error loading payroll data. Please try again.</div>;
+  }
+
+  if (employees.length === 0) {
+    return <div className="text-yellow-600">No employees found. Please add employees first.</div>;
+  }
+
+  if (payrollConfigs.length === 0) {
+    return <div className="text-yellow-600">No payroll configurations found. Please create payroll configurations first.</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -198,19 +295,8 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
         <div>
           <h2 className="text-2xl font-bold">Process Monthly Payroll</h2>
           <p className="text-muted-foreground">
-            Calculate and process employee payroll with Singapore CPF and tax compliance
+            Calculate and process employee payroll with Singapore CPF compliance
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={calculatePayroll}
-            disabled={isCalculating || !form.watch("employeeId")}
-          >
-            <Calculator className="h-4 w-4 mr-2" />
-            {isCalculating ? "Calculating..." : "Calculate Payroll"}
-          </Button>
         </div>
       </div>
 
@@ -243,16 +329,26 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {payrollConfigs
+                            {employeesLoading ? (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">Loading employees...</div>
+                            ) : employeesError ? (
+                              <div className="px-2 py-1.5 text-sm text-red-600">Error loading employees.</div>
+                            ) : employees.length === 0 ? (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">No employees available.</div>
+                            ) : (
+                              payrollConfigs
                               .filter((config: any) => config.isActive)
                               .map((config: any) => {
                                 const employee = employees.find((emp: any) => emp.id === config.employeeId);
+                                  // Use a truly unique key for each SelectItem
+                                  const uniqueKey = employee ? `${config.id}-${employee.id}-${employee.email || employee.name}` : `${config.id}-${config.employeeId}`;
                                 return employee ? (
-                                  <SelectItem key={config.employeeId} value={config.employeeId.toString()}>
+                                    <SelectItem key={uniqueKey} value={config.employeeId.toString()}>
                                     {employee.name} - {employee.designation} ({formatCurrency(parseFloat(config.baseSalary))}/month)
                                   </SelectItem>
                                 ) : null;
-                              })}
+                                })
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -268,7 +364,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
                         <FormItem>
                           <FormLabel>Pay Period Start *</FormLabel>
                           <FormControl>
-                            <Input type="date" {...field} />
+                            <StringDatePicker value={field.value || ""} onChange={field.onChange} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -282,7 +378,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
                         <FormItem>
                           <FormLabel>Pay Period End *</FormLabel>
                           <FormControl>
-                            <Input type="date" {...field} />
+                            <StringDatePicker value={field.value || ""} onChange={field.onChange} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -305,14 +401,13 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
                       <FormItem>
                         <FormLabel>Overtime Hours (Max 72 hours/month per MOM)</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="number" 
+                          <NumberInput 
                             step="0.5" 
                             max="72"
                             placeholder="0" 
                             {...field}
                             onChange={(e) => {
-                              field.onChange(e);
+                              field.onChange(parseFloat(e.target.value) || 0);
                               setPayrollCalculation(null); // Reset calculation when overtime changes
                             }}
                           />
@@ -342,9 +437,9 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
               </Card>
 
               <div className="flex justify-end gap-4">
-                <Button type="button" variant="outline" onClick={onCancel}>
-                  Cancel
-                </Button>
+              <div className="flex gap-2">
+      
+        </div>
                 <Button 
                   type="submit" 
                   disabled={processPayrollMutation.isPending || !payrollCalculation}
@@ -355,14 +450,17 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
                     : "Process Payroll"
                   }
                 </Button>
+                <Button type="button" variant="outline" onClick={onCancel}>
+                  Cancel
+                </Button>
               </div>
             </form>
           </Form>
         </div>
 
-        {/* Payroll Calculation Preview */}
-        <div className="lg:col-span-1">
-          <Card className="sticky top-4">
+        {/* Payroll calculation panels — existing summary + Singapore CPF/tax */}
+        <div className="lg:col-span-1 space-y-4">
+          {/* <Card className="sticky top-4">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 {payrollCalculation ? (
@@ -370,110 +468,117 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
                 ) : (
                   <AlertTriangle className="h-5 w-5 text-yellow-600" />
                 )}
-                Singapore Payroll Calculation
+                Payroll Summary
               </CardTitle>
             </CardHeader>
             <CardContent>
               {payrollCalculation ? (
                 <div className="space-y-4">
                   {selectedEmployee && (
-                    <div className="border-b pb-3">
-                      <h4 className="font-medium">{selectedEmployee.name}</h4>
-                      <p className="text-sm text-muted-foreground">{selectedEmployee.designation}</p>
-                      <Badge variant="outline" className="mt-1">
-                        {selectedEmployee.payrollConfig.payrollPeriod}
-                      </Badge>
+                    <div className="p-3 bg-muted/50 rounded-lg text-sm space-y-1">
+                      <div><strong>Name:</strong> {selectedEmployee.name}</div>
+                      <div><strong>Employee ID:</strong> {selectedEmployee.employeeId}</div>
+                      <div><strong>Department:</strong> {selectedEmployee.department}</div>
+                      <div><strong>Designation:</strong> {selectedEmployee.designation}</div>
                     </div>
                   )}
-
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-sm">Earnings</h4>
-                      <div className="text-sm space-y-1">
-                        <div className="flex justify-between">
-                          <span>Base Salary:</span>
-                          <span>{formatCurrency(payrollCalculation.breakdown.baseSalary)}</span>
-                        </div>
-                        {payrollCalculation.breakdown.overtimePay > 0 && (
-                          <div className="flex justify-between">
-                            <span>Overtime Pay:</span>
-                            <span>{formatCurrency(payrollCalculation.breakdown.overtimePay)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between">
-                          <span>Allowances:</span>
-                          <span>+{formatCurrency(payrollCalculation.allowancesTotal)}</span>
-                        </div>
-                        <div className="flex justify-between font-medium">
-                          <span>Gross Pay:</span>
-                          <span>{formatCurrency(payrollCalculation.grossPay)}</span>
-                        </div>
-                      </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span>Monthly Salary:</span>
+                      <span className="font-medium">{formatCurrency(payrollCalculation.breakdown?.baseSalary || 0)}</span>
                     </div>
-
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-sm">Deductions</h4>
-                      <div className="text-sm space-y-1">
-                        <div className="flex justify-between">
-                          <span>Employee CPF:</span>
-                          <span className="text-red-600">-{formatCurrency(payrollCalculation.employeeCpf)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Income Tax:</span>
-                          <span className="text-red-600">-{formatCurrency(payrollCalculation.monthlyTaxDeduction)}</span>
-                        </div>
-                        {payrollCalculation.otherDeductions > 0 && (
-                          <div className="flex justify-between">
-                            <span>Other Deductions:</span>
-                            <span className="text-red-600">-{formatCurrency(payrollCalculation.otherDeductions)}</span>
-                          </div>
-                        )}
-                      </div>
+                    <div className="flex justify-between">
+                      <span>Overtime Pay:</span>
+                      <span className="font-medium">{formatCurrency(payrollCalculation.breakdown?.overtimePay || 0)}</span>
                     </div>
-
-                    <hr />
-                    
-                    <div className="flex justify-between font-bold text-lg">
-                      <span>Net Pay:</span>
-                      <span className="text-green-600">{formatCurrency(payrollCalculation.netPay)}</span>
+                    <div className="flex justify-between">
+                      <span>Allowances:</span>
+                      <span className="font-medium">{formatCurrency(payrollCalculation.allowancesTotal || 0)}</span>
                     </div>
-
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-sm">CPF Breakdown</h4>
-                      <div className="text-xs space-y-1">
-                        <div className="flex justify-between">
-                          <span>Ordinary Account:</span>
-                          <span>{formatCurrency(payrollCalculation.cpfOrdinaryAccount)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Special Account:</span>
-                          <span>{formatCurrency(payrollCalculation.cpfSpecialAccount)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Medisave:</span>
-                          <span>{formatCurrency(payrollCalculation.cpfMediSave)}</span>
-                        </div>
-                        <div className="flex justify-between font-medium">
-                          <span>Employer CPF:</span>
-                          <span>{formatCurrency(payrollCalculation.employerCpf)}</span>
-                        </div>
-                      </div>
+                    <div className="flex justify-between">
+                      <span>Deductions:</span>
+                      <span className="font-medium text-red-600">-{formatCurrency(payrollCalculation.deductionsTotal || 0)}</span>
                     </div>
-
-                    {payrollCalculation.breakdown.taxBracket && (
-                      <div className="space-y-2">
-                        <h4 className="font-medium text-sm">Tax Information</h4>
-                        <Badge variant="outline" className="text-xs">
-                          {payrollCalculation.breakdown.taxBracket}
-                        </Badge>
-                      </div>
-                    )}
+                    <div className="border-t pt-2 flex justify-between font-semibold">
+                      <span>Annual Income:</span>
+                      <span>{formatCurrency(payrollCalculation.annualTaxableIncome || payrollCalculation.annualSalary || 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-red-600">
+                      <span>Annual Tax:</span>
+                      <span>-{formatCurrency(payrollCalculation.annualTax || 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-red-600">
+                      <span>Monthly Tax:</span>
+                      <span>-{formatCurrency(payrollCalculation.monthlyTaxDeduction || 0)}</span>
+                    </div>
+                    <div className="border-t pt-2 flex justify-between font-bold text-lg">
+                      <span>Net Salary:</span>
+                      <span className="text-green-600">{formatCurrency(payrollCalculation.netPay || 0)}</span>
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="text-center text-muted-foreground">
-                  <Calculator className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Select an employee and click "Calculate Payroll" to see Singapore payroll breakdown</p>
+                <div className="text-center text-muted-foreground py-6">
+                  <Calculator className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Select an employee and calculate payroll to see the summary.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card> */}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Singapore Payroll Calculation</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {payrollCalculation ? (
+                <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span>Gross Salary</span>
+                        <span className="font-medium">{formatCurrency(payrollCalculation.grossPay || 0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Allowance</span>
+                        <span>{formatCurrency(payrollCalculation.allowancesTotal || 0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Deduction</span>
+                        <span className="text-red-600">-{formatCurrency(payrollCalculation.deductionsTotal || 0)}</span>
+                      </div>
+                      {/* Tax reference (not displayed / not deducted):
+                      <div className="flex justify-between">
+                        <span>Tax ({payrollCalculation.taxRatePercent?.toFixed(2) ?? 0}%)</span>
+                        <span className="text-red-600">-{formatCurrency(payrollCalculation.monthlyTaxDeduction || 0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Tax Amount</span>
+                        <span className="text-red-600">-{formatCurrency(payrollCalculation.monthlyTax || 0)}</span>
+                      </div>
+                      */}
+                      <div className="flex justify-between">
+                        <span>CPF Rate (Employee)</span>
+                        <span>{payrollCalculation.employeeCpfRate ?? 0}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>CPF Amount (Employee)</span>
+                        <span className="text-red-600">-{formatCurrency(payrollCalculation.employeeCpf || 0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>CPF Rate (Employer)</span>
+                        <span>{payrollCalculation.employerCpfRate ?? 0}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>CPF Amount (Employer)</span>
+                        <span>{formatCurrency(payrollCalculation.employerCpf || 0)}</span>
+                      </div>
+                      <div className="border-t pt-2 flex justify-between font-bold text-lg">
+                        <span>Net Salary</span>
+                        <span className="text-green-600">{formatCurrency(payrollCalculation.netPay || 0)}</span>
+                      </div>
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground py-6 text-sm">
+                  Calculate payroll to see Singapore CPF breakdown.
                 </div>
               )}
             </CardContent>

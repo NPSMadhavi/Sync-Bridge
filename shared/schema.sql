@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   role user_role NOT NULL DEFAULT 'employee',
   password TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  tenant_id INTEGER,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -139,10 +142,27 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create session table for PostgreSQL session store
+-- Create session table if it doesn't exist
 CREATE TABLE IF NOT EXISTS "session" (
   "sid" varchar NOT NULL COLLATE "default",
   "sess" json NOT NULL,
   "expire" timestamp(6) NOT NULL,
   CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
+);
+
+-- Create index on expire column
+CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+
+CREATE TABLE IF NOT EXISTS invoice_designs (
+  id SERIAL PRIMARY KEY,
+  invoice_id INTEGER NOT NULL UNIQUE REFERENCES invoices(id),
+  primary_color VARCHAR(32),
+  font_family VARCHAR(64),
+  font_size VARCHAR(16),
+  logo_url TEXT,
+  header_note TEXT,
+  footer_note TEXT,
+  template_style VARCHAR(32),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );

@@ -1,50 +1,30 @@
-import * as React from "react";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+/**
+ * SimpleDatePicker — Date objects with SyncBridge calendar UI.
+ */
+import { SyncBridgeDateObjectPicker, toYmd } from "@/components/ui/sync-bridge-date-picker";
+import type { SyncBridgeDateObjectPickerProps } from "@/components/ui/sync-bridge-date-picker";
 
-export interface SimpleDatePickerProps {
+export interface SimpleDatePickerProps extends Omit<SyncBridgeDateObjectPickerProps, "value" | "onChange"> {
   date?: Date | null;
   setDate: (date?: Date | null) => void;
   placeholder?: string;
-  className?: string;
-  disabled?: boolean;
-  min?: string; // YYYY-MM-DD format
-  max?: string; // YYYY-MM-DD format
 }
 
-export function SimpleDatePicker({ 
-  date, 
-  setDate, 
-  placeholder = "Select date",
-  className,
-  disabled,
-  min,
-  max
+export function SimpleDatePicker({
+  date,
+  setDate,
+  placeholder,
+  ...props
 }: SimpleDatePickerProps) {
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    if (value) {
-      setDate(new Date(value));
-    } else {
-      setDate(undefined);
-    }
-  };
-
-  const formatDateForInput = (date?: Date | null) => {
-    if (!date) return "";
-    return date.toISOString().split('T')[0];
-  };
-
   return (
-    <Input
-      type="date"
-      value={formatDateForInput(date || undefined)}
-      onChange={handleDateChange}
+    <SyncBridgeDateObjectPicker
+      value={date}
+      onChange={(d) => setDate(d ?? null)}
       placeholder={placeholder}
-      className={cn("w-full", className)}
-      disabled={disabled}
-      min={min}
-      max={max}
+      mode="date"
+      {...props}
     />
   );
 }
+
+export { toYmd };

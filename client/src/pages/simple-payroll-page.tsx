@@ -30,59 +30,45 @@ import {
   Edit,
   Eye,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function PayrollPage() {
   const [showConfigForm, setShowConfigForm] = useState(false);
   const [showRecordForm, setShowRecordForm] = useState(false);
-  // Mock data for demonstration
-  const mockConfigs = [
-    {
-      id: 1,
-      employeeName: "John Doe",
-      employeeEmail: "john@company.com",
-      department: "Engineering",
-      designation: "Senior Developer",
-      baseSalary: "8000.00",
-      payrollPeriod: "monthly" as const,
-      taxRate: "10.00",
-      cpfRate: "20.00",
-      isActive: true,
-    },
-    {
-      id: 2,
-      employeeName: "Jane Smith",
-      employeeEmail: "jane@company.com",
-      department: "HR",
-      designation: "HR Manager",
-      baseSalary: "7500.00",
-      payrollPeriod: "monthly" as const,
-      taxRate: "10.00",
-      cpfRate: "20.00",
-      isActive: true,
-    },
-  ];
 
-  const mockRecords = [
-    {
-      id: 1,
-      employeeName: "John Doe",
-      designation: "Senior Developer",
-      payPeriodStart: "2025-01-01",
-      payPeriodEnd: "2025-01-31",
-      grossPay: "8000.00",
-      taxDeduction: "800.00",
-      cpfDeduction: "1600.00",
-      netPay: "5600.00",
-      status: "approved" as const,
-    },
-  ];
+  // Get user and tenant context
+  const { user, isLoading: userLoading, error: userError } = useAuth();
+  const tenantId = user?.tenantId;
 
-  const mockSummary = {
-    totalEmployees: 2,
-    totalGrossPay: "15500.00",
-    totalNetPay: "11100.00",
-    pendingRecords: 0,
-  };
+  // Fetch payroll configurations
+  const { data: payrollConfigs = [], isLoading: configsLoading, error: configsError } = useQuery<any[]>({
+    queryKey: ["/api/payroll/configs", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/configs`).then(res => res.json()),
+    enabled: !!user && !!tenantId,
+  });
+
+  // Fetch payroll records
+  const { data: payrollRecords = [], isLoading: recordsLoading, error: recordsError } = useQuery<any[]>({
+    queryKey: ["/api/payroll/records", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/records`).then(res => res.json()),
+    enabled: !!user && !!tenantId,
+  });
+
+  // Fetch payroll summary
+  const { data: payrollSummary, isLoading: summaryLoading, error: summaryError } = useQuery<any>({
+    queryKey: ["/api/payroll/summary", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/summary`).then(res => res.json()),
+    enabled: !!user && !!tenantId,
+  });
+
+  // Show loading or error state for user context
+  if (userLoading) {
+    return <div>Loading user...</div>;
+  }
+  if (userError || !user || !tenantId) {
+    return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
+  }
 
   const formatCurrency = (amount: string | number) => {
     const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -101,6 +87,30 @@ export default function PayrollPage() {
     return periods[period as keyof typeof periods] || period;
   };
 
+  const formatCpfRate = (cpfRate: string | number, nationality?: string) => {
+    console.log("formatCpfRate called with:", cpfRate, nationality);
+    if (!nationality) {
+      const rate = typeof cpfRate === 'string' ? parseFloat(cpfRate) : cpfRate;
+      return `${rate.toFixed(2)}%`;
+    }
+
+    const lowerNationality = nationality.toLowerCase();
+
+    // Foreign workers don't contribute to CPF
+    if (
+      lowerNationality === 'foreigner' ||
+      lowerNationality.includes('foreign') ||
+      lowerNationality.includes('ep') ||
+      lowerNationality.includes('s pass') ||
+      lowerNationality.includes('work permit')
+    ) {
+      return "-";
+    }
+
+    const rate = typeof cpfRate === 'string' ? parseFloat(cpfRate) : cpfRate;
+    return `${rate.toFixed(2)}%`;
+  };
+
   const getStatusBadge = (status: string) => {
     const variants = {
       draft: { variant: "secondary" as const, icon: Clock, label: "Draft" },
@@ -108,10 +118,10 @@ export default function PayrollPage() {
       approved: { variant: "default" as const, icon: CheckCircle, label: "Approved" },
       paid: { variant: "default" as const, icon: CheckCircle, label: "Paid" },
     };
-    
+
     const config = variants[status as keyof typeof variants] || variants.draft;
     const Icon = config.icon;
-    
+
     return (
       <Badge variant={config.variant} className="flex items-center gap-1">
         <Icon className="h-3 w-3" />
@@ -155,7 +165,9 @@ export default function PayrollPage() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{mockSummary.totalEmployees}</div>
+            <div className="text-2xl font-bold">
+              {summaryLoading ? "..." : payrollSummary?.totalEmployees || 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               Active payroll configurations
             </p>
@@ -168,7 +180,9 @@ export default function PayrollPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(mockSummary.totalGrossPay)}</div>
+            <div className="text-2xl font-bold">
+              {summaryLoading ? "..." : formatCurrency(payrollSummary?.totalGrossPay || 0)}
+            </div>
             <p className="text-xs text-muted-foreground">
               Before deductions
             </p>
@@ -181,7 +195,9 @@ export default function PayrollPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(mockSummary.totalNetPay)}</div>
+            <div className="text-2xl font-bold">
+              {summaryLoading ? "..." : formatCurrency(payrollSummary?.totalNetPay || 0)}
+            </div>
             <p className="text-xs text-muted-foreground">
               After deductions
             </p>
@@ -194,7 +210,9 @@ export default function PayrollPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{mockSummary.pendingRecords}</div>
+            <div className="text-2xl font-bold">
+              {summaryLoading ? "..." : payrollSummary?.pendingRecords || 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               Awaiting approval
             </p>
@@ -208,56 +226,84 @@ export default function PayrollPage() {
           <CardHeader>
             <CardTitle>Employee Payroll Configurations</CardTitle>
           </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Employee</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Base Salary</TableHead>
+                  <TableHead>Period</TableHead>
+                  <TableHead>Tax Rate</TableHead>
+                  <TableHead>CPF Rate</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {configsLoading ? (
                   <TableRow>
-                    <TableHead>Employee</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Base Salary</TableHead>
-                    <TableHead>Period</TableHead>
-                    <TableHead>Tax Rate</TableHead>
-                    <TableHead>CPF Rate</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableCell colSpan={8} className="text-center py-8">
+                      Loading payroll configurations...
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {mockConfigs.map((config) => (
-                    <TableRow key={config.id}>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{config.employeeName}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {config.designation}
+                ) : configsError ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-red-600">
+                      Error loading payroll configurations
+                    </TableCell>
+                  </TableRow>
+                ) : payrollConfigs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      No payroll configurations found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  payrollConfigs.map((config: any) => {
+                    console.log("Row nationality/cpfRate:", config.nationality, config.cpfRate);
+                    return (
+                      <TableRow key={config.id}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{config.employeeName}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {config.designation}
+                            </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{config.department}</TableCell>
-                      <TableCell>{formatCurrency(config.baseSalary)}</TableCell>
-                      <TableCell>{formatPeriod(config.payrollPeriod)}</TableCell>
-                      <TableCell>{config.taxRate}%</TableCell>
-                      <TableCell>{config.cpfRate}%</TableCell>
-                      <TableCell>
-                        <Badge variant={config.isActive ? "default" : "secondary"}>
-                          {config.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => alert("Edit form coming soon!")}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        </TableCell>
+                        <TableCell>{config.department}</TableCell>
+                        <TableCell>{formatCurrency(config.baseSalary)}</TableCell>
+                        <TableCell>{formatPeriod(config.payrollPeriod)}</TableCell>
+                        <TableCell>{config.taxRate}%</TableCell>
+                        <TableCell>
+                          {config.nationality === 'foreigner'
+                            ? '-'
+                            : formatCpfRate(config.cpfRate, config.nationality)}
+                        </TableCell>
+
+                        <TableCell>
+                          <Badge variant={config.isActive ? "default" : "secondary"}>
+                            {config.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => alert("Edit form coming soon!")}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
 
@@ -266,20 +312,39 @@ export default function PayrollPage() {
             <CardTitle>Recent Payroll Records</CardTitle>
           </CardHeader>
           <CardContent>
-              <Table>
-                <TableHeader>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Employee</TableHead>
+                  <TableHead>Pay Period</TableHead>
+                  <TableHead>Gross Pay</TableHead>
+                  <TableHead>Deductions</TableHead>
+                  <TableHead>Net Pay</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recordsLoading ? (
                   <TableRow>
-                    <TableHead>Employee</TableHead>
-                    <TableHead>Pay Period</TableHead>
-                    <TableHead>Gross Pay</TableHead>
-                    <TableHead>Deductions</TableHead>
-                    <TableHead>Net Pay</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      Loading payroll records...
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {mockRecords.map((record) => (
+                ) : recordsError ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-red-600">
+                      Error loading payroll records
+                    </TableCell>
+                  </TableRow>
+                ) : payrollRecords.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      No payroll records found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  payrollRecords.map((record: any) => (
                     <TableRow key={record.id}>
                       <TableCell>
                         <div>
@@ -325,9 +390,10 @@ export default function PayrollPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       </div>

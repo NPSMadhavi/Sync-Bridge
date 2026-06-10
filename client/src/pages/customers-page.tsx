@@ -1,17 +1,21 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Edit, Trash2, Building2, Mail, Phone, MapPin } from "lucide-react";
+import React, { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Plus, Search, Edit, Trash2, Eye, Mail, Phone, MapPin, Globe, ArrowLeft } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import Dashboard from "@/components/layout/Dashboard";
+import { TableRowActions } from "@/components/ui/table-row-actions";
+import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,264 +26,719 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
-import type { Customer } from "@shared/schema";
-import CustomerForm from "@/components/forms/CustomerForm";
-import Sidebar from "@/components/layout/Sidebar";
+
+interface Customer {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+  taxId: string;
+  isActive: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CustomerFormData {
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+  taxId: string;
+  isActive: boolean;
+  notes: string;
+}
 
 export default function CustomersPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-
-  const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerToDeleteId, setCustomerToDeleteId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [formData, setFormData] = useState<CustomerFormData>({
+    name: '',
+    email: '',
+    phone: '',
+    company: '',
+    address: '',
+    city: '',
+    state: '',
+    zipCode: '',
+    country: '',
+    taxId: '',
+    isActive: true,
+    notes: ''
   });
 
-  const deleteCustomerMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const response = await fetch(`/api/customers/${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        throw new Error("Failed to delete customer");
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+
+  // Fetch customers based on user role
+  const { data: customers = [], isLoading } = useQuery({
+    queryKey: user?.role === 'vendor' ? ['vendor-customers', user?.email] : ['customers'],
+    queryFn: async () => {
+      if (user?.role === 'vendor') {
+        // For vendors, fetch vendor customers
+        const response = await apiRequest('GET', `/api/vendor/customers?vendorEmail=${user.email}`);
+        const vendorCustomers = await response.json();
+        // Transform vendor customers to match Customer interface
+        return vendorCustomers.map((vc: any) => ({
+          id: vc.id,
+          name: vc.customerName,
+          email: vc.customerEmail,
+          phone: vc.customerPhone,
+          company: vc.customerName,
+          address: vc.customerAddress,
+          city: '',
+          state: '',
+          zipCode: '',
+          country: '',
+          taxId: '',
+          isActive: true,
+          notes: '',
+          created_at: vc.createdAt,
+          updated_at: vc.updatedAt || vc.createdAt,
+        }));
+      } else {
+        // For regular users, fetch tenant customers
+        const response = await apiRequest('GET', '/api/customers');
+        return response.json();
+      }
+    },
+    enabled: !!user,
+  });
+
+  // Add customer mutation
+  const addCustomerMutation = useMutation({
+    mutationFn: async (data: CustomerFormData) => {
+      if (user?.role === 'vendor') {
+        const vendorCustomerData = {
+          vendorEmail: user.email,
+          customerName: data.name,
+          customerEmail: data.email,
+          customerPhone: data.phone,
+          customerAddress: data.address,
+        };
+        const response = await apiRequest('POST', '/api/vendor/customers', vendorCustomerData);
+        return response.json();
+      } else {
+        // Strip tenantId — server sets it from middleware
+        const { ...payload } = data;
+        const response = await apiRequest('POST', '/api/customers', payload);
+        return response.json();
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      if (user?.role === 'vendor') {
+        queryClient.invalidateQueries({ queryKey: ['vendor-customers', user?.email] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['customers'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
+      }
+      setIsAddDialogOpen(false);
+      resetForm();
       toast({
         title: "Success",
-        description: "Customer deleted successfully.",
+        description: "Customer added successfully",
       });
-      setDeletingCustomer(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete customer.",
+        description: error.message || "Failed to add customer",
         variant: "destructive",
       });
-    },
+    }
   });
 
-  const filteredCustomers = customers.filter((customer) =>
-    customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.company?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Update customer mutation
+  const updateCustomerMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: CustomerFormData }) => {
+      if (user?.role === 'vendor') {
+        const vendorCustomerData = {
+          customerName: data.name,
+          customerEmail: data.email,
+          customerPhone: data.phone,
+          customerAddress: data.address,
+        };
+        const response = await apiRequest('PUT', `/api/vendor/customers/${id}`, vendorCustomerData);
+        return response.json();
+      } else {
+        const response = await apiRequest('PUT', `/api/customers/${id}`, data);
+        return response.json();
+      }
+    },
+    onSuccess: () => {
+      if (user?.role === 'vendor') {
+        queryClient.invalidateQueries({ queryKey: ['vendor-customers', user?.email] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['customers'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
+      }
+      setIsEditDialogOpen(false);
+      setSelectedCustomer(null);
+      resetForm();
+      toast({
+        title: "Success",
+        description: "Customer updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update customer",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Delete customer mutation
+  const deleteCustomerMutation = useMutation({
+    mutationFn: async (id: string) => {
+      if (user?.role === 'vendor') {
+        // For vendors, delete vendor customer
+        await apiRequest('DELETE', `/api/vendor/customers/${id}`);
+      } else {
+        // For regular users, delete tenant customer
+        await apiRequest('DELETE', `/api/customers/${id}`);
+      }
+    },
+    onSuccess: () => {
+      if (user?.role === 'vendor') {
+        queryClient.invalidateQueries({ queryKey: ['vendor-customers', user?.email] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['customers'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
+      }
+      setIsDeleteDialogOpen(false);
+      setCustomerToDeleteId(null);
+      toast({
+        title: "Success",
+        description: "Customer deleted successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete customer",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      email: '',
+      phone: '',
+      company: '',
+      address: '',
+      city: '',
+      state: '',
+      zipCode: '',
+      country: '',
+      taxId: '',
+      isActive: true,
+      notes: ''
+    });
+  };
 
   const handleEdit = (customer: Customer) => {
-    setEditingCustomer(customer);
-    setShowForm(true);
+    setSelectedCustomer(customer);
+    setFormData({
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      company: customer.company,
+      address: customer.address,
+      city: customer.city,
+      state: customer.state,
+      zipCode: customer.zipCode,
+      country: customer.country,
+      taxId: customer.taxId,
+      isActive: customer.isActive,
+      notes: customer.notes
+    });
+    setIsEditDialogOpen(true);
   };
 
-  const handleDelete = (customer: Customer) => {
-    setDeletingCustomer(customer);
+  const handleDelete = (id: string) => {
+    setCustomerToDeleteId(id);
+    setIsDeleteDialogOpen(true);
   };
 
-  const handleFormSuccess = () => {
-    setShowForm(false);
-    setEditingCustomer(null);
+  const confirmDelete = () => {
+    if (customerToDeleteId) {
+      deleteCustomerMutation.mutate(customerToDeleteId);
+    }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedCustomer) {
+      updateCustomerMutation.mutate({ id: selectedCustomer.id, data: formData });
+    } else {
+      addCustomerMutation.mutate(formData);
+    }
+  };
+
+  const filteredCustomers = customers.filter((customer: Customer) =>
+    (customer.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (customer.company?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (customer.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (customer.phone?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+  );
+
+  const industries = [
+    'Technology', 'Healthcare', 'Finance', 'Manufacturing', 'Retail', 'Education',
+    'Real Estate', 'Transportation', 'Energy', 'Consulting', 'Media', 'Other'
+  ];
+
+  const countries = [
+    'United States', 'Canada', 'United Kingdom', 'Germany', 'France', 'Australia',
+    'Singapore', 'Japan', 'China', 'India', 'Brazil', 'Mexico', 'Other'
+  ];
+
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'default';
+      case 'inactive':
+        return 'secondary';
+      case 'prospect':
+        return 'outline';
+      default:
+        return 'secondary';
+    }
+  };
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
-              <p className="text-gray-600 mt-1">Manage your customer relationships and data.</p>
-            </div>
-            <Button onClick={() => { setEditingCustomer(null); setShowForm(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Customer
-            </Button>
-          </div>
+    <Dashboard>
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center gap-4">
+        
+          <h1 className="text-[32px] font-bold">Customers</h1>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="space-y-6">
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{customers.length}</div>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{customers.filter(c => c.isActive).length}</div>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Companies</CardTitle>
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{new Set(customers.map(c => c.company).filter(Boolean)).size}</div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Search */}
-            <div className="flex items-center space-x-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search customers..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
-                />
-              </div>
-            </div>
-
-            {/* Customer Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredCustomers.map((customer) => (
-                <Card key={customer.id} className="hover:shadow-md transition-shadow">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{customer.name}</CardTitle>
-                        {customer.company && (
-                          <p className="text-sm text-muted-foreground">{customer.company}</p>
-                        )}
-                      </div>
-                      <Badge variant={customer.isActive ? "default" : "secondary"}>
-                        {customer.isActive ? "Active" : "Inactive"}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className="flex items-center text-sm text-muted-foreground">
-                        <Mail className="h-4 w-4 mr-2" />
-                        {customer.email}
-                      </div>
-                      {customer.phone && (
-                        <div className="flex items-center text-sm text-muted-foreground">
-                          <Phone className="h-4 w-4 mr-2" />
-                          {customer.phone}
-                        </div>
-                      )}
-                      {customer.address && (
-                        <div className="flex items-center text-sm text-muted-foreground">
-                          <MapPin className="h-4 w-4 mr-2" />
-                          {customer.address}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex space-x-2 mt-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEdit(customer)}
-                      >
-                        <Edit className="h-4 w-4 mr-1" />
-                        Edit
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDelete(customer)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Delete
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {filteredCustomers.length === 0 && (
-              <div className="text-center py-12">
-                <Building2 className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">No customers found</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {searchTerm ? "Try adjusting your search terms." : "Get started by adding your first customer."}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
+        <Button onClick={() => {
+          resetForm();
+          setIsAddDialogOpen(true);
+        }}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Customer
+        </Button>
       </div>
 
-      {/* Forms */}
-      {showForm && (
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>
-                {editingCustomer ? "Edit Customer" : "Add New Customer"}
-              </DialogTitle>
-              <DialogDescription>
-                {editingCustomer 
-                  ? "Update the customer information below."
-                  : "Fill in the customer details below."
-                }
-              </DialogDescription>
-            </DialogHeader>
-            <CustomerForm 
-              customer={editingCustomer} 
-              onSuccess={handleFormSuccess} 
-            />
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* Add Customer Sheet */}
+      <Sheet open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <SheetContent 
+          side="right" 
+          className="p-0 flex flex-col"
+          style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          {/* Sticky Header */}
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-2xl font-bold text-gray-900">
+                Add New Customer
+              </SheetTitle>
+              <p className="text-sm text-gray-600 mt-2">
+                Add a new customer to your organization
+              </p>
+            </SheetHeader>
+          </div>
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto px-6 pb-24">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="company">Company</Label>
+                  <Input
+                    id="company"
+                    value={formData.company}
+                    onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Textarea
+                    id="address"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="city">City</Label>
+                  <Input
+                    id="city"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="state">State/Province</Label>
+                  <Input
+                    id="state"
+                    value={formData.state}
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="zipCode">Postal Code</Label>
+                  <Input
+                    id="zipCode"
+                    value={formData.zipCode}
+                    onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="country">Country</Label>
+                  <Select value={formData.country} onValueChange={(value) => setFormData({ ...formData, country: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {countries.map((country) => (
+                        <SelectItem key={country} value={country}>{country}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="taxId">Tax ID</Label>
+                  <Input
+                    id="taxId"
+                    value={formData.taxId}
+                    onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="isActive">Status</Label>
+                  <Select value={formData.isActive ? 'active' : 'inactive'} onValueChange={(value) => setFormData({ ...formData, isActive: value === 'active' })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea
+                  id="notes"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  rows={3}
+                />
+              </div>
+              <div className="flex justify-end space-x-2">
+                <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={addCustomerMutation.isPending}>
+                  {addCustomerMutation.isPending ? 'Adding...' : 'Add Customer'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>Customer Management</CardTitle>
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search customers..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8 w-64"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="text-center py-8">Loading customers...</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredCustomers.map((customer: Customer) => (
+                  <TableRow key={customer.id}>
+                    <TableCell className="font-medium">{customer.name}</TableCell>
+                    <TableCell>
+                      <div className="font-medium">{customer.company || 'N/A'}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Mail className="h-3 w-3" />
+                        {customer.email}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {customer.phone || 'N/A'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm">
+                        {customer.city && customer.state ? `${customer.city}, ${customer.state}` : 'N/A'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusBadgeVariant(customer.isActive ? 'active' : 'inactive')}>
+                        {customer.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <TableRowActions
+                        actions={[
+                          {
+                            icon: Edit,
+                            label: "Edit",
+                            variant: "edit",
+                            onClick: () => handleEdit(customer),
+                          },
+                          {
+                            icon: Trash2,
+                            label: "Delete",
+                            variant: "delete",
+                            onClick: () => handleDelete(customer.id),
+                          },
+                        ]}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Edit Customer Sheet */}
+      <Sheet open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <SheetContent 
+          side="right" 
+          className="p-0 flex flex-col"
+          style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          {/* Sticky Header */}
+          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
+            <SheetHeader>
+              <SheetTitle className="text-2xl font-bold text-gray-900">
+                Edit Customer
+              </SheetTitle>
+              <p className="text-sm text-gray-600 mt-2">
+                Update customer information
+              </p>
+            </SheetHeader>
+          </div>
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="edit_name">Name</Label>
+                <Input
+                  id="edit_name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_email">Email</Label>
+                <Input
+                  id="edit_email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_phone">Phone</Label>
+                <Input
+                  id="edit_phone"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_company">Company</Label>
+                <Input
+                  id="edit_company"
+                  value={formData.company}
+                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="edit_address">Address</Label>
+                <Textarea
+                  id="edit_address"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_city">City</Label>
+                <Input
+                  id="edit_city"
+                  value={formData.city}
+                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_state">State/Province</Label>
+                <Input
+                  id="edit_state"
+                  value={formData.state}
+                  onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_zipCode">Postal Code</Label>
+                <Input
+                  id="edit_zipCode"
+                  value={formData.zipCode}
+                  onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_country">Country</Label>
+                <Select value={formData.country} onValueChange={(value) => setFormData({ ...formData, country: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {countries.map((country) => (
+                      <SelectItem key={country} value={country}>{country}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="edit_taxId">Tax ID</Label>
+                <Input
+                  id="edit_taxId"
+                  value={formData.taxId}
+                  onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit_isActive">Status</Label>
+                <Select value={formData.isActive ? 'active' : 'inactive'} onValueChange={(value) => setFormData({ ...formData, isActive: value === 'active' })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="edit_notes">Notes</Label>
+              <Textarea
+                id="edit_notes"
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updateCustomerMutation.isPending}>
+                {updateCustomerMutation.isPending ? 'Updating...' : 'Update Customer'}
+              </Button>
+            </div>
+          </form>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog
-        open={!!deletingCustomer}
-        onOpenChange={() => setDeletingCustomer(null)}
-      >
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure you want to delete this customer?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the customer
-              "{deletingCustomer?.name}" and all associated data.
+              This action cannot be undone. This will permanently delete the customer record.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setCustomerToDeleteId(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deletingCustomer && deleteCustomerMutation.mutate(deletingCustomer.id)}
+              onClick={confirmDelete}
               className="bg-red-600 hover:bg-red-700"
+              disabled={deleteCustomerMutation.isPending}
             >
-              Delete
+              {deleteCustomerMutation.isPending ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </Dashboard>
   );
-}
+} 

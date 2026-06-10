@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,8 +11,10 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { StringDatePicker } from "@/components/ui/string-date-picker";
 import {
   Select,
   SelectContent,
@@ -21,28 +23,86 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { insertEmployeePayrollSchema } from "@shared/schema";
-import { CalendarIcon, InfoIcon } from "lucide-react";
+import { Info, Calculator } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  calculateSingaporePayrollSnapshot,
+  calculateAgeFromDob,
+  mapEmployeeResidency,
+  mapPrStatusToYear,
+  residencyLabel,
+} from "@shared/singapore-payroll";
 
-const payrollConfigSchema = insertEmployeePayrollSchema.extend({
+const payrollConfigFormSchema = z.object({
+  employeeId: z.coerce.number().min(1, "Please select an employee"),
+  baseSalary: z.coerce.number().min(0, "Base salary must be positive"),
+  payrollPeriod: z.string().min(1, "Payroll period is required"),
+  hourlyRate: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
+    z.number().min(0).optional()
+  ),
+  overtimeRate: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
+    z.number().min(0).optional()
+  ),
   citizenshipStatus: z.enum(["citizen", "pr", "foreigner"]),
-  age: z.coerce.number().min(16, "Employee must be at least 16 years old"),
+  prStatus: z.string().optional(),
+  age: z.coerce.number().min(16).max(100),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
-  allowanceTransport: z.coerce.number().default(0),
-  allowanceMeal: z.coerce.number().default(0),
-  allowancePhone: z.coerce.number().default(0),
-  allowanceOthers: z.coerce.number().default(0),
-  deductionMedical: z.coerce.number().default(0),
-  deductionAdvance: z.coerce.number().default(0),
-  deductionOthers: z.coerce.number().default(0),
+  allowanceTransport: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
+  allowanceMeal: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
+  allowancePhone: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
+  allowanceOthers: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
+  deductionMedical: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
+  deductionAdvance: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
+  deductionOthers: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
+  taxRate: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
+    z.number().min(0).max(100).optional()
+  ),
+  isActive: z.boolean(),
+  effectiveFrom: z.string().min(1, "Effective from date is required"),
+  effectiveTo: z.string().optional(),
 });
 
-type PayrollConfigFormData = z.infer<typeof payrollConfigSchema>;
+type PayrollConfigFormData = z.infer<typeof payrollConfigFormSchema>;
+
+function mapEditDataToForm(editData: any): Partial<PayrollConfigFormData> {
+  const allowances = editData?.allowances && typeof editData.allowances === "object" ? editData.allowances : {};
+  const deductions = editData?.deductions && typeof editData.deductions === "object" ? editData.deductions : {};
+  const { residencyType } = mapEmployeeResidency({
+    nationality: editData?.nationality,
+    prStatus: editData?.prStatus,
+  });
+
+  return {
+    employeeId: editData?.employeeId ?? 0,
+    baseSalary: parseFloat(editData?.baseSalary) || ("" as any),
+    payrollPeriod: editData?.payrollPeriod || "monthly",
+    hourlyRate: editData?.hourlyRate != null ? parseFloat(editData.hourlyRate) : undefined,
+    overtimeRate: editData?.overtimeRate != null ? parseFloat(editData.overtimeRate) : undefined,
+    citizenshipStatus: residencyType,
+    prStatus: editData?.prStatus || "",
+    age: editData?.dateOfBirth ? calculateAgeFromDob(editData.dateOfBirth) : ("" as any),
+    dateOfBirth: editData?.dateOfBirth ? String(editData.dateOfBirth).split("T")[0] : "",
+    allowanceTransport: allowances.transport ?? ("" as any),
+    allowanceMeal: allowances.meal ?? ("" as any),
+    allowancePhone: allowances.phone ?? ("" as any),
+    allowanceOthers: allowances.others ?? ("" as any),
+    deductionMedical: deductions.medical ?? ("" as any),
+    deductionAdvance: deductions.advance ?? ("" as any),
+    deductionOthers: deductions.others ?? ("" as any),
+    taxRate: editData?.taxRate != null ? parseFloat(editData.taxRate) : ("" as any),
+    isActive: editData?.isActive ?? true,
+    effectiveFrom: editData?.effectiveFrom
+      ? String(editData.effectiveFrom).split("T")[0]
+      : new Date().toISOString().split("T")[0],
+    effectiveTo: editData?.effectiveTo ? String(editData.effectiveTo).split("T")[0] : "",
+  };
+}
 
 interface PayrollConfigFormProps {
   onSuccess: () => void;
@@ -52,190 +112,219 @@ interface PayrollConfigFormProps {
 
 export default function PayrollConfigForm({ onSuccess, onCancel, editData }: PayrollConfigFormProps) {
   const { toast } = useToast();
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [calculationPreview, setCalculationPreview] = useState<any>(null);
+  const { user, isLoading: userLoading, error: userError } = useAuth();
+  const tenantId = user?.tenantId;
+  const isEditMode = Boolean(editData?.id);
 
-  // Fetch employees for dropdown
-  const { data: employees = [], isLoading: employeesLoading } = useQuery<any[]>({
-    queryKey: ["/api/employees"],
+  const { data: employees = [], isLoading: employeesLoading, error: employeesError } = useQuery<any[]>({
+    queryKey: ["/api/employees", tenantId],
+    queryFn: () => apiRequest("GET", "/api/employees").then((r) => r.json()),
+    enabled: !!user,
   });
 
   const form = useForm<PayrollConfigFormData>({
-    resolver: zodResolver(payrollConfigSchema),
-    defaultValues: {
-      baseSalary: 0,
-      payrollPeriod: "monthly",
-      hourlyRate: 0,
-      overtimeRate: 0,
-      citizenshipStatus: "citizen",
-      age: 25,
-      dateOfBirth: "",
-      allowanceTransport: 0,
-      allowanceMeal: 0,
-      allowancePhone: 0,
-      allowanceOthers: 0,
-      deductionMedical: 0,
-      deductionAdvance: 0,
-      deductionOthers: 0,
-      isActive: true,
-      effectiveFrom: new Date().toISOString().split('T')[0],
-      ...editData,
+    resolver: zodResolver(payrollConfigFormSchema),
+    defaultValues: editData?.id
+      ? mapEditDataToForm(editData)
+      : {
+      employeeId: editData?.employeeId ?? 0,
+      baseSalary: editData?.baseSalary ?? ("" as any),
+      payrollPeriod: editData?.payrollPeriod || "monthly",
+      hourlyRate: editData?.hourlyRate ?? undefined,
+      overtimeRate: editData?.overtimeRate ?? undefined,
+      citizenshipStatus: editData?.citizenshipStatus || "citizen",
+      prStatus: editData?.prStatus || "",
+      age: editData?.age ?? ("" as any),
+      dateOfBirth: editData?.dateOfBirth || "",
+      allowanceTransport: editData?.allowanceTransport ?? ("" as any),
+      allowanceMeal: editData?.allowanceMeal ?? ("" as any),
+      allowancePhone: editData?.allowancePhone ?? ("" as any),
+      allowanceOthers: editData?.allowanceOthers ?? ("" as any),
+      deductionMedical: editData?.deductionMedical ?? ("" as any),
+      deductionAdvance: editData?.deductionAdvance ?? ("" as any),
+      deductionOthers: editData?.deductionOthers ?? ("" as any),
+      taxRate: editData?.taxRate ?? ("" as any),
+      isActive: editData?.isActive ?? true,
+      effectiveFrom: editData?.effectiveFrom || new Date().toISOString().split("T")[0],
+      effectiveTo: editData?.effectiveTo || "",
     },
   });
 
-  const createPayrollConfigMutation = useMutation({
+  useEffect(() => {
+    if (editData?.id) {
+      form.reset(mapEditDataToForm(editData));
+    }
+  }, [editData?.id, form]);
+
+  const watchedEmployeeId = form.watch("employeeId");
+  const watchedSalary = form.watch("baseSalary");
+  const watchedDOB = form.watch("dateOfBirth");
+  const watchedCitizenship = form.watch("citizenshipStatus");
+  const watchedPrStatus = form.watch("prStatus");
+  const watchedAge = form.watch("age");
+
+  useEffect(() => {
+    if (isEditMode) return;
+    if (!watchedEmployeeId) return;
+    const emp = employees.find((e) => e.id === watchedEmployeeId);
+    if (!emp) return;
+
+    const { residencyType, prYear } = mapEmployeeResidency(emp);
+    form.setValue("citizenshipStatus", residencyType, { shouldValidate: true });
+    if (residencyType === "pr") {
+      form.setValue("prStatus", emp.prStatus || "year_3_plus", { shouldValidate: true });
+    } else {
+      form.setValue("prStatus", "", { shouldValidate: true });
+    }
+
+    if (emp.dateOfBirth) {
+      form.setValue("dateOfBirth", emp.dateOfBirth.split("T")[0], { shouldValidate: true });
+      form.setValue("age", calculateAgeFromDob(emp.dateOfBirth), { shouldValidate: true });
+    }
+
+    if (emp.salary) {
+      form.setValue("baseSalary", parseFloat(String(emp.salary)), { shouldValidate: true });
+    }
+  }, [watchedEmployeeId, employees, form, isEditMode]);
+
+  useEffect(() => {
+    if (!watchedDOB) return;
+    form.setValue("age", calculateAgeFromDob(watchedDOB), { shouldValidate: true });
+  }, [watchedDOB, form]);
+
+  const payrollSnapshot = useMemo(() => {
+    const salary = Number(watchedSalary);
+    const age = Number(watchedAge);
+    if (!salary || salary <= 0 || !age) return null;
+
+    const { residencyType } = mapEmployeeResidency({
+      nationality: watchedCitizenship,
+      prStatus: watchedPrStatus,
+    });
+    const prYear =
+      residencyType === "pr" ? mapPrStatusToYear(watchedPrStatus) : null;
+
+    return calculateSingaporePayrollSnapshot({
+      monthlySalary: salary,
+      age,
+      residencyType,
+      prYear,
+    });
+  }, [watchedSalary, watchedAge, watchedCitizenship, watchedPrStatus]);
+
+  useEffect(() => {
+    if (payrollSnapshot) {
+      form.setValue("taxRate", payrollSnapshot.effectiveTaxRate, { shouldValidate: false });
+    }
+  }, [payrollSnapshot, form]);
+
+  const buildPayload = (data: PayrollConfigFormData) => {
+    if (!payrollSnapshot) throw new Error("Unable to calculate payroll — check salary and age");
+
+    const {
+      age,
+      citizenshipStatus,
+      prStatus,
+      dateOfBirth,
+      allowanceTransport,
+      allowanceMeal,
+      allowancePhone,
+      allowanceOthers,
+      deductionMedical,
+      deductionAdvance,
+      deductionOthers,
+      ...payrollData
+    } = data;
+
+    return {
+      ...payrollData,
+      allowances: {
+        transport: Number(allowanceTransport) || 0,
+        meal: Number(allowanceMeal) || 0,
+        phone: Number(allowancePhone) || 0,
+        others: Number(allowanceOthers) || 0,
+      },
+      deductions: {
+        medical: Number(deductionMedical) || 0,
+        advance: Number(deductionAdvance) || 0,
+        others: Number(deductionOthers) || 0,
+      },
+      // Tax reference (not applied): payrollSnapshot.effectiveTaxRate, monthlyIncomeTax, annualIncomeTax
+      taxRate: 0,
+      taxAmount: 0,
+      incomeTax: 0,
+      cpfRate: payrollSnapshot.employeeCpfRate,
+      cpfAmount: payrollSnapshot.monthlyEmployeeCpf,
+      employerCpfRate: payrollSnapshot.employerCpfRate,
+      employerCpfAmount: payrollSnapshot.monthlyEmployerCpf,
+      netSalary: payrollSnapshot.netSalary,
+    };
+  };
+
+  const saveMutation = useMutation({
     mutationFn: async (data: PayrollConfigFormData) => {
-      const { age, citizenshipStatus, dateOfBirth, allowanceTransport, allowanceMeal, allowancePhone, allowanceOthers, deductionMedical, deductionAdvance, deductionOthers, ...payrollData } = data;
-      
-      const allowances = {
-        transport: allowanceTransport || 0,
-        meal: allowanceMeal || 0,
-        phone: allowancePhone || 0,
-        others: allowanceOthers || 0,
-      };
-      
-      const deductions = {
-        medical: deductionMedical || 0,
-        advance: deductionAdvance || 0,
-        others: deductionOthers || 0,
-      };
+      if (!data.employeeId || !data.baseSalary || !data.effectiveFrom)
+        throw new Error("Please fill in all required fields");
 
-      const payload = {
-        ...payrollData,
-        allowances,
-        deductions,
-        // Calculate Singapore-compliant CPF rates based on age and citizenship
-        cpfRate: citizenshipStatus === 'foreigner' ? 0 : getCPFRate(age),
-        taxRate: getTaxRate(parseFloat(data.baseSalary.toString()) * 12), // Annual salary for tax calculation
-      };
+      const payload = buildPayload(data);
 
-      const res = await apiRequest("POST", "/api/employee-payroll", payload);
-      return await res.json();
+      if (isEditMode && editData?.id) {
+        const res = await apiRequest("PUT", `/api/payroll/configs/${editData.id}`, payload);
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || "Failed to update payroll configuration");
+        }
+        return res.json();
+      }
+
+      const res = await apiRequest("POST", "/api/payroll/configs", payload);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Failed to create payroll configuration");
+      }
+      return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/employee-payroll"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/configs", tenantId] });
       toast({
         title: "Success",
-        description: "Payroll configuration created successfully",
+        description: isEditMode
+          ? "Payroll configuration updated successfully"
+          : "Payroll configuration created successfully",
       });
       onSuccess();
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
-  // Calculate live preview of Singapore payroll
-  const calculatePreview = async () => {
-    const formData = form.getValues();
-    setIsCalculating(true);
-    
-    try {
-      const allowances = {
-        transport: formData.allowanceTransport || 0,
-        meal: formData.allowanceMeal || 0,
-        phone: formData.allowancePhone || 0,
-        others: formData.allowanceOthers || 0,
-      };
-      
-      const deductions = {
-        medical: formData.deductionMedical || 0,
-        advance: formData.deductionAdvance || 0,
-        others: formData.deductionOthers || 0,
-      };
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat("en-SG", { style: "currency", currency: "SGD" }).format(n);
 
-      const calculationInput = {
-        grossSalary: formData.baseSalary,
-        age: formData.age,
-        citizenshipStatus: formData.citizenshipStatus,
-        cpfStatus: 'full',
-        monthlyAllowances: allowances,
-        monthlyDeductions: deductions,
-        overtimeHours: 0,
-        overtimeRate: formData.overtimeRate || 0,
-      };
+  const selectedEmployee = employees.find((e) => e.id === form.watch("employeeId"));
 
-      const res = await apiRequest("POST", "/api/payroll/calculate", calculationInput);
-      const calculation = await res.json();
-      setCalculationPreview(calculation);
-    } catch (error) {
-      toast({
-        title: "Calculation Error",
-        description: "Unable to calculate payroll preview",
-        variant: "destructive",
-      });
-    } finally {
-      setIsCalculating(false);
-    }
-  };
-
-  function getCPFRate(age: number): string {
-    if (age < 50) return "20.00";
-    if (age < 55) return "20.00";
-    if (age < 60) return "13.00";
-    if (age < 65) return "7.50";
-    if (age < 70) return "5.00";
-    return "5.00";
-  }
-
-  function getTaxRate(annualSalary: number): string {
-    if (annualSalary <= 20000) return "0.00";
-    if (annualSalary <= 30000) return "2.00";
-    if (annualSalary <= 40000) return "3.50";
-    if (annualSalary <= 80000) return "7.00";
-    if (annualSalary <= 120000) return "11.50";
-    if (annualSalary <= 160000) return "15.00";
-    if (annualSalary <= 200000) return "18.00";
-    return "22.00";
-  }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-SG", {
-      style: "currency",
-      currency: "SGD",
-    }).format(amount);
-  };
-
-  const onSubmit = (data: PayrollConfigFormData) => {
-    createPayrollConfigMutation.mutate(data);
-  };
+  if (userLoading) return <div>Loading user...</div>;
+  if (userError || !user) return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
+  if (employeesLoading) return <div>Loading employees...</div>;
+  if (employeesError) return <div className="text-red-600">Error loading employees. Please try again.</div>;
+  if (employees.length === 0) return <div className="text-yellow-600">No employees found. Please add employees first.</div>;
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold">
-            {editData ? "Edit" : "Add"} Payroll Configuration
-          </h2>
-          <p className="text-muted-foreground">
-            Configure employee payroll with Singapore CPF and tax compliance
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={calculatePreview}
-            disabled={isCalculating || !form.watch("baseSalary") || !form.watch("age")}
-          >
-            {isCalculating ? "Calculating..." : "Preview Calculation"}
-          </Button>
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold">{isEditMode ? "Edit Payroll Configuration" : "Create Payroll Configuration"}</h2>
+        <p className="text-muted-foreground">
+          Select an employee — CPF is calculated automatically from Employee Master data.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              {/* Employee Selection */}
+            <form onSubmit={form.handleSubmit((d) => saveMutation.mutate(d))} className="space-y-6">
               <Card>
-                <CardHeader>
-                  <CardTitle>Employee Information</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Employee Selection</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
                     control={form.control}
@@ -245,7 +334,8 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                         <FormLabel>Employee *</FormLabel>
                         <Select
                           value={field.value?.toString()}
-                          onValueChange={(value) => field.onChange(parseInt(value))}
+                          onValueChange={(v) => field.onChange(parseInt(v))}
+                          disabled={isEditMode}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -253,9 +343,9 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {employees.map((employee: any) => (
-                              <SelectItem key={employee.id} value={employee.id.toString()}>
-                                {employee.name} - {employee.designation}
+                            {employees.map((emp) => (
+                              <SelectItem key={emp.id} value={emp.id.toString()}>
+                                {emp.name} ({emp.employeeId}) — {emp.designation}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -265,66 +355,36 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                     )}
                   />
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="age"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Age *</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
+                  {selectedEmployee && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm">
+                      <div><p className="text-xs text-blue-600 font-medium">Employee ID</p><p className="font-semibold">{selectedEmployee.employeeId}</p></div>
+                      <div><p className="text-xs text-blue-600 font-medium">Employee Name</p><p className="font-semibold">{selectedEmployee.name}</p></div>
+                      <div><p className="text-xs text-blue-600 font-medium">Department</p><p className="font-semibold">{selectedEmployee.department}</p></div>
+                      <div><p className="text-xs text-blue-600 font-medium">Designation</p><p className="font-semibold">{selectedEmployee.designation}</p></div>
+                      <div><p className="text-xs text-blue-600 font-medium">Salary (Monthly)</p><p className="font-semibold">{selectedEmployee.salary ? formatCurrency(parseFloat(String(selectedEmployee.salary))) : "—"}</p></div>
+                      <div><p className="text-xs text-blue-600 font-medium">Annual Salary</p><p className="font-semibold">{selectedEmployee.salary ? formatCurrency(parseFloat(String(selectedEmployee.salary)) * 12) : "—"}</p></div>
+                      <div><p className="text-xs text-blue-600 font-medium">Nationality</p><p className="font-semibold">{residencyLabel(selectedEmployee.nationality, selectedEmployee.prStatus)}</p></div>
+                      {mapEmployeeResidency(selectedEmployee).residencyType === "pr" && (
+                        <div>
+                          <p className="text-xs text-blue-600 font-medium">PR Status</p>
+                          <p className="font-semibold">
+                            {selectedEmployee.prStatus === "year_1"
+                              ? "1 Year PR"
+                              : selectedEmployee.prStatus === "year_2"
+                              ? "2 Year PR"
+                              : "3 Year PR and Above"}
+                          </p>
+                        </div>
                       )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="citizenshipStatus"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Citizenship Status *</FormLabel>
-                          <Select value={field.value} onValueChange={field.onChange}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="citizen">Singapore Citizen</SelectItem>
-                              <SelectItem value="pr">Permanent Resident</SelectItem>
-                              <SelectItem value="foreigner">Foreigner</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="dateOfBirth"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Date of Birth *</FormLabel>
-                          <FormControl>
-                            <Input type="date" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                      <div><p className="text-xs text-blue-600 font-medium">Date of Birth</p><p className="font-semibold">{selectedEmployee.dateOfBirth ? new Date(selectedEmployee.dateOfBirth).toLocaleDateString("en-GB") : "—"}</p></div>
+                      <div><p className="text-xs text-blue-600 font-medium">Age</p><p className="font-semibold">{form.watch("age") || "—"}</p></div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Salary Configuration */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Salary Configuration</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Payroll Setup</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
@@ -332,31 +392,41 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                       name="baseSalary"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Base Salary (SGD) *</FormLabel>
+                       <FormLabel>
+  Base Salary / Monthly Salary (SGD) *
+</FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number" 
-                              step="0.01" 
-                              placeholder="e.g., 5000.00"
-                              {...field} 
+                            <Input
+                              type="number"
+                              step="0.01"
+                              {...field}
+                              readOnly={!!selectedEmployee?.salary}
+                              className={selectedEmployee?.salary ? "bg-muted cursor-not-allowed" : ""}
+                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                             />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-
+                    <FormItem>
+                      <FormLabel>Annual Salary (Auto)</FormLabel>
+                      <Input
+                        readOnly
+                        className="bg-muted"
+                        value={watchedSalary > 0 ? formatCurrency(Number(watchedSalary) * 12) : "—"}
+                      />
+                      <FormDescription className="text-xs">Salary × 12</FormDescription>
+                    </FormItem>
                     <FormField
                       control={form.control}
                       name="payrollPeriod"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Pay Period *</FormLabel>
+                          <FormLabel>Payroll Period *</FormLabel>
                           <Select value={field.value} onValueChange={field.onChange}>
                             <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
                             </FormControl>
                             <SelectContent>
                               <SelectItem value="monthly">Monthly</SelectItem>
@@ -368,219 +438,220 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                         </FormItem>
                       )}
                     />
-
+                  </div>
+                  {/* <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="hourlyRate"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Hourly Rate (SGD)</FormLabel>
+                          <FormLabel>Hourly Rate (SGD) <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number" 
-                              step="0.01" 
-                              placeholder="e.g., 25.00"
-                              {...field} 
+                            <Input
+                              type="number" step="0.01" placeholder="0.00"
+                              {...field} value={field.value ?? ""}
+                              onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
                             />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-
                     <FormField
                       control={form.control}
                       name="overtimeRate"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Overtime Rate (SGD/hour)</FormLabel>
+                          <FormLabel>Overtime Rate (SGD) <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number" 
-                              step="0.01" 
-                              placeholder="e.g., 37.50"
-                              {...field} 
+                            <Input
+                              type="number" step="0.01" placeholder="0.00"
+                              {...field} value={field.value ?? ""}
+                              onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
                             />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  </div>
+                  </div> */}
                 </CardContent>
               </Card>
 
-              {/* Allowances */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Monthly Allowances (SGD)</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
+                <CardHeader><CardTitle>Employee Details (CPF)</CardTitle></CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="citizenshipStatus"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Citizenship Status</FormLabel>
+                        <div className="px-3 py-2 bg-muted rounded-md border text-sm min-h-[40px] flex items-center">
+                          {field.value === "foreigner"
+                            ? "Foreigner"
+                            : field.value === "pr"
+                            ? `PR — ${form.watch("prStatus")?.replace("year_", "").replace("_plus", "+") || "3+"}`
+                            : field.value === "citizen"
+                            ? "Singapore Citizen"
+                            : "Select employee"}
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="dateOfBirth"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date of Birth</FormLabel>
+                        <StringDatePicker value={field.value || ""} onChange={field.onChange} disabled />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="age"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Age</FormLabel>
+                        <Input type="number" {...field} readOnly className="bg-muted" />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+                    <div className="flex items-start gap-2">
+                   
+                      <p className="text-xs text-blue-800">
+                        
+                      </p>
+                    </div>
+                  </div> */}
+                </CardContent>
+              </Card>
+
+              {/* Monthly Allowances — existing */}
+              <Card>
+                <CardHeader><CardTitle>Monthly Allowances</CardTitle></CardHeader>
+                <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="allowanceTransport"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Transport Allowance</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="allowanceMeal"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Meal Allowance</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="allowancePhone"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Phone Allowance</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="allowanceOthers"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Other Allowances</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {[
+                      { name: "allowanceTransport" as const, label: "Transport Allowance" },
+                      { name: "allowanceMeal" as const, label: "Meal Allowance" },
+                      { name: "allowancePhone" as const, label: "Phone Allowance" },
+                      { name: "allowanceOthers" as const, label: "Other Allowances" },
+                    ].map(({ name, label }) => (
+                      <FormField key={name} control={form.control} name={name}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{label}</FormLabel>
+                            <FormControl>
+                              <Input type="number" step="0.01" placeholder="0.00"
+                                {...field} value={field.value ?? ""}
+                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Deductions */}
+              {/* Monthly Deductions — existing */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Monthly Deductions (SGD)</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="deductionMedical"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Medical Insurance</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="deductionAdvance"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Salary Advance</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="deductionOthers"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Other Deductions</FormLabel>
-                          <FormControl>
-                            <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Effective Dates */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Effective Period</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
+                <CardHeader><CardTitle>Monthly Deductions</CardTitle></CardHeader>
+                <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {[
+                      { name: "deductionMedical" as const, label: "Medical Deduction" },
+                      { name: "deductionAdvance" as const, label: "Advance Deduction" },
+                      { name: "deductionOthers" as const, label: "Other Deductions" },
+                    ].map(({ name, label }) => (
+                      <FormField key={name} control={form.control} name={name}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{label}</FormLabel>
+                            <FormControl>
+                              <Input type="number" step="0.01" placeholder="0.00"
+                                {...field} value={field.value ?? ""}
+                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Auto-calculated payroll fields — existing */}
+              {payrollSnapshot && (
+                <Card>
+                  <CardHeader><CardTitle>Auto-Calculated Payroll Values</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Tax reference (hidden from payroll UI):
+                      <FormField name="taxRate" ... Tax Rate (%) />
+                      <FormItem> Income Tax (Annual) ... </FormItem>
+                      */}
+                      <FormItem>
+                        <FormLabel>CPF Rate (Employee %)</FormLabel>
+                        <Input readOnly className="bg-muted" value={`${payrollSnapshot.employeeCpfRate}%`} />
+                      </FormItem>
+                      <FormItem>
+                        <FormLabel>CPF Amount (Employee)</FormLabel>
+                        <Input readOnly className="bg-muted" value={formatCurrency(payrollSnapshot.monthlyEmployeeCpf)} />
+                      </FormItem>
+                      <FormItem>
+                        <FormLabel>Net Salary (Monthly)</FormLabel>
+                        <Input readOnly className="bg-muted" value={formatCurrency(payrollSnapshot.netSalary)} />
+                      </FormItem>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card>
+                <CardHeader><CardTitle>Effective Dates</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="effectiveFrom"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Effective From *</FormLabel>
-                          <FormControl>
-                            <Input type="date" {...field} />
-                          </FormControl>
+                          <StringDatePicker value={field.value || ""} onChange={field.onChange} />
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-
                     <FormField
                       control={form.control}
                       name="effectiveTo"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Effective To (Optional)</FormLabel>
-                          <FormControl>
-                            <Input type="date" {...field} />
-                          </FormControl>
+                          <FormLabel>Effective To</FormLabel>
+                          <StringDatePicker value={field.value || ""} onChange={field.onChange} />
                           <FormMessage />
                         </FormItem>
                       )}
                     />
                   </div>
-
                   <FormField
                     control={form.control}
                     name="isActive"
                     render={({ field }) => (
                       <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5">
-                          <FormLabel className="text-base">Active Configuration</FormLabel>
-                          <div className="text-sm text-muted-foreground">
-                            This payroll configuration is currently active
-                          </div>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
+                        <FormLabel>Active Configuration</FormLabel>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
                       </FormItem>
                     )}
                   />
@@ -588,93 +659,41 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
               </Card>
 
               <div className="flex justify-end gap-4">
-                <Button type="button" variant="outline" onClick={onCancel}>
-                  Cancel
-                </Button>
-                <Button 
-                  type="submit" 
-                  disabled={createPayrollConfigMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700"
-                >
-                  {createPayrollConfigMutation.isPending 
-                    ? "Creating..." 
-                    : editData 
-                    ? "Update Configuration" 
-                    : "Create Configuration"
-                  }
+                <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+                <Button type="submit" disabled={saveMutation.isPending || !payrollSnapshot}>
+                  {saveMutation.isPending
+                    ? isEditMode ? "Updating..." : "Creating..."
+                    : isEditMode ? "Update Payroll Configuration" : "Create Payroll Configuration"}
                 </Button>
               </div>
             </form>
           </Form>
         </div>
 
-        {/* Calculation Preview */}
         <div className="lg:col-span-1">
           <Card className="sticky top-4">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <InfoIcon className="h-5 w-5" />
-                Singapore Payroll Preview
+                <Calculator className="h-5 w-5 text-blue-600" />
+                CPF Preview
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {calculationPreview ? (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm">Gross Pay:</span>
-                      <span className="font-medium">{formatCurrency(calculationPreview.grossPay)}</span>
-                    </div>
-                    
-                    <div className="flex justify-between">
-                      <span className="text-sm">Employee CPF:</span>
-                      <span className="text-red-600">-{formatCurrency(calculationPreview.employeeCpf)}</span>
-                    </div>
-                    
-                    <div className="flex justify-between">
-                      <span className="text-sm">Income Tax:</span>
-                      <span className="text-red-600">-{formatCurrency(calculationPreview.monthlyTaxDeduction)}</span>
-                    </div>
-                    
-                    <hr />
-                    
-                    <div className="flex justify-between font-bold">
-                      <span>Net Pay:</span>
-                      <span className="text-green-600">{formatCurrency(calculationPreview.netPay)}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-sm">CPF Breakdown:</h4>
-                    <div className="text-xs space-y-1">
-                      <div className="flex justify-between">
-                        <span>Ordinary Account:</span>
-                        <span>{formatCurrency(calculationPreview.cpfOrdinaryAccount)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Special Account:</span>
-                        <span>{formatCurrency(calculationPreview.cpfSpecialAccount)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Medisave:</span>
-                        <span>{formatCurrency(calculationPreview.cpfMediSave)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {calculationPreview.breakdown.taxBracket && (
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-sm">Tax Information:</h4>
-                      <div className="text-xs">
-                        <Badge variant="outline">{calculationPreview.breakdown.taxBracket}</Badge>
-                      </div>
-                    </div>
-                  )}
+              {payrollSnapshot && selectedEmployee ? (
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Salary</span><span className="font-medium">{formatCurrency(payrollSnapshot.monthlySalary)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Annual Income</span><span className="font-medium">{formatCurrency(payrollSnapshot.annualSalary)}</span></div>
+                  <div className="flex justify-between"><span>Employee CPF ({payrollSnapshot.employeeCpfRate}%)</span><span>−{formatCurrency(payrollSnapshot.monthlyEmployeeCpf)}</span></div>
+                  <div className="flex justify-between"><span>Employer CPF ({payrollSnapshot.employerCpfRate}%)</span><span>{formatCurrency(payrollSnapshot.monthlyEmployerCpf)}</span></div>
+                  <div className="border-t pt-2 flex justify-between font-bold text-lg"><span>Net Salary</span><span className="text-green-600">{formatCurrency(payrollSnapshot.netSalary)}</span></div>
+                  {/* Singapore tax preview reference (not shown):
+                  chargeableIncome, annualIncomeTax, monthlyIncomeTax, taxBreakdown
+                  */}
                 </div>
               ) : (
-                <div className="text-center text-muted-foreground">
-                  <InfoIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Click "Preview Calculation" to see Singapore payroll breakdown</p>
+                <div className="text-center text-muted-foreground py-8">
+                  <Calculator className="h-12 w-12 mx-auto opacity-30 mb-2" />
+                  <p className="text-sm">Select an employee with salary and DOB to preview CPF.</p>
                 </div>
               )}
             </CardContent>

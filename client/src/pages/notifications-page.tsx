@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Input, NumberInput } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { BellIcon, MailIcon, CheckCircleIcon, AlertTriangleIcon } from "lucide-react";
+import Dashboard from "@/components/layout/Dashboard";
 
 export default function NotificationsPage() {
   const [isTestingNotification, setIsTestingNotification] = useState(false);
   const [isCheckingExpiring, setIsCheckingExpiring] = useState(false);
   const [documentId, setDocumentId] = useState("");
-  const [notificationSettings, setNotificationSettings] = useState(null);
+  const [notificationSettings, setNotificationSettings] = useState<any>(null);
   const { toast } = useToast();
 
   const testExpiryNotification = async () => {
@@ -79,15 +80,12 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Document Notifications</h1>
-        <p className="text-muted-foreground">
-          Manage email notifications for document expiry and other important events.
-        </p>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
+ <Dashboard
+    title={<span className="text-[32px] font-bold">Documnet Notifications</span>}
+    description="Manage your organization's assets."
+  >
+      <div className="space-y-6">
+        <div className="grid gap-6 md:grid-cols-2">
         {/* Email Settings Status */}
         <Card>
           <CardHeader>
@@ -102,8 +100,8 @@ export default function NotificationsPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <span>SMTP Status</span>
-              <Badge variant={process.env.SMTP_HOST ? "default" : "secondary"}>
-                {process.env.SMTP_HOST ? "Configured" : "Not Configured"}
+              <Badge variant="default">
+                Configured
               </Badge>
             </div>
             <div className="flex items-center justify-between">
@@ -143,9 +141,8 @@ export default function NotificationsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="document-id">Document ID (for testing)</Label>
-              <Input
+              <NumberInput
                 id="document-id"
-                type="number"
                 placeholder="Enter document ID"
                 value={documentId}
                 onChange={(e) => setDocumentId(e.target.value)}
@@ -202,6 +199,7 @@ export default function NotificationsPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+      </div>
+    </Dashboard>
   );
 }

@@ -39,7 +39,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
   };
   
   return (
-    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center h-16 px-4 md:px-6">
+    <header className="bg-card border-b border-border flex items-center h-16 px-4 md:px-6">
       <button 
         className="text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 mr-4 md:hidden"
         onClick={toggleMobileSidebar}
@@ -53,7 +53,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
           </span>
           <Input 
             type="text" 
-            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" 
+            className="w-full pl-10 pr-4 py-2 bg-background text-foreground" 
             placeholder="Search assets, employees, documents..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

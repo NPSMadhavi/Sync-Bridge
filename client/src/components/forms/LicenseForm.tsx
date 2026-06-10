@@ -36,9 +36,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { format, isAfter, isBefore } from "date-fns";
-import { CalendarIcon, Loader2, Shield, DollarSign, Users, Building, RotateCcw, CheckCircle, Search } from "lucide-react";
+import { SyncBridgeDateObjectPicker } from "@/components/ui/sync-bridge-date-picker";
+import { isAfter, isBefore } from "date-fns";
+import { Loader2, Shield, DollarSign, Users, Building, RotateCcw, CheckCircle, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -439,37 +439,16 @@ export default function LicenseForm({
                             render={({ field }) => (
                               <FormItem className="flex flex-col">
                                 <FormLabel>Purchase Date</FormLabel>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <FormControl>
-                                      <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                          "w-full pl-3 text-left font-normal",
-                                          !field.value && "text-muted-foreground"
-                                        )}
-                                      >
-                                        {field.value ? (
-                                          format(field.value, "PPP")
-                                        ) : (
-                                          <span>Pick a date</span>
-                                        )}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                      </Button>
-                                    </FormControl>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                      mode="single"
-                                      selected={field.value || undefined}
-                                      onSelect={field.onChange}
-                                      disabled={(date) =>
-                                        date > new Date() || date < new Date("1900-01-01")
-                                      }
-                                      initialFocus
-                                    />
-                                  </PopoverContent>
-                                </Popover>
+                                <FormControl>
+                                  <SyncBridgeDateObjectPicker
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    max={new Date().toISOString().split("T")[0]}
+                                    disabledDate={(date) =>
+                                      date > new Date() || date < new Date("1900-01-01")
+                                    }
+                                  />
+                                </FormControl>
                                 <FormDescription className="text-xs">
                                   When was this license purchased or acquired
                                 </FormDescription>
@@ -496,39 +475,19 @@ export default function LicenseForm({
                                       </span>
                                     )}
                                   </FormLabel>
-                                  <Popover>
-                                    <PopoverTrigger asChild>
-                                      <FormControl>
-                                        <Button
-                                          variant={"outline"}
-                                          className={cn(
-                                            "w-full pl-3 text-left font-normal",
-                                            !field.value && "text-muted-foreground",
-                                            isExpiredLicense && "border-red-500 bg-red-50 text-red-700"
-                                          )}
-                                        >
-                                          {field.value ? (
-                                            format(field.value, "PPP")
-                                          ) : (
-                                            <span>Pick a date</span>
-                                          )}
-                                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                        </Button>
-                                      </FormControl>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                      <Calendar
-                                        mode="single"
-                                        selected={field.value || undefined}
-                                        onSelect={field.onChange}
-                                        disabled={(date) => {
-                                          return date < new Date("1900-01-01") || 
-                                                 (purchaseDate && isBefore(date, purchaseDate));
-                                        }}
-                                        initialFocus
-                                      />
-                                    </PopoverContent>
-                                  </Popover>
+                                  <FormControl>
+                                    <SyncBridgeDateObjectPicker
+                                      value={field.value}
+                                      onChange={field.onChange}
+                                      className={cn(
+                                        isExpiredLicense && "border-red-500 bg-red-50"
+                                      )}
+                                      disabledDate={(date) =>
+                                        date < new Date("1900-01-01") ||
+                                        (purchaseDate ? isBefore(date, purchaseDate) : false)
+                                      }
+                                    />
+                                  </FormControl>
                                   <FormDescription className={cn(
                                     "text-xs",
                                     isExpiredLicense && "text-red-600"

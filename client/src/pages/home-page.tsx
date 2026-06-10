@@ -8,45 +8,64 @@ import DocumentStatus from "@/components/dashboard/DocumentStatus";
 import RecentAssignments, { AssetAssignment } from "@/components/dashboard/RecentAssignments";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
 import { Loader2 } from "lucide-react";
 import { 
   Laptop, 
   Users, 
   AlertTriangle, 
-  WrenchIcon 
+  AlertCircle 
 } from "lucide-react";
 import AssignAssetModal from "@/components/modals/AssignAssetModal";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function HomePage() {
-  const { user } = useAuth();
+  const { user, tenantId } = useAuth();
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   
-  // Fetch dashboard data
-  const { data: dashboardData, isLoading } = useQuery({
+  // Fetch dashboard data only when user and tenant are available
+  const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ["/api/dashboard"],
+    queryFn: () => apiRequest("GET", "/api/dashboard").then((res: Response) => res.json()),
+    staleTime: 0, // Consider data stale immediately
+    refetchOnMount: true, // Refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when window gains focus
+    enabled: !!user && (Boolean(tenantId) || user.role === 'super_admin' || user.isSuperAdmin), // Allow super admins without tenant
   });
+
+  // Debug logging
+  console.log("HomePage - user:", user);
+  console.log("HomePage - tenantId:", tenantId);
+  console.log("HomePage - dashboardData:", dashboardData);
+  console.log("HomePage - error:", error);
   
   // Map data for the dashboard components
-  const expiringDocuments: ExpiringDocument[] = dashboardData?.expiringDocuments?.map((doc: any) => ({
-    id: doc.id,
-    type: doc.documentType,
-    name: doc.name,
-    daysUntilExpiry: doc.daysUntilExpiry,
-    employeeId: doc.employeeId,
-  })) || [];
+  const expiringDocuments: ExpiringDocument[] = Array.isArray(dashboardData?.expiringDocuments)
+    ? dashboardData.expiringDocuments.map((doc: any) => ({
+        id: doc.id,
+        type: doc.type || doc.documentType || "other",
+        name: doc.name || doc.employeeName || doc.title || "Unknown",
+        daysUntilExpiry: doc.daysUntilExpiry ?? 0,
+        employeeId: doc.employeeId,
+      }))
+    : [];
   
-  const recentActivities: Activity[] = dashboardData?.recentActivities?.map((activity: any) => ({
-    id: activity.id,
-    type: activity.type,
-    message: activity.message,
-    timestamp: activity.timestamp,
-  })) || [];
+  const recentActivities: Activity[] = Array.isArray(dashboardData?.recentActivities) 
+    ? dashboardData.recentActivities.map((activity: any) => ({
+        id: activity.id,
+        type: activity.type,
+        message: activity.message,
+        timestamp: activity.timestamp,
+      })) 
+    : [];
   
-  const assetDistribution: AssetDistributionData[] = dashboardData?.assetDistribution?.map((item: any) => ({
-    type: item.type,
-    count: item.count,
-    percentage: item.percentage,
-  })) || [];
+  const assetDistribution: AssetDistributionData[] = Array.isArray(dashboardData?.assetDistribution) 
+    ? dashboardData.assetDistribution.map((item: any) => ({
+        type: item.type,
+        count: item.count,
+        percentage: item.percentage,
+      })) 
+    : [];
   
   const documentStatus = dashboardData?.documentStatus || {
     valid: { count: 0, percentage: 0 },
@@ -54,23 +73,39 @@ export default function HomePage() {
     expired: { count: 0, percentage: 0 },
   };
   
-  const recentAssignments: AssetAssignment[] = dashboardData?.recentAssignments?.map((assignment: any) => ({
-    id: assignment.id,
-    asset: {
-      id: assignment.asset.id,
-      name: assignment.asset.name,
-      type: assignment.asset.type,
-      tag: assignment.asset.tag,
-      serial: assignment.asset.serial,
-    },
-    employee: {
-      id: assignment.employee.id,
-      name: assignment.employee.name,
-      department: assignment.employee.department,
-    },
-    dateAssigned: assignment.dateAssigned,
-    status: assignment.status,
-  })) || [];
+  const recentAssignments: AssetAssignment[] = Array.isArray(dashboardData?.recentAssignments)
+    ? dashboardData.recentAssignments.map((assignment: any) => ({
+        id: assignment.id,
+        asset: assignment.asset
+          ? {
+              id: assignment.asset.id || 0,
+              name: assignment.asset.name || "Unknown",
+              type: assignment.asset.type || "Unknown",
+              tag: assignment.asset.tag || "",
+              serial: assignment.asset.serial || "",
+            }
+          : {
+              id: assignment.assetId || 0,
+              name: assignment.assetName || "Unknown",
+              type: assignment.assetType || "Unknown",
+              tag: assignment.assetTag || "",
+              serial: assignment.assetSerial || "",
+            },
+        employee: assignment.employee
+          ? {
+              id: assignment.employee.id || 0,
+              name: assignment.employee.name || "Unknown",
+              department: assignment.employee.department || "Unknown",
+            }
+          : {
+              id: assignment.employeeId || 0,
+              name: assignment.employeeName || "Unknown",
+              department: assignment.employeeDepartment || "Unknown",
+            },
+        dateAssigned: assignment.dateAssigned || assignment.assignedAt || "",
+        status: assignment.status || "active",
+      }))
+    : [];
   
   return (
     <Dashboard
@@ -81,38 +116,70 @@ export default function HomePage() {
         <div className="flex justify-center items-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
         </div>
+      ) : error ? (
+        <div className="flex justify-center items-center py-10">
+          <div className="text-center">
+            <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+            <p className="text-red-600">Error loading dashboard data</p>
+            <p className="text-sm text-gray-500">{error.message}</p>
+          </div>
+        </div>
       ) : (
         <>
           {/* Status Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <StatCard
-              icon={<Laptop size={24} />}
-              title="Total Assets"
-              value={dashboardData?.counts?.assets || 0}
-              iconColor="primary"
-            />
-            <StatCard
-              icon={<Users size={24} />}
-              title="Employees"
-              value={dashboardData?.counts?.employees || 0}
-              iconColor="success"
-            />
-            <StatCard
-              icon={<AlertTriangle size={24} />}
-              title="Expiring Documents"
-              value={dashboardData?.counts?.expiringDocuments || 0}
-              iconColor="warning"
-            />
-            <StatCard
-              icon={<WrenchIcon size={24} />}
-              title="Maintenance Due"
-              value={dashboardData?.counts?.maintenanceDue || 0}
-              iconColor="danger"
-            />
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+            <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300">
+              <CardContent className="p-6">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-400 to-teal-600">
+                  <Laptop className="h-6 w-6" />
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-600">Total Assets</h3>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{dashboardData?.counts?.assets || 0}</p>
+                <p className="text-xs text-muted-foreground mt-1">Managed assets</p>
+              </CardContent>
+            </Card>
+            <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300">
+              <CardContent className="p-6">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-500 to-teal-700">
+                  <Users className="h-6 w-6" />
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-600">Employees</h3>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{dashboardData?.counts?.employees || 0}</p>
+                <p className="text-xs text-muted-foreground mt-1">Active employees</p>
+              </CardContent>
+            </Card>
+            <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300">
+              <CardContent className="p-6">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-orange-400 to-orange-600">
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-600">Expiring Documents</h3>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{dashboardData?.counts?.expiringDocuments || 0}</p>
+                <p className="text-xs text-muted-foreground mt-1">Requires attention</p>
+              </CardContent>
+            </Card>
+            <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300">
+              <CardContent className="p-6">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-red-400 to-red-600">
+                  <AlertCircle className="h-6 w-6" />
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-600">License Expiry</h3>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{dashboardData?.counts?.licenseExpiry || 0}</p>
+                <p className="text-xs text-muted-foreground mt-1">Expiring soon</p>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Alerts and Notifications */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <ExpiringDocuments
               documents={expiringDocuments}
               className="lg:col-span-2"

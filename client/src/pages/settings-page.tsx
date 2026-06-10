@@ -1,9 +1,9 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import Dashboard from "@/components/layout/Dashboard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { Input, NumberInput } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { 
@@ -26,7 +26,9 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { Loader2, Plus, Receipt, UserCheck, Mail, Send } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 // Profile form schema
 const profileFormSchema = z.object({
@@ -54,22 +56,70 @@ const passwordFormSchema = z.object({
   path: ["confirmPassword"],
 });
 
+// Email settings form schema
+const emailSettingsFormSchema = z.object({
+  smtpHost: z.string().min(1, {
+    message: "SMTP Host is required.",
+  }),
+  smtpPort: z.string().min(1, {
+    message: "SMTP Port is required.",
+  }),
+  smtpSecure: z.string().min(1, {
+    message: "Encryption method is required.",
+  }),
+  smtpUser: z.string().min(1, {
+    message: "SMTP Username is required.",
+  }),
+  smtpPass: z.string().min(1, {
+    message: "SMTP Password is required.",
+  }),
+  emailFrom: z.string().email({
+    message: "Please enter a valid email address.",
+  }),
+});
+
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 type PasswordFormValues = z.infer<typeof passwordFormSchema>;
+type EmailSettingsFormValues = z.infer<typeof emailSettingsFormSchema>;
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("profile");
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+  const [isSavingSystem, setIsSavingSystem] = useState(false);
+  const [isSavingEmailSettings, setIsSavingEmailSettings] = useState(false);
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
   
+  // DEBUG: Print user object to console
+  React.useEffect(() => {
+    console.log('[DEBUG] Current user in SettingsPage:', user);
+  }, [user]);
+
   // Profile form
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
+    mode: "onChange",
     defaultValues: {
       name: user?.name || "",
       email: user?.email || "",
     },
   });
+
+  // Update form values when user data is available
+  React.useEffect(() => {
+    if (user) {
+      profileForm.reset({
+        name: user.name || "",
+        email: user.email || "",
+      });
+    }
+  }, [user, profileForm]);
+
+
   
   // Password form
   const passwordForm = useForm<PasswordFormValues>({
@@ -80,13 +130,76 @@ export default function SettingsPage() {
       confirmPassword: "",
     },
   });
+
+  // Email settings form
+  const emailSettingsForm = useForm<EmailSettingsFormValues>({
+    resolver: zodResolver(emailSettingsFormSchema),
+    defaultValues: {
+      smtpHost: "",
+      smtpPort: "587",
+      smtpSecure: "STARTTLS",
+      smtpUser: "",
+      smtpPass: "",
+      emailFrom: "",
+    },
+  });
+
+  // Fetch email settings
+  const { data: emailSettings, isLoading: emailSettingsLoading } = useQuery({
+    queryKey: ['email-settings'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/email-settings');
+      return await response.json();
+    },
+    enabled: !!user
+  });
+
+  // Update email settings form when data is loaded
+  React.useEffect(() => {
+    if (emailSettings) {
+      emailSettingsForm.reset({
+        smtpHost: emailSettings.smtpHost || "",
+        smtpPort: emailSettings.smtpPort?.toString() || "587",
+        smtpSecure: emailSettings.smtpSecure || "STARTTLS",
+        smtpUser: emailSettings.smtpUser || "",
+        smtpPass: "", // Don't pre-fill password for security
+        emailFrom: emailSettings.emailFrom || "",
+      });
+    }
+  }, [emailSettings, emailSettingsForm]);
   
   // Update profile
-  const onProfileSubmit = (data: ProfileFormValues) => {
-    toast({
-      title: "Profile updated",
-      description: "Your profile information has been updated.",
-    });
+  const onProfileSubmit = async (data: ProfileFormValues) => {
+    setIsUpdatingProfile(true);
+    try {
+      const response = await fetch(`/api/users/${user?.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: data.name,
+          email: data.email,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update profile');
+      }
+
+      toast({
+        title: "Profile updated",
+        description: "Your profile information has been updated successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingProfile(false);
+    }
   };
   
   // Change password
@@ -98,8 +211,151 @@ export default function SettingsPage() {
     passwordForm.reset();
   };
   
+  // Save notification settings
+  const onSaveNotificationSettings = async () => {
+    setIsSavingNotifications(true);
+    try {
+      // Get form values from the notification settings
+      const documentExpiry = (document.getElementById('document-expiry') as HTMLInputElement)?.checked;
+      const assetAssignment = (document.getElementById('asset-assignment') as HTMLInputElement)?.checked;
+      const maintenanceAlerts = (document.getElementById('maintenance-alerts') as HTMLInputElement)?.checked;
+      const expiryDays = (document.getElementById('expiry-days') as HTMLInputElement)?.value;
+      const reminderFrequency = (document.getElementById('reminder-frequency') as HTMLInputElement)?.value;
+      
+      const settings = {
+        documentExpiry,
+        assetAssignment,
+        maintenanceAlerts,
+        expiryDays: parseInt(expiryDays) || 30,
+        reminderFrequency: parseInt(reminderFrequency) || 7,
+      };
+      
+      const response = await apiRequest('POST', '/api/notifications/settings', settings);
+      
+      if (response.ok) {
+        toast({
+          title: "Settings saved",
+          description: "Your notification settings have been saved successfully.",
+        });
+      } else {
+        throw new Error('Failed to save notification settings');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save notification settings. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingNotifications(false);
+    }
+  };
+
+  // Save system settings
+  const onSaveSystemSettings = async () => {
+    setIsSavingSystem(true);
+    try {
+      // Get form values from the system settings
+      const dateFormat = (document.getElementById('date-format') as HTMLSelectElement)?.value;
+      const darkMode = (document.getElementById('dark-mode') as HTMLInputElement)?.checked;
+      const exportFormat = (document.getElementById('export-format') as HTMLSelectElement)?.value;
+      
+      const settings = {
+        dateFormat: dateFormat || "MM/DD/YYYY",
+        darkMode: darkMode || false,
+        exportFormat: exportFormat || "csv",
+        timezone: "UTC",
+        language: "en",
+      };
+      
+      const response = await apiRequest('POST', '/api/system/settings', settings);
+      
+      if (response.ok) {
+        toast({
+          title: "Settings saved",
+          description: "Your system settings have been saved successfully.",
+        });
+      } else {
+        throw new Error('Failed to save system settings');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save system settings. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingSystem(false);
+    }
+  };
+
+  // Save email settings
+  const onEmailSettingsSubmit = async (data: EmailSettingsFormValues) => {
+    setIsSavingEmailSettings(true);
+    try {
+      const response = await apiRequest('POST', '/api/email-settings', data);
+      
+      if (response.ok) {
+        toast({
+          title: "Email settings saved",
+          description: "Your email configuration has been saved successfully.",
+        });
+        queryClient.invalidateQueries({ queryKey: ['email-settings'] });
+      } else {
+        throw new Error('Failed to save email settings');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save email settings. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingEmailSettings(false);
+    }
+  };
+
+  // Test email configuration
+  const onTestEmail = async () => {
+    if (!testEmail) {
+      toast({
+        title: "Error",
+        description: "Please enter a test email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsTestingEmail(true);
+    try {
+      const response = await apiRequest('POST', '/api/email-settings/test', {
+        testEmail
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Test email sent",
+          description: `Test email sent successfully to ${testEmail}. Please check your inbox.`,
+        });
+      } else {
+        throw new Error('Failed to send test email');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send test email. Please check your email configuration.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsTestingEmail(false);
+    }
+  };
+  
   return (
-    <Dashboard title="Settings" description="Manage your account settings and preferences.">
+     <Dashboard
+        title={<span className="text-[32px] font-bold">Settings</span>}
+        description="Manage your organization's assets."
+      >
       <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
         <div className="flex flex-col md:flex-row gap-6">
           <div className="md:w-1/4">
@@ -123,11 +379,25 @@ export default function SettingsPage() {
                 Notifications
               </TabsTrigger>
               <TabsTrigger
+                value="email-config"
+                className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
+              >
+                Email Configuration
+              </TabsTrigger>
+              <TabsTrigger
                 value="system"
                 className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
               >
                 System
               </TabsTrigger>
+              {user?.role === 'vendor' && (
+                <TabsTrigger
+                  value="vendor"
+                  className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
+                >
+                  Vendor Settings
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
           <div className="md:w-3/4">
@@ -174,8 +444,11 @@ export default function SettingsPage() {
                       />
                       
                       <div className="mt-6">
-                        <Button type="submit">
-                          {profileForm.formState.isSubmitting ? (
+                        <Button 
+                          type="submit" 
+                          disabled={isUpdatingProfile}
+                        >
+                          {isUpdatingProfile ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                               Saving...
@@ -184,6 +457,16 @@ export default function SettingsPage() {
                             "Save Changes"
                           )}
                         </Button>
+                        {profileForm.formState.errors.name && (
+                          <p className="text-sm text-red-500 mt-2">
+                            {profileForm.formState.errors.name.message}
+                          </p>
+                        )}
+                        {profileForm.formState.errors.email && (
+                          <p className="text-sm text-red-500 mt-2">
+                            {profileForm.formState.errors.email.message}
+                          </p>
+                        )}
                       </div>
                     </form>
                   </Form>
@@ -318,9 +601,8 @@ export default function SettingsPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="expiry-days" className="font-medium">Document Expiry Alert Days</Label>
-                        <Input 
+                        <NumberInput 
                           id="expiry-days"
-                          type="number"
                           placeholder="30"
                           defaultValue="30"
                           className="mt-1"
@@ -332,9 +614,8 @@ export default function SettingsPage() {
                       
                       <div>
                         <Label htmlFor="reminder-frequency" className="font-medium">Reminder Frequency</Label>
-                        <Input 
+                        <NumberInput 
                           id="reminder-frequency"
-                          type="number"
                           placeholder="7"
                           defaultValue="7"
                           className="mt-1"
@@ -347,8 +628,215 @@ export default function SettingsPage() {
                   </div>
                   
                   <div className="mt-6">
-                    <Button>Save Notification Settings</Button>
+                    <Button 
+                      onClick={onSaveNotificationSettings}
+                      disabled={isSavingNotifications}
+                    >
+                      {isSavingNotifications ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        "Save Notification Settings"
+                      )}
+                    </Button>
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="email-config" className="mt-0">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Email Configuration</CardTitle>
+                  <CardDescription>
+                    Configure SMTP settings for email notifications and communications.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {emailSettingsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                      Loading email settings...
+                    </div>
+                  ) : (
+                    <Form {...emailSettingsForm}>
+                      <form onSubmit={emailSettingsForm.handleSubmit(onEmailSettingsSubmit)} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <FormField
+                            control={emailSettingsForm.control}
+                            name="smtpHost"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>SMTP Host</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="mail.example.com" {...field} />
+                                </FormControl>
+                                <FormDescription>
+                                  The SMTP server hostname
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          
+                          <FormField
+                            control={emailSettingsForm.control}
+                            name="smtpPort"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>SMTP Port</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="587" {...field} />
+                                </FormControl>
+                                <FormDescription>
+                                  The SMTP server port (usually 587 or 465)
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <FormField
+                          control={emailSettingsForm.control}
+                          name="smtpSecure"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Encryption</FormLabel>
+                              <FormControl>
+                                <select
+                                  {...field}
+                                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-primary-500 focus:outline-none focus:ring-primary-500"
+                                >
+                                  <option value="None">None</option>
+                                  <option value="SSL/TLS">SSL/TLS</option>
+                                  <option value="STARTTLS">STARTTLS</option>
+                                </select>
+                              </FormControl>
+                              <FormDescription>
+                                Choose the encryption method for your SMTP connection
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <FormField
+                            control={emailSettingsForm.control}
+                            name="smtpUser"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>SMTP Username</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="user@example.com" {...field} />
+                                </FormControl>
+                                <FormDescription>
+                                  Your SMTP authentication username
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          
+                          <FormField
+                            control={emailSettingsForm.control}
+                            name="smtpPass"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>SMTP Password</FormLabel>
+                                <FormControl>
+                                  <Input type="password" placeholder="••••••••" {...field} />
+                                </FormControl>
+                                <FormDescription>
+                                  Your SMTP authentication password
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <FormField
+                          control={emailSettingsForm.control}
+                          name="emailFrom"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>From Email Address</FormLabel>
+                              <FormControl>
+                                <Input placeholder="noreply@example.com" {...field} />
+                              </FormControl>
+                              <FormDescription>
+                                The email address that will appear as the sender
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <Separator />
+
+                        <div>
+                          <h3 className="text-lg font-medium mb-4">Test Configuration</h3>
+                          <div className="flex gap-4 items-end">
+                            <div className="flex-1">
+                              <Label htmlFor="test-email" className="font-medium">Test Email Address</Label>
+                              <Input
+                                id="test-email"
+                                type="email"
+                                placeholder="test@example.com"
+                                value={testEmail}
+                                onChange={(e) => setTestEmail(e.target.value)}
+                                className="mt-1"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">
+                                Enter an email address to test your configuration
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={onTestEmail}
+                              disabled={isTestingEmail || !testEmail}
+                            >
+                              {isTestingEmail ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Sending...
+                                </>
+                              ) : (
+                                <>
+                                  <Send className="mr-2 h-4 w-4" />
+                                  Send Test Email
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-4">
+                          <Button 
+                            type="submit" 
+                            disabled={isSavingEmailSettings}
+                          >
+                            {isSavingEmailSettings ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Saving...
+                              </>
+                            ) : (
+                              <>
+                                <Mail className="mr-2 h-4 w-4" />
+                                Save Email Settings
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </form>
+                    </Form>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -415,11 +903,91 @@ export default function SettingsPage() {
                   </div>
                   
                   <div className="mt-6">
-                    <Button>Save System Settings</Button>
+                    <Button 
+                      onClick={onSaveSystemSettings}
+                      disabled={isSavingSystem}
+                    >
+                      {isSavingSystem ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        "Save System Settings"
+                      )}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {user?.role === 'vendor' && (
+              <TabsContent value="vendor" className="mt-0">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Vendor Settings</CardTitle>
+                    <CardDescription>
+                      Manage your products, prices, and customers.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-medium mb-4">Quick Actions</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <Button 
+                            variant="outline" 
+                            className="h-20 flex flex-col items-center justify-center"
+                            onClick={() => window.location.href = '/vendor-settings'}
+                          >
+                            <Plus className="h-6 w-6 mb-2" />
+                            Add Product
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            className="h-20 flex flex-col items-center justify-center"
+                            onClick={() => window.location.href = '/vendor-settings?tab=prices'}
+                          >
+                            <Receipt className="h-6 w-6 mb-2" />
+                            Set Prices
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            className="h-20 flex flex-col items-center justify-center"
+                            onClick={() => window.location.href = '/vendor-settings?tab=customers'}
+                          >
+                            <UserCheck className="h-6 w-6 mb-2" />
+                            Add Customers
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      <Separator />
+                      
+                      <div>
+                        <h3 className="text-lg font-medium mb-4">Vendor Information</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label className="font-medium">Vendor Email</Label>
+                            <p className="text-sm text-gray-600 mt-1">{user?.email}</p>
+                          </div>
+                          <div>
+                            <Label className="font-medium">Role</Label>
+                            <p className="text-sm text-gray-600 mt-1 capitalize">{user?.role}</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-6">
+                        <Button onClick={() => window.location.href = '/vendor-settings'}>
+                          Go to Vendor Settings
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
           </div>
         </div>
       </Tabs>

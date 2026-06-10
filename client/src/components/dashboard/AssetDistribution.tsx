@@ -28,21 +28,31 @@ export default function AssetDistribution({ data, className }: AssetDistribution
         </Button>
       </div>
       <div className="p-5">
-        {data.map((item, index) => (
-          <div key={item.type} className="flex flex-col mb-4 last:mb-0">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm font-medium text-gray-500">{item.type}</span>
-              <span className="text-sm font-medium text-gray-800">
-                {item.count} ({item.percentage}%)
-              </span>
+        {data.length > 0 ? (
+          data.map((item, index) => (
+            <div key={item.type} className="flex flex-col mb-4 last:mb-0">
+              <div className="flex justify-between mb-2">
+                <span className="text-sm font-medium text-gray-500">{item.type}</span>
+                <span className="text-sm font-medium text-gray-800">
+                  {item.count} ({item.percentage}%)
+                </span>
+              </div>
+              <Progress 
+                value={item.percentage}
+                className="h-2.5 bg-gray-200"
+                indicatorClassName={item.color || defaultColors[index % defaultColors.length]}
+              />
             </div>
-            <Progress 
-              value={item.percentage}
-              className="h-2.5 bg-gray-200"
-              indicatorClassName={item.color || defaultColors[index % defaultColors.length]}
-            />
+          ))
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="h-12 w-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+              <MoreHorizontal className="h-6 w-6 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-800 mb-1">No assets found</h3>
+            <p className="text-sm text-gray-500">Add some assets to see the distribution.</p>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

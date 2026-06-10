@@ -8,6 +8,7 @@ import { setupFileServing, uploadMiddleware, handleFileUpload } from "./upload";
 import { ZodError } from "zod";
 import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
 import { hashPassword } from "./auth";
+import { getTenantFromRequest } from "./middleware/tenant";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertDependentSchema, 
   insertEmployeeDocumentSchema, insertVendorSchema, insertAssetAssignmentSchema,
@@ -15,6 +16,7 @@ import {
   insertInvoiceSchema, insertUserSchema
 } from "@shared/schema";
 import companyDocumentsRouter from "./company-documents";
+import { createPayrollRouter } from "./payroll";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
@@ -24,7 +26,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupFileServing(app);
   
   // Serve files from public directory
-  app.use(express.static('public'));
+  app.use(express.json());
+app.use(express.static('public'));
   
   // Special route for pitch deck
   app.get('/pitch-deck', (req, res) => {
@@ -109,27 +112,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     throw error;
   };
 
+  const handleDatabaseError = (error: any, res: any) => {
+    if (!error || typeof error !== 'object') return false;
+
+    const validationErrors: Record<string, string> = {
+      '23505': 'Duplicate entry',
+      '23502': 'Missing required field',
+      '23503': 'Invalid reference',
+      '22P02': 'Invalid data format',
+      '22007': 'Invalid date/time format'
+    };
+
+    if (error.code && validationErrors[error.code]) {
+      return res.status(400).json({
+        message: validationErrors[error.code],
+        detail: error.detail || error.message || "The provided data could not be processed."
+      });
+    }
+
+    return false;
+  };
+
   // Root API endpoint
   app.get("/api", (req, res) => {
     res.json({ message: "SyncBridge API" });
   });
 
-  // User routes
-  app.get("/api/users", requireRole(['admin', 'hr']), async (req, res) => {
-    try {
-      const employees = await storage.getEmployees();
-      res.json(employees);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch users" });
-    }
-  });
 
   // Employee routes
   app.get("/api/employees", requireRole(['admin', 'hr', 'it_manager']), async (req, res) => {
     try {
       const employees = await storage.getEmployees();
       res.json(employees);
-    } catch (error) {
+    } catch (error: any) {
+      console.error("GET /api/employees error:", error?.message || error);
       res.status(500).json({ message: "Failed to fetch employees" });
     }
   });
@@ -151,7 +167,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/employees", requireRole(['admin', 'hr']), async (req, res) => {
     try {
-      const employeeData = insertEmployeeSchema.parse(req.body);
+      console.log("Employee Create Request Body:", req.body);
+      console.log("Employee Create Request DOB:", req.body?.dateOfBirth);
+      console.log("Employee Create Request DOB Type:", typeof req.body?.dateOfBirth);
+      console.log("Employee Create Request DOB instanceof Date:", req.body?.dateOfBirth instanceof Date);
+      const user = req.user as any;
+      const tenant = await getTenantFromRequest(req);
+      const employeeData = insertEmployeeSchema.parse({
+        ...req.body,
+        tenantId: tenant?.id ?? req.body.tenantId ?? user?.tenantId ?? undefined,
+      });
+      console.log("Employee Payload:", employeeData);
+      console.log("DOB Type:", typeof employeeData.dateOfBirth);
+      console.log("DOB Value:", employeeData.dateOfBirth);
+      console.log("DOB instanceof Date:", employeeData.dateOfBirth instanceof Date);
       const employee = await storage.createEmployee(employeeData);
       
       // Create audit log
@@ -166,29 +195,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create notification for employee creation
       await storage.createNotification({
         type: "info",
-        title: "Employee Added",
         message: `Employee "${employee.name}" has been added successfully`,
         targetUserId: req.user!.id,
-        createdAt: new Date(),
         seen: false
       });
       
       res.status(201).json(employee);
     } catch (error) {
+      console.error('POST /api/employees error:', error);
       if (error instanceof ZodError) {
         return res.status(400).json({
           message: "Validation error",
           errors: error.errors
         });
       }
-      res.status(500).json({ message: "Failed to create employee" });
+      if (handleDatabaseError(error, res)) {
+        return;
+      }
+      res.status(500).json({
+        message: "Failed to create employee",
+        detail: (error as any)?.message || "An unknown error occurred while creating the employee."
+      });
     }
   });
 
   app.put("/api/employees/:id", requireRole(['admin', 'hr']), async (req, res) => {
     try {
+      console.log("Employee Update Request Body:", req.body);
+      console.log("Employee Update Request DOB:", req.body?.dateOfBirth);
+      console.log("Employee Update Request DOB Type:", typeof req.body?.dateOfBirth);
+      console.log("Employee Update Request DOB instanceof Date:", req.body?.dateOfBirth instanceof Date);
       const id = parseInt(req.params.id);
-      const employeeData = req.body;
+      const user = req.user as any;
+      const tenant = await getTenantFromRequest(req);
+      const employeeData = insertEmployeeSchema.partial().parse({
+        ...req.body,
+        tenantId: tenant?.id ?? req.body.tenantId ?? user?.tenantId ?? undefined,
+      });
+      console.log("Employee Update Payload:", employeeData);
+      console.log("DOB Type:", typeof employeeData.dateOfBirth);
+      console.log("DOB Value:", employeeData.dateOfBirth);
+      console.log("DOB instanceof Date:", employeeData.dateOfBirth instanceof Date);
       
       const updatedEmployee = await storage.updateEmployee(id, employeeData);
       
@@ -207,7 +254,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(updatedEmployee);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update employee" });
+      console.error('PUT /api/employees error:', error);
+      if (error instanceof ZodError) return handleZodError(error, res);
+      if (handleDatabaseError(error, res)) {
+        return;
+      }
+      res.status(500).json({
+        message: "Failed to update employee",
+        detail: (error as any)?.message || "An unknown error occurred while updating the employee."
+      });
     }
   });
 
@@ -413,7 +468,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/asset-assignments", requireRole(['admin', 'it_manager']), async (req, res) => {
     try {
-      const assignmentData = insertAssetAssignmentSchema.parse(req.body);
+      const assignmentInput = {
+        ...req.body,
+        dateAssigned: req.body.dateAssigned ? new Date(req.body.dateAssigned) : new Date(),
+        dateReturned: req.body.dateReturned ? new Date(req.body.dateReturned) : undefined,
+      };
+      const assignmentData = insertAssetAssignmentSchema.parse(assignmentInput);
       
       // Verify asset exists and is available
       const asset = await storage.getAsset(assignmentData.assetId);
@@ -669,6 +729,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update vendor route
+  app.put("/api/vendors/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const vendorData = insertVendorSchema.parse(req.body);
+      const updatedVendor = await storage.updateVendor(id, vendorData);
+      if (!updatedVendor) {
+        return res.status(404).json({ message: "Vendor not found" });
+      }
+      await storage.createAuditLog({
+        action: "update",
+        entity: "vendor",
+        entityId: updatedVendor.id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+      res.json(updatedVendor);
+    } catch (error) {
+      if (error instanceof ZodError) return handleZodError(error, res);
+      res.status(500).json({ message: "Failed to update vendor" });
+    }
+  });
+
+  // Delete vendor route
+  app.delete("/api/vendors/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const vendor = await storage.getVendor(id);
+      if (!vendor) {
+        return res.status(404).json({ message: "Vendor not found" });
+      }
+      await storage.deleteVendor(id);
+      await storage.createAuditLog({
+        action: "delete",
+        entity: "vendor",
+        entityId: id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+      res.json({ message: "Vendor deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting vendor:', error);
+      res.status(500).json({ message: "Failed to delete vendor" });
+    }
+  });
+
   // Notification routes
   app.get("/api/notifications", async (req, res) => {
     try {
@@ -708,16 +814,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // License routes
-  app.get("/api/licenses", requireRole(['admin', 'it_manager']), async (req, res) => {
+  app.get("/api/licenses", requireRole(['super_admin', 'admin', 'it_manager']), async (req, res) => {
     try {
       const assetId = req.query.assetId ? parseInt(req.query.assetId as string) : undefined;
+      
+      const user = req.user as any;
+      const effectiveTenantId = user?.role === 'super_admin' || user?.isSuperAdmin ? undefined : user?.tenantId;
       
       let licenses;
       if (assetId) {
         licenses = await storage.getLicensesByAssetId(assetId);
+        // Ensure tenant isolation
+        if (effectiveTenantId) {
+          licenses = licenses.filter(l => l.tenantId === effectiveTenantId);
+        }
       } else {
-        // Get all licenses expiring in the next 90 days by default
-        licenses = await storage.getExpiringLicenses(90);
+        licenses = await storage.getAllLicenses(effectiveTenantId);
       }
       
       res.json(licenses);
@@ -726,7 +838,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/licenses/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+  app.get("/api/licenses/:id", requireRole(['super_admin', 'admin', 'it_manager']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const license = await storage.getLicense(id);
@@ -741,9 +853,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/licenses", requireRole(['admin', 'it_manager']), async (req, res) => {
+  app.post("/api/licenses", requireRole(['super_admin', 'admin', 'it_manager']), async (req, res) => {
     try {
-      const licenseData = insertLicenseSchema.parse(req.body);
+      const user = req.user as any;
+      const licenseData = insertLicenseSchema.parse({
+        ...req.body,
+        tenantId: req.body.tenantId || user?.tenantId || 1,
+      });
       const license = await storage.createLicense(licenseData);
       
       // Create audit log
@@ -784,16 +900,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/licenses/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+  app.put("/api/licenses/:id", requireRole(['super_admin', 'admin', 'it_manager']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const licenseData = req.body;
       
-      const updatedLicense = await storage.updateLicense(id, licenseData);
-      
-      if (!updatedLicense) {
+      // Ensure tenantId is preserved or set from user
+      const existingLicense = await storage.getLicense(id);
+      if (!existingLicense) {
         return res.status(404).json({ message: "License not found" });
       }
+      const tenantId = existingLicense?.tenantId ?? (req.user as any)?.tenantId;
+      const updatedPayload = { ...licenseData, tenantId };
+      const updatedLicense = await storage.updateLicense(id, updatedPayload);
       
       // Create audit log
       await storage.createAuditLog({
@@ -810,7 +929,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/licenses/:id", requireRole(['admin', 'it_manager']), async (req, res) => {
+  app.delete("/api/licenses/:id", requireRole(['super_admin', 'admin', 'it_manager']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteLicense(id);
@@ -1107,14 +1226,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
       
-      // Only admin and super_admin can view users
-      if (!["admin", "super_admin"].includes(req.user!.role)) {
-        return res.status(403).json({ message: "Access denied" });
+      const currentUser = req.user!;
+      const users = await storage.getUsers();
+      
+      let filteredUsers = users;
+      if (currentUser.role === 'super_admin' || (currentUser as any).isSuperAdmin) {
+        filteredUsers = users;
+      } else if (currentUser.role === 'admin') {
+        filteredUsers = users.filter(u => u.role !== 'super_admin');
+      } else {
+        filteredUsers = users.filter(u => u.id === currentUser.id);
       }
       
-      const users = await storage.getUsers();
       // Remove passwords from response
-      const safeUsers = users.map(({ password, ...user }) => user);
+      const safeUsers = filteredUsers.map(({ password, ...user }) => user);
       res.json(safeUsers);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch users" });
@@ -1137,12 +1262,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tenantId: req.user!.tenantId || 1
       });
       
-      // Hash password
-      const hashedPassword = await hashPassword(userData.password);
-      const user = await storage.createUser({
-        ...userData,
-        password: hashedPassword
-      });
+      // Password will be hashed in storage.createUser
+      const user = await storage.createUser(userData, userData.tenantId || 1);
       
       // Remove password from response
       const { password, ...safeUser } = user;
@@ -1169,10 +1290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       const userData = insertUserSchema.partial().parse(req.body);
       
-      // Hash password if provided
-      if (userData.password) {
-        userData.password = await hashPassword(userData.password);
-      }
+      // Password will be hashed in storage.updateUser if provided
       
       const user = await storage.updateUser(id, userData);
       
@@ -1335,6 +1453,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Company Documents routes - must be registered before server creation
   app.use("/api/company-documents", companyDocumentsRouter);
   console.log("Company documents routes registered");
+
+  // Payroll routes
+  app.use("/api/payroll", createPayrollRouter());
+  console.log("Payroll routes registered");
 
   // Document expiry notification routes
   app.post('/api/notifications/test-expiry', async (req, res) => {
