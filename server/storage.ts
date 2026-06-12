@@ -1,6 +1,5 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
 import session from 'express-session';
+import { db } from './db';
 import { 
   users, 
   employees, 
@@ -10,6 +9,8 @@ import {
   maintenanceRecords, 
   employeeDocuments, 
   companyDocuments,
+  companies,
+  employeeCompanyHistory,
   vendors,
   products,
   vendorProductPrices,
@@ -37,6 +38,10 @@ import {
   InsertEmployeeDocument,
   CompanyDocument,
   InsertCompanyDocument,
+  Company,
+  InsertCompany,
+  EmployeeCompanyHistory,
+  InsertEmployeeCompanyHistory,
   Vendor,
   InsertVendor,
   VendorProductPrice,
@@ -58,7 +63,7 @@ import {
   Payment,
   InsertPayment,
 } from '@shared/schema';
-import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or } from 'drizzle-orm';
+import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or, getTableColumns } from 'drizzle-orm';
 import { DataEncryption } from './utils/encryption';
 
 // Define sensitive fields for encryption
@@ -70,11 +75,6 @@ const SENSITIVE_FIELDS = {
   customers: ['email', 'phone', 'taxId', 'address'] as const,
   vendorCustomers: ['customerEmail', 'customerPhone'] as const,
 } as const;
-
-// Database connection
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:Welcome123@localhost:5432/syncbridge';
-const client = postgres(connectionString);
-export const db = drizzle(client);
 
 // Session store
 const sessionStore = new session.MemoryStore();
@@ -115,12 +115,16 @@ export interface IStorage {
   deleteUser(id: number): Promise<void>;
   
   // Employee operations
-  getEmployee(id: number): Promise<Employee | undefined>;
+  getEmployee(id: number): Promise<(Employee & { companyName?: string | null }) | undefined>;
   getEmployeeByUserId(userId: number): Promise<Employee | undefined>;
-  getEmployees(tenantId?: number): Promise<Employee[]>;
+  getEmployees(tenantId?: number): Promise<(Employee & { companyName?: string | null })[]>;
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: number, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
+  
+  // Employee company history operations
+  getEmployeeCompanyHistory(employeeId: number): Promise<EmployeeCompanyHistory[]>;
+  createEmployeeCompanyHistory(record: InsertEmployeeCompanyHistory): Promise<EmployeeCompanyHistory>;
   
   // Dependent operations
   getDependent(id: number): Promise<Dependent | undefined>;
@@ -171,6 +175,13 @@ export interface IStorage {
   createCompanyDocument(document: InsertCompanyDocument): Promise<CompanyDocument>;
   updateCompanyDocument(id: number, document: Partial<InsertCompanyDocument>): Promise<CompanyDocument | undefined>;
   deleteCompanyDocument(id: number): Promise<void>;
+  
+  // Company operations
+  getCompany(id: number): Promise<Company | undefined>;
+  getCompanies(tenantId?: number): Promise<Company[]>;
+  createCompany(company: InsertCompany): Promise<Company>;
+  updateCompany(id: number, company: Partial<InsertCompany>): Promise<Company | undefined>;
+  deleteCompany(id: number): Promise<void>;
   
   // Vendor operations
   getVendor(id: number): Promise<Vendor | undefined>;
@@ -329,9 +340,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Employee operations
-  async getEmployee(id: number): Promise<Employee | undefined> {
-    const [employee] = await db.select().from(employees).where(eq(employees.id, id));
-    return employee;
+  async getEmployee(id: number): Promise<(Employee & { companyName?: string | null }) | undefined> {
+    const [row] = await db
+      .select({
+        ...getTableColumns(employees),
+        companyName: companies.companyName,
+      })
+      .from(employees)
+      .leftJoin(companies, eq(employees.companyId, companies.id))
+      .where(eq(employees.id, id));
+    return row;
   }
 
   async getEmployeeByUserId(userId: number): Promise<Employee | undefined> {
@@ -339,11 +357,19 @@ export class DatabaseStorage implements IStorage {
     return employee;
   }
 
-  async getEmployees(tenantId?: number): Promise<Employee[]> {
+  async getEmployees(tenantId?: number): Promise<(Employee & { companyName?: string | null })[]> {
+    const query = db
+      .select({
+        ...getTableColumns(employees),
+        companyName: companies.companyName,
+      })
+      .from(employees)
+      .leftJoin(companies, eq(employees.companyId, companies.id));
+
     if (tenantId) {
-      return await db.select().from(employees).where(eq(employees.tenantId, tenantId));
+      return await query.where(eq(employees.tenantId, tenantId));
     }
-    return await db.select().from(employees);
+    return await query;
   }
 
   private normalizeEmployeeDates(employee: Partial<InsertEmployee> & Record<string, any>) {
@@ -443,12 +469,55 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEmployee(id: number): Promise<void> {
     // Delete all related records to avoid FK constraint violations
+    await db.delete(employeeCompanyHistory).where(eq(employeeCompanyHistory.employeeId, id));
     await db.delete(assetAssignments).where(eq(assetAssignments.employeeId, id));
     await db.delete(employeeDocuments).where(eq(employeeDocuments.employeeId, id));
     await db.delete(dependents).where(eq(dependents.employeeId, id));
     await db.delete(payrollRecords).where(eq(payrollRecords.employeeId, id));
     await db.delete(employeePayroll).where(eq(employeePayroll.employeeId, id));
     await db.delete(employees).where(eq(employees.id, id));
+  }
+
+  async getEmployeeCompanyHistory(employeeId: number): Promise<EmployeeCompanyHistory[]> {
+    return await db
+      .select()
+      .from(employeeCompanyHistory)
+      .where(eq(employeeCompanyHistory.employeeId, employeeId))
+      .orderBy(desc(employeeCompanyHistory.dateChanged));
+  }
+
+  async createEmployeeCompanyHistory(record: InsertEmployeeCompanyHistory): Promise<EmployeeCompanyHistory> {
+    const [history] = await db.insert(employeeCompanyHistory).values(record).returning();
+    return history;
+  }
+
+  // Company operations
+  async getCompany(id: number): Promise<Company | undefined> {
+    const [company] = await db.select().from(companies).where(eq(companies.id, id));
+    return company;
+  }
+
+  async getCompanies(tenantId?: number): Promise<Company[]> {
+    if (tenantId) {
+      return await db.select().from(companies).where(eq(companies.tenantId, tenantId));
+    }
+    return await db.select().from(companies);
+  }
+
+  async createCompany(company: InsertCompany): Promise<Company> {
+    const [newCompany] = await db.insert(companies).values(company).returning();
+    return newCompany;
+  }
+
+  async updateCompany(id: number, companyData: Partial<InsertCompany>): Promise<Company | undefined> {
+    const [updatedCompany] = await db.update(companies).set(companyData).where(eq(companies.id, id)).returning();
+    return updatedCompany;
+  }
+
+  async deleteCompany(id: number): Promise<void> {
+    await db.update(employees).set({ companyId: null }).where(eq(employees.companyId, id));
+    await db.update(employeeCompanyHistory).set({ companyId: null }).where(eq(employeeCompanyHistory.companyId, id));
+    await db.delete(companies).where(eq(companies.id, id));
   }
 
   // Vendor operations

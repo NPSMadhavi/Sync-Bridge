@@ -74,6 +74,7 @@ export function exportPayrollConfigsToExcel(configs: any[]) {
       "Base Salary (Monthly)": baseSalary,
       "Annual Salary": baseSalary * 12,
       "Payroll Period": c.payrollPeriod || "",
+      "No of Working Days": c.noOfWorkingDays ?? "",
       "Hourly Rate": c.hourlyRate ?? "",
       "Overtime Rate": c.overtimeRate ?? "",
       "Allowance Transport": allowances.transport ?? 0,

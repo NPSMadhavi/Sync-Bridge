@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Edit, Trash2, Users, Loader2, Eye, EyeOff, Upload, Download } from "lucide-react";
+import { Plus, Edit, Trash2, Users, Loader2, Eye, EyeOff, Upload, Download, History } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-config";
@@ -31,6 +31,13 @@ import { exportEmployeesToExcel, parseEmployeeImportFile, type EmployeeImportRow
 import { insertEmployeeSchema } from "@shared/schema";
 import { ZodError } from "zod";
 import { TableRowActions } from "@/components/ui/table-row-actions";
+import { CompanySearchSelect } from "@/components/ui/company-search-select";
+import { EntityViewSheet } from "@/components/ui/entity-view-sheet";
+import {
+  EmployeeViewContent,
+  getPrStatusLabel,
+  getVisaTypeLabel,
+} from "@/components/views/employee-view-content";
 import {
   Dialog,
   DialogContent,
@@ -64,7 +71,19 @@ interface Employee {
   passportScan?: string;
   visaScan?: string;
   nricScan?: string;
+  companyId?: number | null;
+  companyName?: string | null;
   createdAt: string;
+}
+
+interface EmployeeCompanyHistoryRecord {
+  id: number;
+  employeeId: number;
+  employeeCode: string;
+  employeeName: string;
+  companyId?: number | null;
+  companyName: string;
+  dateChanged: string;
 }
 
 interface EmployeeFormData {
@@ -86,6 +105,7 @@ interface EmployeeFormData {
   visaExpiry: string;
   visaType: 's_pass' | 'work_permit' | 'employment_pass' | 'pr' | 'dependent_pass' | 'ltvp' | 'student_pass' | 'other';
   visaRemarks: string;
+  companyId: string;
   passportScan?: string;
   nricScan?: string;
   visaScan?: string;
@@ -153,6 +173,7 @@ function buildEmployeePayload(
       : null,
     visaType: data.visaType || null,
     visaRemarks: data.visaRemarks?.trim() || null,
+    companyId: data.companyId ? Number(data.companyId) : null,
     passportScan: data.passportScan || null,
     nricScan: data.nricScan || null,
     visaScan: data.visaScan || null,
@@ -179,6 +200,8 @@ export default function EmployeesPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isViewDetailsModalOpen, setIsViewDetailsModalOpen] = useState(false);
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [historyEmployee, setHistoryEmployee] = useState<Employee | null>(null);
   const [dependents, setDependents] = useState<Dependent[]>([]);
   const [dependentFormData, setDependentFormData] = useState<Dependent>({
     name: '',
@@ -213,6 +236,7 @@ export default function EmployeesPage() {
     visaExpiry: '',
     visaType: 'other',
     visaRemarks: '',
+    companyId: '',
     passportScan: '',
     nricScan: '',
     visaScan: '',
@@ -329,6 +353,38 @@ export default function EmployeesPage() {
     },
     enabled: !!user && ((Boolean(user?.tenantId) || user?.role === 'super_admin' || user?.isSuperAdmin) ?? false),
   });
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ['/api/companies'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/companies');
+      return response.json();
+    },
+    enabled: !!user,
+  });
+
+  const { data: companyHistory = [], isLoading: isHistoryLoading } = useQuery({
+    queryKey: ['/api/employees', historyEmployee?.id, 'company-history'],
+    queryFn: async () => {
+      if (!historyEmployee) return [];
+      const response = await apiRequest('GET', `/api/employees/${historyEmployee.id}/company-history`);
+      return response.json();
+    },
+    enabled: isHistoryDialogOpen && !!historyEmployee,
+  });
+
+  const getCompanyName = (companyId?: number | null) => {
+    if (companyId == null) return '-';
+    const id = Number(companyId);
+    if (Number.isNaN(id)) return '-';
+    const company = companies.find((c: { id: number; companyName: string }) => c.id === id);
+    return company?.companyName || '-';
+  };
+
+  const displayCompanyName = (employee: Employee) => {
+    if (employee.companyName?.trim()) return employee.companyName;
+    return getCompanyName(employee.companyId);
+  };
 
   console.log('Current employees state:', employees);
   console.log('Loading state:', isLoading);
@@ -474,6 +530,7 @@ export default function EmployeesPage() {
       visaExpiry: '',
       visaType: 'other',
       visaRemarks: '',
+      companyId: '',
       passportScan: '',
       nricScan: '',
       visaScan: '',
@@ -501,6 +558,7 @@ export default function EmployeesPage() {
       visaExpiry: employee.visaExpiry || '',
       visaType: employee.visaType || 'other',
       visaRemarks: employee.visaRemarks || '',
+      companyId: employee.companyId ? String(employee.companyId) : '',
       passportScan: employee.passportScan || '',
       nricScan: employee.nricScan || '',
       visaScan: employee.visaScan || '',
@@ -516,6 +574,11 @@ export default function EmployeesPage() {
   const handleDelete = (employee: Employee) => {
     setSelectedEmployee(employee);
     setIsDeleteDialogOpen(true);
+  };
+
+  const handleHistory = (employee: Employee) => {
+    setHistoryEmployee(employee);
+    setIsHistoryDialogOpen(true);
   };
 
   const confirmDelete = () => {
@@ -544,6 +607,329 @@ export default function EmployeesPage() {
     ? (parseFloat(formData.salary) * 12).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '—';
 
+  const renderEmployeeFormDetailsGrid = (idPrefix: 'add' | 'edit') => {
+    const p = idPrefix === 'edit' ? 'edit_' : '';
+    const passportVisKey =
+      idPrefix === 'edit' ? 'edit_passport' : isForeigner ? 'add_passport_foreigner' : 'add_passport';
+
+    return (
+      <div className="space-y-6">
+        <h3 className="text-lg font-semibold border-b pb-2">Personal Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor={`${p}employee_id`}>Employee ID*</Label>
+            <Input
+              id={`${p}employee_id`}
+              placeholder="e.g. EMP001"
+              value={formData.employeeId}
+              onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
+              required
+            />
+            <p className="text-sm text-muted-foreground mt-1">Unique identifier for the employee</p>
+          </div>
+          <div>
+            {!isForeigner ? (
+              <>
+                <Label htmlFor={`${p}nric_number`}>NRIC / ID Number</Label>
+                <Input
+                  id={`${p}nric_number`}
+                  placeholder="e.g. S1234567A"
+                  value={formData.nricNumber || ''}
+                  onChange={(e) => setFormData({ ...formData, nricNumber: e.target.value })}
+                />
+                <p className="text-sm text-muted-foreground mt-1">Singapore NRIC or ID number</p>
+              </>
+            ) : (
+              <>
+                <Label htmlFor={`${p}fin_number`}>NRIC / ID Number</Label>
+                <Input
+                  id={`${p}fin_number`}
+                  placeholder="e.g. G1234567X"
+                  value={formData.finNumber || ''}
+                  onChange={(e) => setFormData({ ...formData, finNumber: e.target.value })}
+                />
+                <p className="text-sm text-muted-foreground mt-1">Foreigner Identification Number</p>
+              </>
+            )}
+          </div>
+
+          <div>
+            <Label htmlFor={`${p}first_name`}>Full Name*</Label>
+            <Input
+              id={`${p}first_name`}
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+            />
+            <p className="text-sm text-muted-foreground mt-1">Employee's full legal name</p>
+          </div>
+          <div>
+            <Label htmlFor={`${p}passport_number`}>Passport Number</Label>
+            <div className="relative">
+              <Input
+                id={`${p}passport_number`}
+                placeholder="e.g. A1234567 (will be masked in display)"
+                value={formData.passportNumber || ''}
+                onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
+              />
+              {formData.passportNumber && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  onClick={() => toggleNumberVisibility(passportVisKey, formData.passportNumber || '')}
+                >
+                  {visibleNumbers[passportVisKey]?.visible ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+            </div>
+            {formData.passportNumber && (
+              <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
+                <span className="font-medium">Display Value: </span>
+                {getDisplayValue(passportVisKey, formData.passportNumber)}
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground mt-1">Passport number will be displayed as **** 1234 for security</p>
+          </div>
+
+          <div>
+            <Label htmlFor={`${p}department`}>Department*</Label>
+            <Input
+              id={`${p}department`}
+              placeholder="e.g. Engineering, HR, Finance"
+              value={formData.department}
+              onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+              required
+            />
+            <p className="text-sm text-muted-foreground mt-1">Employee's department or division</p>
+          </div>
+          <div>
+            <Label htmlFor={`${p}passport_expiry`}>Passport Expiry</Label>
+            <StringDatePicker
+              value={formData.passportExpiry || ''}
+              onChange={(val) => setFormData({ ...formData, passportExpiry: val })}
+            />
+            <p className="text-sm text-muted-foreground mt-1">When does the passport expire</p>
+          </div>
+
+          <div>
+            <Label htmlFor={`${p}position`}>Designation*</Label>
+            <Input
+              id={`${p}position`}
+              placeholder="e.g. Software Engineer, Manager"
+              value={formData.designation}
+              onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+              required
+            />
+            <p className="text-sm text-muted-foreground mt-1">Employee's job title or position</p>
+          </div>
+          <div>
+            <Label htmlFor={`${p}date_of_birth`}>Date of Birth*</Label>
+            <StringDatePicker
+              value={formData.dateOfBirth}
+              onChange={(val) => setFormData({ ...formData, dateOfBirth: val })}
+            />
+            <p className="text-sm text-muted-foreground mt-1">Employee's date of birth</p>
+          </div>
+
+          <div>
+            <Label htmlFor={`${p}hire_date`}>Join Date*</Label>
+            <StringDatePicker
+              value={formData.joinDate}
+              onChange={(val) => setFormData({ ...formData, joinDate: val })}
+            />
+            <p className="text-sm text-muted-foreground mt-1">When did the employee join the company</p>
+          </div>
+          <div>
+            <Label htmlFor={`${p}status`}>Status</Label>
+            <Select
+              value={formData.status}
+              onValueChange={(value: 'active' | 'resigned' | 'on_hold' | 'terminated') =>
+                setFormData({ ...formData, status: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="resigned">Resigned</SelectItem>
+                <SelectItem value="on_hold">On Hold</SelectItem>
+                <SelectItem value="terminated">Terminated</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground mt-1">Current employment status</p>
+          </div>
+
+          <div>
+            <Label htmlFor={`${p}salary`}>Salary*</Label>
+            <Input
+              id={`${p}salary`}
+              type="number"
+              min="1"
+              step="0.01"
+              value={formData.salary}
+              onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <Label>Annual Salary</Label>
+            <Input value={computedAnnualSalary} readOnly className="bg-muted cursor-not-allowed" />
+          </div>
+
+          <div>
+            <Label htmlFor={`${p}nationality`}>Nationality</Label>
+            <Select
+              value={formData.nationality}
+              onValueChange={(value: 'citizen' | 'pr' | 'foreigner') =>
+                setFormData({
+                  ...formData,
+                  nationality: value,
+                  prStatus: value === 'pr' ? formData.prStatus || 'year_3_plus' : '',
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select residency" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="citizen">Singapore Citizen</SelectItem>
+                <SelectItem value="pr">PR</SelectItem>
+                <SelectItem value="foreigner">Foreigner</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor={`${p}pr_status`}>PR Status</Label>
+            {isPr ? (
+              <Select
+                value={formData.prStatus || 'year_3_plus'}
+                onValueChange={(value: 'year_1' | 'year_2' | 'year_3_plus') =>
+                  setFormData({ ...formData, prStatus: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select PR status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="year_1">1 Year PR</SelectItem>
+                  <SelectItem value="year_2">2 Year PR</SelectItem>
+                  <SelectItem value="year_3_plus">3 Year PR and Above</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input readOnly disabled className="bg-muted cursor-not-allowed" value="—" />
+            )}
+          </div>
+
+          <div className="col-span-2">
+            <Label htmlFor={`${p}company`}>Company</Label>
+            <CompanySearchSelect
+              companies={companies}
+              value={formData.companyId}
+              onValueChange={(value) => setFormData({ ...formData, companyId: value })}
+              placeholder="Search company..."
+            />
+            <p className="text-sm text-muted-foreground mt-1">Assign employee to a company</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderForeignerImmigrationFields = (idPrefix: 'add' | 'edit') => {
+    const p = idPrefix === 'edit' ? 'edit_' : '';
+    const visaVisKey = idPrefix === 'edit' ? 'edit_visa' : 'add_visa';
+
+    return (
+      <div className="space-y-6">
+        <h3 className="text-lg font-semibold border-b pb-2">Immigration Details</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor={`${p}visa_type`}>Visa Type</Label>
+            <Select
+              value={formData.visaType}
+              onValueChange={(value: 's_pass' | 'work_permit' | 'employment_pass' | 'pr' | 'dependent_pass' | 'ltvp' | 'student_pass' | 'other') =>
+                setFormData({ ...formData, visaType: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select visa type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="s_pass">S Pass</SelectItem>
+                <SelectItem value="work_permit">Work Permit</SelectItem>
+                <SelectItem value="employment_pass">Employment Pass</SelectItem>
+                <SelectItem value="pr">PR</SelectItem>
+                <SelectItem value="dependent_pass">Dependent Pass</SelectItem>
+                <SelectItem value="ltvp">LTVP</SelectItem>
+                <SelectItem value="student_pass">Student Pass</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground mt-1">Type of work visa or permit</p>
+          </div>
+          <div>
+            <Label htmlFor={`${p}work_permit_number`}>Work Permit Number</Label>
+            <div className="relative">
+              <Input
+                id={`${p}work_permit_number`}
+                placeholder="e.g. G1234567X (will be masked in display)"
+                value={formData.visaNumber || ''}
+                onChange={(e) => setFormData({ ...formData, visaNumber: e.target.value })}
+              />
+              {formData.visaNumber && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  onClick={() => toggleNumberVisibility(visaVisKey, formData.visaNumber || '')}
+                >
+                  {visibleNumbers[visaVisKey]?.visible ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+            </div>
+            {formData.visaNumber && (
+              <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
+                <span className="font-medium">Display Value: </span>
+                {getDisplayValue(visaVisKey, formData.visaNumber)}
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground mt-1">Visa number will be displayed as **** 1234 for security</p>
+          </div>
+          <div>
+            <Label htmlFor={`${p}visa_expiry`}>Visa Expiry</Label>
+            <StringDatePicker
+              value={formData.visaExpiry || ''}
+              onChange={(val) => setFormData({ ...formData, visaExpiry: val })}
+            />
+            <p className="text-sm text-muted-foreground mt-1">When does the visa expire</p>
+          </div>
+          <div>
+            <Label htmlFor={`${p}visa_remarks`}>Visa Remarks</Label>
+            <Textarea
+              id={`${p}visa_remarks`}
+              placeholder="Any additional notes about visa status..."
+              value={formData.visaRemarks || ''}
+              onChange={(e) => setFormData({ ...formData, visaRemarks: e.target.value })}
+            />
+            <p className="text-sm text-muted-foreground mt-1">Optional notes about visa conditions or restrictions</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const addDependent = () => {
     if (dependentFormData.name && dependentFormData.relationship) {
@@ -625,6 +1011,7 @@ export default function EmployeesPage() {
           visaExpiry: d.visaExpiry ? String(d.visaExpiry) : "",
           visaType: (d.visaType as EmployeeFormData["visaType"]) || "other",
           visaRemarks: String(d.visaRemarks ?? ""),
+          companyId: "",
           passportScan: "",
           nricScan: "",
           visaScan: "",
@@ -738,6 +1125,7 @@ export default function EmployeesPage() {
                       <TableHead>Name</TableHead>
                       <TableHead>Position</TableHead>
                       <TableHead>Department</TableHead>
+                      <TableHead>Company</TableHead>
                       <TableHead>DOB</TableHead>
                       <TableHead>Salary (Monthly)</TableHead>
                       <TableHead>Annual Salary</TableHead>
@@ -753,6 +1141,7 @@ export default function EmployeesPage() {
                         <TableCell>{employee.name}</TableCell>
                         <TableCell>{employee.designation}</TableCell>
                         <TableCell>{employee.department}</TableCell>
+                        <TableCell>{displayCompanyName(employee)}</TableCell>
                         <TableCell>{employee.dateOfBirth ? new Date(employee.dateOfBirth).toLocaleDateString('en-GB') : '-'}</TableCell>
                         <TableCell>{employee.salary ? `$${Number(employee.salary).toLocaleString('en-SG', { minimumFractionDigits: 2 })}` : '-'}</TableCell>
                         <TableCell>
@@ -844,7 +1233,7 @@ export default function EmployeesPage() {
                             actions={[
                               {
                                 icon: Eye,
-                                label: "View Details",
+                                label: "View",
                                 variant: "view",
                                 onClick: () => handleViewDetails(employee),
                               },
@@ -894,348 +1283,8 @@ export default function EmployeesPage() {
               {/* Scrollable Content */}
               <div className="flex-1 overflow-y-auto px-6 pb-24">
                 <form onSubmit={handleSubmit} className="space-y-6">
-                  <div className="grid grid-cols-2 gap-8">
-                    {/* Personal Information Section */}
-                    <div className="space-y-6">
-                      <h3 className="text-lg font-semibold border-b pb-2">Personal Information</h3>
-                      
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="employee_id">Employee ID*</Label>
-                          <Input
-                            id="employee_id"
-                            placeholder="e.g. EMP001"
-                            value={formData.employeeId}
-                            onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Unique identifier for the employee</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="first_name">Full Name*</Label>
-                          <Input
-                            id="first_name"
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Employee's full legal name</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="department">Department*</Label>
-                          <Input
-                            id="department"
-                            placeholder="e.g. Engineering, HR, Finance"
-                            value={formData.department}
-                            onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Employee's department or division</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="position">Designation*</Label>
-                          <Input
-                            id="position"
-                            placeholder="e.g. Software Engineer, Manager"
-                            value={formData.designation}
-                            onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Employee's job title or position</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="hire_date">Join Date*</Label>
-                          <StringDatePicker value={formData.joinDate} onChange={(val) => setFormData({ ...formData, joinDate: val })} />
-                          <p className="text-sm text-muted-foreground mt-1">When did the employee join the company</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="date_of_birth">Date of Birth*</Label>
-                          <StringDatePicker value={formData.dateOfBirth} onChange={(val) => setFormData({ ...formData, dateOfBirth: val })} />
-                          <p className="text-sm text-muted-foreground mt-1">Employee's date of birth</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="salary">Salary*</Label>
-                            <Input
-                              id="salary"
-                              type="number"
-                              min="1"
-                              step="0.01"
-                              value={formData.salary}
-                              onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
-                              required
-                            />
-                       
-                          </div>
-
-                          <div>
-                            <Label>Annual Salary</Label>
-                            <Input value={computedAnnualSalary} readOnly className="bg-muted cursor-not-allowed" />
-                        
-                          </div>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="status">Status</Label>
-                          <Select value={formData.status} onValueChange={(value: 'active' | 'resigned' | 'on_hold' | 'terminated') => setFormData({ ...formData, status: value })}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="active">Active</SelectItem>
-                              <SelectItem value="resigned">Resigned</SelectItem>
-                              <SelectItem value="on_hold">On Hold</SelectItem>
-                              <SelectItem value="terminated">Terminated</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-sm text-muted-foreground mt-1">Current employment status</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="nationality">Nationality</Label>
-                            <Select
-                              value={formData.nationality}
-                              onValueChange={(value: 'citizen' | 'pr' | 'foreigner') =>
-                                setFormData({
-                                  ...formData,
-                                  nationality: value,
-                                  prStatus: value === 'pr' ? formData.prStatus || 'year_3_plus' : '',
-                                })
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select residency" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="citizen">Singapore Citizen</SelectItem>
-                                <SelectItem value="pr">PR</SelectItem>
-                                <SelectItem value="foreigner">Foreigner</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div>
-                            <Label htmlFor="pr_status">PR Status</Label>
-                            {isPr ? (
-                              <Select
-                                value={formData.prStatus || 'year_3_plus'}
-                                onValueChange={(value: 'year_1' | 'year_2' | 'year_3_plus') =>
-                                  setFormData({ ...formData, prStatus: value })
-                                }
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select PR status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="year_1">1 Year PR</SelectItem>
-                                  <SelectItem value="year_2">2 Year PR</SelectItem>
-                                  <SelectItem value="year_3_plus">3 Year PR and Above</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Input readOnly disabled className="bg-muted cursor-not-allowed" value="—" />
-                            )}
-                         
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Immigration Details Section - Show by default, change based on nationality */}
-                    <div className="space-y-6">
-                      <h3 className="text-lg font-semibold border-b pb-2">Immigration Details</h3>
-                      
-                      <div className="space-y-4">
-                        {!isForeigner ? (
-                          // Singaporean/PR fields
-                          <>
-                            <div>
-                              <Label htmlFor="nric_number">NRIC/ID Number</Label>
-                              <Input
-                                id="nric_number"
-                                placeholder="e.g. S1234567A"
-                                value={formData.nricNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, nricNumber: e.target.value })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">Singapore NRIC or ID number</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="passport_number">Passport Number</Label>
-                              <div className="relative">
-                              <Input
-                                id="passport_number"
-                                placeholder="e.g. A1234567 (will be masked in display)"
-                                value={formData.passportNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
-                              />
-                                {formData.passportNumber && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                                    onClick={() => toggleNumberVisibility('add_passport', formData.passportNumber || '')}
-                                  >
-                                    {visibleNumbers['add_passport']?.visible ? (
-                                      <EyeOff className="h-4 w-4" />
-                                    ) : (
-                                      <Eye className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
-                              </div>
-                              {formData.passportNumber && (
-                                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                                  <span className="font-medium">Display Value: </span>
-                                  {getDisplayValue('add_passport', formData.passportNumber)}
-                                </div>
-                              )}
-                              <p className="text-sm text-muted-foreground mt-1">Passport number will be displayed as **** 1234 for security</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="passport_expiry">Passport Expiry</Label>
-                              <StringDatePicker value={formData.passportExpiry || ""} onChange={(val) => setFormData({ ...formData, passportExpiry: val })} />
-                              <p className="text-sm text-muted-foreground mt-1">When does the passport expire</p>
-                            </div>
-                          </>
-                        ) : (
-                          // Foreigner fields
-                          <>
-                            <div>
-                              <Label htmlFor="fin_number">FIN (Foreigner ID)</Label>
-                              <Input
-                                id="fin_number"
-                                placeholder="e.g. G1234567X"
-                                value={formData.finNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, finNumber: e.target.value })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">Foreigner Identification Number</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="passport_number">Passport Number</Label>
-                              <div className="relative">
-                              <Input
-                                id="passport_number"
-                                placeholder="e.g. A1234567 (will be masked in display)"
-                                value={formData.passportNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
-                              />
-                                {formData.passportNumber && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                                    onClick={() => toggleNumberVisibility('add_passport_foreigner', formData.passportNumber || '')}
-                                  >
-                                    {visibleNumbers['add_passport_foreigner']?.visible ? (
-                                      <EyeOff className="h-4 w-4" />
-                                    ) : (
-                                      <Eye className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
-                              </div>
-                              {formData.passportNumber && (
-                                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                                  <span className="font-medium">Display Value: </span>
-                                  {getDisplayValue('add_passport_foreigner', formData.passportNumber)}
-                                </div>
-                              )}
-                              <p className="text-sm text-muted-foreground mt-1">Passport number will be displayed as **** 1234 for security</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="passport_expiry">Passport Expiry</Label>
-                              <StringDatePicker value={formData.passportExpiry || ""} onChange={(val) => setFormData({ ...formData, passportExpiry: val })} />
-                              <p className="text-sm text-muted-foreground mt-1">When does the passport expire</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="visa_type">Visa Type</Label>
-                              <Select value={formData.visaType} onValueChange={(value: 's_pass' | 'work_permit' | 'employment_pass' | 'pr' | 'dependent_pass' | 'ltvp' | 'student_pass' | 'other') => setFormData({ ...formData, visaType: value })}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select visa type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="s_pass">S Pass</SelectItem>
-                                  <SelectItem value="work_permit">Work Permit</SelectItem>
-                                  <SelectItem value="employment_pass">Employment Pass</SelectItem>
-                                  <SelectItem value="pr">PR</SelectItem>
-                                  <SelectItem value="dependent_pass">Dependent Pass</SelectItem>
-                                  <SelectItem value="ltvp">LTVP</SelectItem>
-                                  <SelectItem value="student_pass">Student Pass</SelectItem>
-                                  <SelectItem value="other">Other</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <p className="text-sm text-muted-foreground mt-1">Type of work visa or permit</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="work_permit_number">Work Permit Number</Label>
-                              <div className="relative">
-                              <Input
-                                id="work_permit_number"
-                                placeholder="e.g. G1234567X (will be masked in display)"
-                                value={formData.visaNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, visaNumber: e.target.value })}
-                              />
-                                {formData.visaNumber && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                                    onClick={() => toggleNumberVisibility('add_visa', formData.visaNumber || '')}
-                                  >
-                                    {visibleNumbers['add_visa']?.visible ? (
-                                      <EyeOff className="h-4 w-4" />
-                                    ) : (
-                                      <Eye className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
-                              </div>
-                              {formData.visaNumber && (
-                                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                                  <span className="font-medium">Display Value: </span>
-                                  {getDisplayValue('add_visa', formData.visaNumber)}
-                                </div>
-                              )}
-                              <p className="text-sm text-muted-foreground mt-1">Visa number will be displayed as **** 1234 for security</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="visa_expiry">Visa Expiry</Label>
-                              <StringDatePicker value={formData.visaExpiry || ""} onChange={(val) => setFormData({ ...formData, visaExpiry: val })} />
-                              <p className="text-sm text-muted-foreground mt-1">When does the visa expire</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="visa_remarks">Visa Remarks</Label>
-                              <Textarea
-                                id="visa_remarks"
-                                placeholder="Any additional notes about visa status..."
-                                value={formData.visaRemarks || ''}
-                                onChange={(e) => setFormData({ ...formData, visaRemarks: e.target.value })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">Optional notes about visa conditions or restrictions</p>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  {renderEmployeeFormDetailsGrid('add')}
+                  {isForeigner && renderForeignerImmigrationFields('add')}
 
                   {/* Document Uploads Section */}
                   <div className="space-y-6">
@@ -1587,361 +1636,8 @@ export default function EmployeesPage() {
               {/* Scrollable Content */}
               <div className="flex-1 overflow-y-auto px-6 pb-24">
                 <form onSubmit={handleSubmit} className="space-y-6">
-                  <div className="grid grid-cols-2 gap-8">
-                    {/* Personal Information Section */}
-                    <div className="space-y-6">
-                      <h3 className="text-lg font-semibold border-b pb-2">Personal Information</h3>
-                      
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="edit_employee_id">Employee ID*</Label>
-                          <Input
-                            id="edit_employee_id"
-                            placeholder="e.g. EMP001"
-                            value={formData.employeeId}
-                            onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Unique identifier for the employee</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="edit_first_name">Full Name*</Label>
-                          <Input
-                            id="edit_first_name"
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Employee's full legal name</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="edit_department">Department*</Label>
-                          <Input
-                            id="edit_department"
-                            placeholder="e.g. Engineering, HR, Finance"
-                            value={formData.department}
-                            onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Employee's department or division</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="edit_position">Designation*</Label>
-                          <Input
-                            id="edit_position"
-                            placeholder="e.g. Software Engineer, Manager"
-                            value={formData.designation}
-                            onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                            required
-                          />
-                          <p className="text-sm text-muted-foreground mt-1">Employee's job title or position</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="edit_hire_date">Join Date*</Label>
-                          <div className="relative">
-                            <StringDatePicker value={formData.joinDate} onChange={(val) => setFormData({ ...formData, joinDate: val })} />
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">When did the employee join the company</p>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="edit_date_of_birth">Date of Birth*</Label>
-                          <div className="relative">
-                            <StringDatePicker value={formData.dateOfBirth} onChange={(val) => setFormData({ ...formData, dateOfBirth: val })} />
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">Employee's date of birth</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="edit_salary">Salary (Monthly)*</Label>
-                            <Input
-                              id="edit_salary"
-                              type="number"
-                              min="1"
-                              step="0.01"
-                              value={formData.salary}
-                              onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
-                              required
-                            />
-                          
-                          </div>
-
-                          <div>
-                            <Label>Annual Salary</Label>
-                            <Input value={computedAnnualSalary} readOnly className="bg-muted cursor-not-allowed" />
-                           
-                          </div>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="edit_status">Status</Label>
-                          <Select value={formData.status} onValueChange={(value: 'active' | 'resigned' | 'on_hold' | 'terminated') => setFormData({ ...formData, status: value })}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="active">Active</SelectItem>
-                              <SelectItem value="resigned">Resigned</SelectItem>
-                              <SelectItem value="on_hold">On Hold</SelectItem>
-                              <SelectItem value="terminated">Terminated</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-sm text-muted-foreground mt-1">Current employment status</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="edit_nationality">Nationality</Label>
-                            <Select
-                              value={formData.nationality}
-                              onValueChange={(value: 'citizen' | 'pr' | 'foreigner') =>
-                                setFormData({
-                                  ...formData,
-                                  nationality: value,
-                                  prStatus: value === 'pr' ? formData.prStatus || 'year_3_plus' : '',
-                                })
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select residency" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="citizen">Singapore Citizen</SelectItem>
-                                <SelectItem value="pr">PR</SelectItem>
-                                <SelectItem value="foreigner">Foreigner</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div>
-                            <Label htmlFor="edit_pr_status">PR Status</Label>
-                            {isPr ? (
-                              <Select
-                                value={formData.prStatus || 'year_3_plus'}
-                                onValueChange={(value: 'year_1' | 'year_2' | 'year_3_plus') =>
-                                  setFormData({ ...formData, prStatus: value })
-                                }
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select PR status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="year_1">1 Year PR</SelectItem>
-                                  <SelectItem value="year_2">2 Year PR</SelectItem>
-                                  <SelectItem value="year_3_plus">3 Year PR and Above</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Input readOnly disabled className="bg-muted cursor-not-allowed" value="—" />
-                            )}
-                          
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Immigration Details Section - Show by default, change based on nationality */}
-                    <div className="space-y-6">
-                      <h3 className="text-lg font-semibold border-b pb-2">Immigration Details</h3>
-                      
-                      <div className="space-y-4">
-                        {!isForeigner ? (
-                          // Singaporean/PR fields
-                          <>
-                            <div>
-                              <Label htmlFor="edit_nric_number">NRIC/ID Number</Label>
-                              <Input
-                                id="edit_nric_number"
-                                placeholder="e.g. S1234567A"
-                                value={formData.nricNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, nricNumber: e.target.value })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">Singapore NRIC or ID number</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_passport_number">Passport Number</Label>
-                              <div className="relative">
-                              <Input
-                                id="edit_passport_number"
-                                placeholder="e.g. A1234567 (will be masked in display)"
-                                value={formData.passportNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
-                              />
-                                {formData.passportNumber && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                                    onClick={() => toggleNumberVisibility('edit_passport', formData.passportNumber || '')}
-                                  >
-                                    {visibleNumbers['edit_passport']?.visible ? (
-                                      <EyeOff className="h-4 w-4" />
-                                    ) : (
-                                      <Eye className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
-                              </div>
-                              {formData.passportNumber && (
-                                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                                  <span className="font-medium">Display Value: </span>
-                                  {getDisplayValue('edit_passport', formData.passportNumber)}
-                                </div>
-                              )}
-                              <p className="text-sm text-muted-foreground mt-1">Passport number will be displayed as **** 1234 for security</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_passport_expiry">Passport Expiry</Label>
-                              <StringDatePicker
-                                value={formData.passportExpiry || ""}
-                                onChange={(val) => setFormData({ ...formData, passportExpiry: val })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">When does the passport expire</p>
-                            </div>
-                          </>
-                        ) : (
-                          // Foreigner fields
-                          <>
-                            <div>
-                              <Label htmlFor="edit_fin_number">FIN (Foreigner ID)</Label>
-                              <Input
-                                id="edit_fin_number"
-                                placeholder="e.g. G1234567X"
-                                value={formData.finNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, finNumber: e.target.value })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">Foreigner Identification Number</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_passport_number">Passport Number</Label>
-                              <div className="relative">
-                              <Input
-                                id="edit_passport_number"
-                                placeholder="e.g. A1234567 (will be masked in display)"
-                                value={formData.passportNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
-                              />
-                                {formData.passportNumber && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                                    onClick={() => toggleNumberVisibility('edit_passport', formData.passportNumber || '')}
-                                  >
-                                    {visibleNumbers['edit_passport']?.visible ? (
-                                      <EyeOff className="h-4 w-4" />
-                                    ) : (
-                                      <Eye className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
-                              </div>
-                              {formData.passportNumber && (
-                                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                                  <span className="font-medium">Display Value: </span>
-                                  {getDisplayValue('edit_passport', formData.passportNumber)}
-                                </div>
-                              )}
-                              <p className="text-sm text-muted-foreground mt-1">Passport number will be displayed as **** 1234 for security</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_passport_expiry">Passport Expiry</Label>
-                              <StringDatePicker
-                                value={formData.passportExpiry || ""}
-                                onChange={(val) => setFormData({ ...formData, passportExpiry: val })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">When does the passport expire</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_visa_type">Visa Type</Label>
-                              <Select value={formData.visaType} onValueChange={(value: 's_pass' | 'work_permit' | 'employment_pass' | 'pr' | 'dependent_pass' | 'ltvp' | 'student_pass' | 'other') => setFormData({ ...formData, visaType: value })}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select visa type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="s_pass">S Pass</SelectItem>
-                                  <SelectItem value="work_permit">Work Permit</SelectItem>
-                                  <SelectItem value="employment_pass">Employment Pass</SelectItem>
-                                  <SelectItem value="pr">PR</SelectItem>
-                                  <SelectItem value="dependent_pass">Dependent Pass</SelectItem>
-                                  <SelectItem value="ltvp">LTVP</SelectItem>
-                                  <SelectItem value="student_pass">Student Pass</SelectItem>
-                                  <SelectItem value="other">Other</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <p className="text-sm text-muted-foreground mt-1">Type of work visa or permit</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_work_permit_number">Work Permit Number</Label>
-                              <div className="relative">
-                              <Input
-                                id="edit_work_permit_number"
-                                placeholder="e.g. G1234567X (will be masked in display)"
-                                value={formData.visaNumber || ''}
-                                onChange={(e) => setFormData({ ...formData, visaNumber: e.target.value })}
-                              />
-                                {formData.visaNumber && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                                    onClick={() => toggleNumberVisibility('edit_visa', formData.visaNumber || '')}
-                                  >
-                                    {visibleNumbers['edit_visa']?.visible ? (
-                                      <EyeOff className="h-4 w-4" />
-                                    ) : (
-                                      <Eye className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
-                              </div>
-                              {formData.visaNumber && (
-                                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                                  <span className="font-medium">Display Value: </span>
-                                  {getDisplayValue('edit_visa', formData.visaNumber)}
-                                </div>
-                              )}
-                              <p className="text-sm text-muted-foreground mt-1">Visa number will be displayed as **** 1234 for security</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_visa_expiry">Visa Expiry</Label>
-                              <StringDatePicker
-                                value={formData.visaExpiry || ""}
-                                onChange={(val) => setFormData({ ...formData, visaExpiry: val })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">When does the visa expire</p>
-                            </div>
-
-                            <div>
-                              <Label htmlFor="edit_visa_remarks">Visa Remarks</Label>
-                              <Textarea
-                                id="edit_visa_remarks"
-                                placeholder="Any additional notes about visa status..."
-                                value={formData.visaRemarks || ''}
-                                onChange={(e) => setFormData({ ...formData, visaRemarks: e.target.value })}
-                              />
-                              <p className="text-sm text-muted-foreground mt-1">Optional notes about visa conditions or restrictions</p>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  {renderEmployeeFormDetailsGrid('edit')}
+                  {isForeigner && renderForeignerImmigrationFields('edit')}
 
                   {/* Document Uploads Section */}
                   <div className="space-y-6">
@@ -2353,239 +2049,83 @@ export default function EmployeesPage() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* View Employee Details Modal */}
-        {isViewDetailsModalOpen && selectedEmployee && (
-          <Sheet open={isViewDetailsModalOpen} onOpenChange={setIsViewDetailsModalOpen}>
-            <SheetContent 
-              side="right" 
-              className="p-0 flex flex-col"
-              style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
-            >
-              {/* Sticky Header */}
-              <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-                <SheetHeader>
-                  <SheetTitle className="text-2xl font-bold text-gray-900">
-                    Employee Details
-                  </SheetTitle>
-                  <p className="text-sm text-gray-600 mt-2">
-                    View complete employee information
-                  </p>
-                </SheetHeader>
-              </div>
-              
-              {/* Scrollable Content */}
-              <div className="flex-1 overflow-y-auto px-6 pb-24">
-                <div className="space-y-6">
-                  {/* Personal Information Section */}
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold border-b pb-2">Personal Information</h3>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label className="text-sm font-medium">Employee ID</Label>
-                        <p className="text-sm text-gray-600">{selectedEmployee.employeeId}</p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Full Name</Label>
-                        <p className="text-sm text-gray-600">{selectedEmployee.name}</p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Department</Label>
-                        <p className="text-sm text-gray-600">{selectedEmployee.department}</p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Designation</Label>
-                        <p className="text-sm text-gray-600">{selectedEmployee.designation}</p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Join Date</Label>
-                        <p className="text-sm text-gray-600">{new Date(selectedEmployee.joinDate).toLocaleDateString()}</p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Status</Label>
-                        <Badge variant={selectedEmployee.status === 'active' ? 'default' : 'secondary'}>
-                          {selectedEmployee.status}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Nationality</Label>
-                        <p className="text-sm text-gray-600">
-                          {residencyLabel(selectedEmployee.nationality, selectedEmployee.prStatus)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Immigration Details Section */}
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold border-b pb-2">Immigration Details</h3>
-                    
-                    {normalizeNationality(selectedEmployee.nationality) !== 'foreigner' ? (
-                      // Singaporean/PR fields
-                      <div className="grid grid-cols-2 gap-4">
-                        {selectedEmployee.nricNumber && (
-                          <div>
-                            <Label className="text-sm font-medium">NRIC Number</Label>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-gray-600">
-                                {getDisplayValue('view_nric', selectedEmployee.nricNumber)}
-                              </p>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-4 w-4 p-0"
-                                onClick={() => toggleNumberVisibility('view_nric', selectedEmployee.nricNumber || '')}
-                              >
-                                {visibleNumbers['view_nric']?.visible ? (
-                                  <EyeOff className="h-3 w-3" />
-                                ) : (
-                                  <Eye className="h-3 w-3" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      // Foreigner fields
-                      <div className="grid grid-cols-2 gap-4">
-                        {selectedEmployee.finNumber && (
-                          <div>
-                            <Label className="text-sm font-medium">FIN Number</Label>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-gray-600">
-                                {getDisplayValue('view_fin', selectedEmployee.finNumber)}
-                              </p>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-4 w-4 p-0"
-                                onClick={() => toggleNumberVisibility('view_fin', selectedEmployee.finNumber || '')}
-                              >
-                                {visibleNumbers['view_fin']?.visible ? (
-                                  <EyeOff className="h-3 w-3" />
-                                ) : (
-                                  <Eye className="h-3 w-3" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {selectedEmployee.passportNumber && (
-                          <div>
-                            <Label className="text-sm font-medium">Passport Number</Label>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-gray-600">
-                                {getDisplayValue('view_passport', selectedEmployee.passportNumber)}
-                              </p>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-4 w-4 p-0"
-                                onClick={() => toggleNumberVisibility('view_passport', selectedEmployee.passportNumber || '')}
-                              >
-                                {visibleNumbers['view_passport']?.visible ? (
-                                  <EyeOff className="h-3 w-3" />
-                                ) : (
-                                  <Eye className="h-3 w-3" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {selectedEmployee.passportExpiry && (
-                          <div>
-                            <Label className="text-sm font-medium">Passport Expiry</Label>
-                            <p className="text-sm text-gray-600">{new Date(selectedEmployee.passportExpiry).toLocaleDateString()}</p>
-                          </div>
-                        )}
-                        
-                        {selectedEmployee.visaType && (
-                          <div>
-                            <Label className="text-sm font-medium">Visa Type</Label>
-                            <p className="text-sm text-gray-600">
-                              {selectedEmployee.visaType === 's_pass' ? 'S Pass' :
-                               selectedEmployee.visaType === 'work_permit' ? 'Work Permit' :
-                               selectedEmployee.visaType === 'employment_pass' ? 'Employment Pass' :
-                               selectedEmployee.visaType === 'pr' ? 'PR' :
-                               selectedEmployee.visaType === 'dependent_pass' ? 'Dependent Pass' :
-                               selectedEmployee.visaType === 'ltvp' ? 'LTVP' :
-                               selectedEmployee.visaType === 'student_pass' ? 'Student Pass' :
-                               selectedEmployee.visaType}
-                            </p>
-                          </div>
-                        )}
-                        
-                        {selectedEmployee.visaNumber && (
-                          <div>
-                            <Label className="text-sm font-medium">Visa/Work Permit Number</Label>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-gray-600">
-                                {getDisplayValue('view_visa', selectedEmployee.visaNumber)}
-                              </p>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-4 w-4 p-0"
-                                onClick={() => toggleNumberVisibility('view_visa', selectedEmployee.visaNumber || '')}
-                              >
-                                {visibleNumbers['view_visa']?.visible ? (
-                                  <EyeOff className="h-3 w-3" />
-                                ) : (
-                                  <Eye className="h-3 w-3" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {selectedEmployee.visaExpiry && (
-                          <div>
-                            <Label className="text-sm font-medium">Visa Expiry</Label>
-                            <p className="text-sm text-gray-600">{new Date(selectedEmployee.visaExpiry).toLocaleDateString()}</p>
-                          </div>
-                        )}
-                        
-                        {selectedEmployee.visaRemarks && (
-                          <div className="col-span-2">
-                            <Label className="text-sm font-medium">Visa Remarks</Label>
-                            <p className="text-sm text-gray-600">{selectedEmployee.visaRemarks}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex justify-end space-x-4 pt-6 border-t">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsViewDetailsModalOpen(false)}
-                    >
-                      Close
-                    </Button>
-                    <Button 
-                      type="button"
-                      onClick={() => {
-                        setIsViewDetailsModalOpen(false);
-                        handleEdit(selectedEmployee);
-                      }}
-                    >
-                      Edit Employee
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </SheetContent>
-          </Sheet>
+        {/* View Employee Details */}
+        {selectedEmployee && (
+          <EntityViewSheet
+            open={isViewDetailsModalOpen}
+            onOpenChange={setIsViewDetailsModalOpen}
+            title="Employee Details"
+            description="View complete employee information"
+            showHistory
+            onHistory={() => selectedEmployee && handleHistory(selectedEmployee)}
+            onClose={() => setIsViewDetailsModalOpen(false)}
+          >
+            <EmployeeViewContent
+              employee={selectedEmployee}
+              companyDisplay={displayCompanyName(selectedEmployee)}
+              nationalityLabel={residencyLabel(selectedEmployee.nationality, selectedEmployee.prStatus)}
+              prStatusLabel={getPrStatusLabel(selectedEmployee.nationality, selectedEmployee.prStatus)}
+              visaTypeLabel={getVisaTypeLabel(selectedEmployee.visaType)}
+              getDisplayValue={getDisplayValue}
+              onToggleVisibility={toggleNumberVisibility}
+              isFieldVisible={(key) => !!visibleNumbers[key]?.visible}
+            />
+          </EntityViewSheet>
         )}
+
+        <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+          <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Employee Company History</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-auto">
+              {isHistoryLoading ? (
+                <div className="py-8 text-center text-muted-foreground">Loading history...</div>
+              ) : companyHistory.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground">
+                  No company history found for this employee.
+                </div>
+              ) : (
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>EmpID</TableHead>
+                        <TableHead>EmpName</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Date Changed</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {companyHistory.map((record: EmployeeCompanyHistoryRecord) => (
+                        <TableRow key={record.id}>
+                          <TableCell>{record.employeeCode}</TableCell>
+                          <TableCell>{record.employeeName}</TableCell>
+                          <TableCell>{record.companyName}</TableCell>
+                          <TableCell>
+                            {new Date(record.dateChanged).toLocaleDateString('en-GB')}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsHistoryDialogOpen(false);
+                  setHistoryEmployee(null);
+                }}
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Dashboard>
   );

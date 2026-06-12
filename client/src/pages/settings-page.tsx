@@ -875,7 +875,7 @@ export default function SettingsPage() {
                             Use dark theme for the application
                           </p>
                         </div>
-                        <Switch id="dark-mode" />
+                        <Switch id="dark-mode" disabled checked={false} />
                       </div>
                     </div>
                   </div>

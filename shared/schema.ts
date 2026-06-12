@@ -127,6 +127,19 @@ export const employees = pgTable("employees", {
   passportScan: text("passport_scan"),
   visaScan: text("visa_scan"),
   nricScan: text("nric_scan"),
+  companyId: integer("company_id").references(() => companies.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const employeeCompanyHistory = pgTable("employee_company_history", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  employeeId: integer("employee_id").references(() => employees.id, { onDelete: "cascade" }).notNull(),
+  employeeCode: text("employee_code").notNull(),
+  employeeName: text("employee_name").notNull(),
+  companyId: integer("company_id").references(() => companies.id),
+  companyName: text("company_name").notNull(),
+  dateChanged: timestamp("date_changed").notNull().defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -233,6 +246,17 @@ export const documentReminders = pgTable("document_reminders", {
   id: serial("id").primaryKey(),
   documentId: integer("document_id").references(() => companyDocuments.id, { onDelete: "cascade" }).notNull(),
   daysBefore: integer("days_before").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const companies = pgTable("companies", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  companyName: text("company_name").notNull(),
+  uenNumber: text("uen_number").notNull(),
+  address: text("address"),
+  phoneNumber: text("phone_number"),
+  website: text("website"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -370,6 +394,7 @@ export const employeePayroll = pgTable("employee_payroll", {
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
   baseSalary: decimal("base_salary", { precision: 10, scale: 2 }).notNull(),
   payrollPeriod: payrollPeriodEnum("payroll_period").notNull().default('monthly'),
+  noOfWorkingDays: integer("no_of_working_days"),
   hourlyRate: decimal("hourly_rate", { precision: 8, scale: 2 }),
   overtimeRate: decimal("overtime_rate", { precision: 8, scale: 2 }),
   allowances: jsonb("allowances").$type<Record<string, number>>().default({}),
@@ -813,6 +838,14 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
       return null;
     }
   }),
+  companyId: z.preprocess(
+    (val) => {
+      if (val === '' || val === null || val === undefined) return null;
+      const n = Number(val);
+      return Number.isNaN(n) ? null : n;
+    },
+    z.number().nullable().optional()
+  ),
 }).omit({ id: true, createdAt: true });
 
 export const insertDependentSchema = createInsertSchema(dependents, {
@@ -843,6 +876,14 @@ export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments
 
 export const insertCompanyDocumentSchema = createInsertSchema(companyDocuments)
   .omit({ id: true, createdAt: true, uploadedBy: true });
+
+export const insertCompanySchema = createInsertSchema(companies, {
+  companyName: z.string().min(1, "Company name is required"),
+  uenNumber: z.string().min(1, "UEN number is required"),
+  address: z.string().nullable().optional().transform(val => val?.trim() || null),
+  phoneNumber: z.string().nullable().optional().transform(val => val?.trim() || null),
+  website: z.string().nullable().optional().transform(val => val?.trim() || null),
+}).omit({ id: true, createdAt: true });
 
 export const insertDocumentReminderSchema = createInsertSchema(documentReminders)
   .omit({ id: true, createdAt: true });
@@ -930,6 +971,14 @@ export const insertEmployeePayrollSchema = createInsertSchema(employeePayroll, {
     if (typeof val === 'string') return val;
     return val?.toString() || '0.00';
   }),
+  noOfWorkingDays: z.preprocess(
+    (val) => {
+      if (val === '' || val === null || val === undefined) return undefined;
+      const n = Number(val);
+      return Number.isNaN(n) ? undefined : Math.trunc(n);
+    },
+    z.number().int().min(1, "No of working days is required")
+  ),
   cpfRate: z.union([z.string(), z.number()]).optional().transform(val => {
     if (typeof val === 'string') return val;
     return val?.toString() || '20.00';
@@ -1060,6 +1109,10 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 
 export type CompanyDocument = typeof companyDocuments.$inferSelect;
 export type InsertCompanyDocument = z.infer<typeof insertCompanyDocumentSchema>;
+export type Company = typeof companies.$inferSelect;
+export type InsertCompany = z.infer<typeof insertCompanySchema>;
+export type EmployeeCompanyHistory = typeof employeeCompanyHistory.$inferSelect;
+export type InsertEmployeeCompanyHistory = typeof employeeCompanyHistory.$inferInsert;
 export type DocumentReminder = typeof documentReminders.$inferSelect;
 export type InsertDocumentReminder = z.infer<typeof insertDocumentReminderSchema>;
 

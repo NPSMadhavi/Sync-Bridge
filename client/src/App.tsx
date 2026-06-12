@@ -7,6 +7,7 @@ import HomePage from "@/pages/home-page";
 import AuthPage from "@/pages/auth-page";
 import AssetsPage from "@/pages/assets-page";
 import EmployeesPage from "@/pages/employees-page";
+import CompaniesPage from "@/pages/companies-page";
 import DocumentsPage from "@/pages/documents-page";
 import PayrollPage from "@/pages/clean-payroll-page";
 import VendorsPage from "@/pages/vendors-page";
@@ -30,30 +31,12 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 
-// Initialize theme based on localStorage or system preference
+// Always use light theme — theme switching is disabled
 const initializeTheme = () => {
-  const storedTheme = localStorage.getItem("theme");
   const root = window.document.documentElement;
-  
-  // Remove any existing theme classes
   root.classList.remove("dark", "light");
-  
-  // For debugging: Force dark theme if no theme is set
-  if (!storedTheme) {
-    root.classList.add("dark");
-    localStorage.setItem("theme", "dark");
-    return;
-  }
-  
-  if (storedTheme === "dark") {
-    root.classList.add("dark");
-  } else if (storedTheme === "light") {
-    root.classList.add("light");
-  } else {
-    // Default to system preference
-    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    root.classList.add(systemPrefersDark ? "dark" : "light");
-  }
+  root.classList.add("light");
+  localStorage.setItem("theme", "light");
 };
 
 function Router() {
@@ -68,6 +51,7 @@ function Router() {
           {!user ? <Redirect to="/auth" /> : user.role === 'vendor' ? <Redirect to="/vendor-dashboard" /> : <HomePage />}
         </Route>
         <ProtectedRoute path="/assets" component={AssetsPage} />
+        <ProtectedRoute path="/company" component={CompaniesPage} />
         <ProtectedRoute path="/employees" component={EmployeesPage} />
         <ProtectedRoute path="/documents" component={DocumentsPage} />
         <ProtectedRoute path="/payroll" component={PayrollPage} />

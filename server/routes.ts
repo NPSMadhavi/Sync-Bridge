@@ -4,14 +4,14 @@ import path from "path";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
-import { setupFileServing, uploadMiddleware, handleFileUpload } from "./upload";
+import { setupFileServing, uploadMiddleware, handleFileUpload, processEmployeeScanFields } from "./upload";
 import { ZodError } from "zod";
 import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
 import { hashPassword } from "./auth";
 import { getTenantFromRequest } from "./middleware/tenant";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertDependentSchema, 
-  insertEmployeeDocumentSchema, insertVendorSchema, insertAssetAssignmentSchema,
+  insertEmployeeDocumentSchema, insertVendorSchema, insertCompanySchema, insertAssetAssignmentSchema,
   insertMaintenanceRecordSchema, insertLicenseSchema, insertCustomerSchema, 
   insertInvoiceSchema, insertUserSchema
 } from "@shared/schema";
@@ -165,7 +165,22 @@ app.use(express.static('public'));
     }
   });
 
-  app.post("/api/employees", requireRole(['admin', 'hr']), async (req, res) => {
+  app.get("/api/employees/:id/company-history", requireRole(['admin', 'hr', 'it_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const employee = await storage.getEmployee(id);
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+      const history = await storage.getEmployeeCompanyHistory(id);
+      res.json(history);
+    } catch (error) {
+      console.error("GET /api/employees/:id/company-history error:", error);
+      res.status(500).json({ message: "Failed to fetch employee company history" });
+    }
+  });
+
+  app.post("/api/employees", requireRole(['admin', 'hr']), uploadMiddleware, async (req, res) => {
     try {
       console.log("Employee Create Request Body:", req.body);
       console.log("Employee Create Request DOB:", req.body?.dateOfBirth);
@@ -173,15 +188,31 @@ app.use(express.static('public'));
       console.log("Employee Create Request DOB instanceof Date:", req.body?.dateOfBirth instanceof Date);
       const user = req.user as any;
       const tenant = await getTenantFromRequest(req);
+      const bodyWithSavedScans = await processEmployeeScanFields(req.body);
       const employeeData = insertEmployeeSchema.parse({
-        ...req.body,
-        tenantId: tenant?.id ?? req.body.tenantId ?? user?.tenantId ?? undefined,
+        ...bodyWithSavedScans,
+        tenantId: tenant?.id ?? bodyWithSavedScans.tenantId ?? user?.tenantId ?? undefined,
       });
       console.log("Employee Payload:", employeeData);
       console.log("DOB Type:", typeof employeeData.dateOfBirth);
       console.log("DOB Value:", employeeData.dateOfBirth);
       console.log("DOB instanceof Date:", employeeData.dateOfBirth instanceof Date);
       const employee = await storage.createEmployee(employeeData);
+      
+      if (employee.companyId) {
+        const company = await storage.getCompany(employee.companyId);
+        if (company) {
+          await storage.createEmployeeCompanyHistory({
+            tenantId: employee.tenantId ?? null,
+            employeeId: employee.id,
+            employeeCode: employee.employeeId,
+            employeeName: employee.name,
+            companyId: employee.companyId,
+            companyName: company.companyName,
+            dateChanged: new Date(),
+          });
+        }
+      }
       
       // Create audit log
       await storage.createAuditLog({
@@ -219,7 +250,7 @@ app.use(express.static('public'));
     }
   });
 
-  app.put("/api/employees/:id", requireRole(['admin', 'hr']), async (req, res) => {
+  app.put("/api/employees/:id", requireRole(['admin', 'hr']), uploadMiddleware, async (req, res) => {
     try {
       console.log("Employee Update Request Body:", req.body);
       console.log("Employee Update Request DOB:", req.body?.dateOfBirth);
@@ -228,19 +259,42 @@ app.use(express.static('public'));
       const id = parseInt(req.params.id);
       const user = req.user as any;
       const tenant = await getTenantFromRequest(req);
+      const bodyWithSavedScans = await processEmployeeScanFields(req.body);
       const employeeData = insertEmployeeSchema.partial().parse({
-        ...req.body,
-        tenantId: tenant?.id ?? req.body.tenantId ?? user?.tenantId ?? undefined,
+        ...bodyWithSavedScans,
+        tenantId: tenant?.id ?? bodyWithSavedScans.tenantId ?? user?.tenantId ?? undefined,
       });
       console.log("Employee Update Payload:", employeeData);
       console.log("DOB Type:", typeof employeeData.dateOfBirth);
       console.log("DOB Value:", employeeData.dateOfBirth);
       console.log("DOB instanceof Date:", employeeData.dateOfBirth instanceof Date);
       
+      const existingEmployee = await storage.getEmployee(id);
+      if (!existingEmployee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+
       const updatedEmployee = await storage.updateEmployee(id, employeeData);
       
       if (!updatedEmployee) {
         return res.status(404).json({ message: "Employee not found" });
+      }
+
+      const newCompanyId = updatedEmployee.companyId ?? null;
+      const previousCompanyId = existingEmployee.companyId ?? null;
+      if (newCompanyId && newCompanyId !== previousCompanyId) {
+        const company = await storage.getCompany(newCompanyId);
+        if (company) {
+          await storage.createEmployeeCompanyHistory({
+            tenantId: updatedEmployee.tenantId ?? null,
+            employeeId: updatedEmployee.id,
+            employeeCode: updatedEmployee.employeeId,
+            employeeName: updatedEmployee.name,
+            companyId: newCompanyId,
+            companyName: company.companyName,
+            dateChanged: new Date(),
+          });
+        }
       }
       
       // Create audit log
@@ -772,6 +826,94 @@ app.use(express.static('public'));
     } catch (error) {
       console.error('Error deleting vendor:', error);
       res.status(500).json({ message: "Failed to delete vendor" });
+    }
+  });
+
+  // Company routes
+  app.get("/api/companies", async (req, res) => {
+    try {
+      const companies = await storage.getCompanies();
+      res.json(companies);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch companies" });
+    }
+  });
+
+  app.get("/api/companies/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const company = await storage.getCompany(id);
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+      res.json(company);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch company" });
+    }
+  });
+
+  app.post("/api/companies", requireRole(['super_admin', 'admin', 'it_manager', 'hr_manager']), async (req, res) => {
+    try {
+      const companyData = insertCompanySchema.parse(req.body);
+      const company = await storage.createCompany(companyData);
+
+      await storage.createAuditLog({
+        action: "create",
+        entity: "company",
+        entityId: company.id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+
+      res.status(201).json(company);
+    } catch (error) {
+      if (error instanceof ZodError) return handleZodError(error, res);
+      console.error("Failed to create company:", error);
+      res.status(500).json({ message: "Failed to create company" });
+    }
+  });
+
+  app.put("/api/companies/:id", requireRole(['super_admin', 'admin', 'it_manager', 'hr_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const companyData = insertCompanySchema.parse(req.body);
+      const updatedCompany = await storage.updateCompany(id, companyData);
+      if (!updatedCompany) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+      await storage.createAuditLog({
+        action: "update",
+        entity: "company",
+        entityId: updatedCompany.id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+      res.json(updatedCompany);
+    } catch (error) {
+      if (error instanceof ZodError) return handleZodError(error, res);
+      res.status(500).json({ message: "Failed to update company" });
+    }
+  });
+
+  app.delete("/api/companies/:id", requireRole(['super_admin', 'admin', 'it_manager', 'hr_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const company = await storage.getCompany(id);
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+      await storage.deleteCompany(id);
+      await storage.createAuditLog({
+        action: "delete",
+        entity: "company",
+        entityId: id,
+        userId: req.user!.id,
+        timestamp: new Date()
+      });
+      res.json({ message: "Company deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting company:', error);
+      res.status(500).json({ message: "Failed to delete company" });
     }
   });
 

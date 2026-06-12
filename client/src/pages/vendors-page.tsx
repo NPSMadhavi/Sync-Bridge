@@ -15,6 +15,14 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { TableRowActions } from "@/components/ui/table-row-actions";
 import {
+  EntityViewField,
+  EntityViewFieldGrid,
+  EntityViewSection,
+  EntityViewSheet,
+  formatViewDate,
+  formatViewValue,
+} from "@/components/ui/entity-view-sheet";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -71,6 +79,7 @@ export default function VendorsPage() {
   const { user } = useAuth();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -258,6 +267,11 @@ export default function VendorsPage() {
     setIsEditModalOpen(true);
   };
 
+  const handleView = (vendor: Vendor) => {
+    setSelectedVendor(vendor);
+    setIsViewModalOpen(true);
+  };
+
   const handleDelete = (vendor: Vendor) => {
     setSelectedVendor(vendor);
     setIsDeleteDialogOpen(true);
@@ -363,6 +377,12 @@ export default function VendorsPage() {
                       <TableCell>
                         <TableRowActions
                           actions={[
+                            {
+                              icon: Eye,
+                              label: "View",
+                              variant: "view",
+                              onClick: () => handleView(vendor),
+                            },
                             {
                               icon: Edit,
                               label: "Edit",
@@ -729,6 +749,78 @@ export default function VendorsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {selectedVendor && (
+        <EntityViewSheet
+          open={isViewModalOpen}
+          onOpenChange={setIsViewModalOpen}
+          title="Vendor Details"
+          description="View complete vendor information"
+          onClose={() => {
+            setIsViewModalOpen(false);
+            setSelectedVendor(null);
+          }}
+        >
+          <EntityViewSection title="Vendor Information">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Vendor Name" value={selectedVendor.name} />
+              <EntityViewField label="Contact Person" value={selectedVendor.contact} />
+              <EntityViewField label="Email" value={selectedVendor.email} />
+              <EntityViewField label="Phone" value={formatViewValue(selectedVendor.phone)} />
+              <EntityViewField label="Website">
+                {selectedVendor.website ? (
+                  <a
+                    href={
+                      selectedVendor.website.startsWith("http")
+                        ? selectedVendor.website
+                        : `https://${selectedVendor.website}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline break-all"
+                  >
+                    {selectedVendor.website}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </EntityViewField>
+              <EntityViewField
+                label="Status"
+                value={selectedVendor.isActive ? "Active" : "Inactive"}
+              />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+          <EntityViewSection title="Address">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Address" value={formatViewValue(selectedVendor.address)} fullWidth />
+              <EntityViewField label="City" value={formatViewValue(selectedVendor.city)} />
+              <EntityViewField label="State" value={formatViewValue(selectedVendor.state)} />
+              <EntityViewField label="Zip Code" value={formatViewValue(selectedVendor.zipCode)} />
+              <EntityViewField label="Country" value={formatViewValue(selectedVendor.country)} />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+          <EntityViewSection title="Business Details">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Tax ID" value={formatViewValue(selectedVendor.taxId)} />
+              <EntityViewField
+                label="Registration Number"
+                value={formatViewValue(selectedVendor.registrationNumber)}
+              />
+              <EntityViewField
+                label="Asset Types Supplied"
+                value={formatViewValue(selectedVendor.assetTypesSupplied)}
+              />
+              <EntityViewField label="Payment Terms" value={formatViewValue(selectedVendor.paymentTerms)} />
+              <EntityViewField label="Credit Limit" value={formatViewValue(selectedVendor.creditLimit)} />
+              <EntityViewField label="Notes" value={formatViewValue(selectedVendor.notes)} fullWidth />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+        </EntityViewSheet>
       )}
 
       {/* Delete Confirmation Dialog */}

@@ -534,16 +534,20 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
               {payrollCalculation ? (
                 <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span>Gross Salary</span>
-                        <span className="font-medium">{formatCurrency(payrollCalculation.grossPay || 0)}</span>
+                        <span>Monthly Salary</span>
+                        <span className="font-medium">{formatCurrency(payrollCalculation.breakdown?.baseSalary || 0)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Allowance</span>
                         <span>{formatCurrency(payrollCalculation.allowancesTotal || 0)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Deduction</span>
+                        <span>Deductions</span>
                         <span className="text-red-600">-{formatCurrency(payrollCalculation.deductionsTotal || 0)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold border-t pt-2">
+                        <span>Gross Salary</span>
+                        <span>{formatCurrency(payrollCalculation.grossPay || 0)}</span>
                       </div>
                       {/* Tax reference (not displayed / not deducted):
                       <div className="flex justify-between">

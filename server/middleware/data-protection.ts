@@ -19,6 +19,11 @@ export function dataProtectionMiddleware() {
     
     res.send = function(data: any) {
       try {
+        // Never transform binary payloads (PDF, images, etc.)
+        if (Buffer.isBuffer(data) || data instanceof Uint8Array) {
+          return originalSend.call(this, data);
+        }
+
         if (typeof data === 'string') {
           // Try to parse JSON
           try {

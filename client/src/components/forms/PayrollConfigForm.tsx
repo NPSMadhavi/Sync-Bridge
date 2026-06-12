@@ -40,6 +40,7 @@ const payrollConfigFormSchema = z.object({
   employeeId: z.coerce.number().min(1, "Please select an employee"),
   baseSalary: z.coerce.number().min(0, "Base salary must be positive"),
   payrollPeriod: z.string().min(1, "Payroll period is required"),
+  noOfWorkingDays: z.coerce.number().int().min(1, "No of working days is required"),
   hourlyRate: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
     z.number().min(0).optional()
@@ -82,6 +83,7 @@ function mapEditDataToForm(editData: any): Partial<PayrollConfigFormData> {
     employeeId: editData?.employeeId ?? 0,
     baseSalary: parseFloat(editData?.baseSalary) || ("" as any),
     payrollPeriod: editData?.payrollPeriod || "monthly",
+    noOfWorkingDays: editData?.noOfWorkingDays ?? ("" as any),
     hourlyRate: editData?.hourlyRate != null ? parseFloat(editData.hourlyRate) : undefined,
     overtimeRate: editData?.overtimeRate != null ? parseFloat(editData.overtimeRate) : undefined,
     citizenshipStatus: residencyType,
@@ -130,6 +132,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
       employeeId: editData?.employeeId ?? 0,
       baseSalary: editData?.baseSalary ?? ("" as any),
       payrollPeriod: editData?.payrollPeriod || "monthly",
+      noOfWorkingDays: editData?.noOfWorkingDays ?? ("" as any),
       hourlyRate: editData?.hourlyRate ?? undefined,
       overtimeRate: editData?.overtimeRate ?? undefined,
       citizenshipStatus: editData?.citizenshipStatus || "citizen",
@@ -162,6 +165,13 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
   const watchedCitizenship = form.watch("citizenshipStatus");
   const watchedPrStatus = form.watch("prStatus");
   const watchedAge = form.watch("age");
+  const watchedAllowanceTransport = form.watch("allowanceTransport");
+  const watchedAllowanceMeal = form.watch("allowanceMeal");
+  const watchedAllowancePhone = form.watch("allowancePhone");
+  const watchedAllowanceOthers = form.watch("allowanceOthers");
+  const watchedDeductionMedical = form.watch("deductionMedical");
+  const watchedDeductionAdvance = form.watch("deductionAdvance");
+  const watchedDeductionOthers = form.watch("deductionOthers");
 
   useEffect(() => {
     if (isEditMode) return;
@@ -192,6 +202,20 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
     form.setValue("age", calculateAgeFromDob(watchedDOB), { shouldValidate: true });
   }, [watchedDOB, form]);
 
+  const allowanceTotal =
+    (Number(watchedAllowanceTransport) || 0) +
+    (Number(watchedAllowanceMeal) || 0) +
+    (Number(watchedAllowancePhone) || 0) +
+    (Number(watchedAllowanceOthers) || 0);
+  const deductionTotal =
+    (Number(watchedDeductionMedical) || 0) +
+    (Number(watchedDeductionAdvance) || 0) +
+    (Number(watchedDeductionOthers) || 0);
+  const grossSalaryPreview =
+    Number(watchedSalary) > 0
+      ? Math.max(0, Number(watchedSalary) + allowanceTotal - deductionTotal)
+      : 0;
+
   const payrollSnapshot = useMemo(() => {
     const salary = Number(watchedSalary);
     const age = Number(watchedAge);
@@ -209,8 +233,17 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
       age,
       residencyType,
       prYear,
+      monthlyAllowances: allowanceTotal,
+      monthlyDeductions: deductionTotal,
     });
-  }, [watchedSalary, watchedAge, watchedCitizenship, watchedPrStatus]);
+  }, [
+    watchedSalary,
+    watchedAge,
+    watchedCitizenship,
+    watchedPrStatus,
+    allowanceTotal,
+    deductionTotal,
+  ]);
 
   useEffect(() => {
     if (payrollSnapshot) {
@@ -438,6 +471,26 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                         </FormItem>
                       )}
                     />
+                    <FormField
+                      control={form.control}
+                      name="noOfWorkingDays"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>No of Working Days *</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              min={1}
+                              step={1}
+                              placeholder="e.g. 26"
+                              {...field}
+                              onChange={(e) => field.onChange(parseInt(e.target.value, 10) || "")}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
                   {/* <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
@@ -597,10 +650,14 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                   <CardHeader><CardTitle>Auto-Calculated Payroll Values</CardTitle></CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Tax reference (hidden from payroll UI):
-                      <FormField name="taxRate" ... Tax Rate (%) />
-                      <FormItem> Income Tax (Annual) ... </FormItem>
-                      */}
+                      <FormItem>
+                        <FormLabel>Gross Salary</FormLabel>
+                        <Input
+                          readOnly
+                          className="bg-muted"
+                          value={formatCurrency(grossSalaryPreview)}
+                        />
+                      </FormItem>
                       <FormItem>
                         <FormLabel>CPF Rate (Employee %)</FormLabel>
                         <Input readOnly className="bg-muted" value={`${payrollSnapshot.employeeCpfRate}%`} />
@@ -608,6 +665,14 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                       <FormItem>
                         <FormLabel>CPF Amount (Employee)</FormLabel>
                         <Input readOnly className="bg-muted" value={formatCurrency(payrollSnapshot.monthlyEmployeeCpf)} />
+                      </FormItem>
+                      <FormItem>
+                        <FormLabel>CPF Rate (Employer %)</FormLabel>
+                        <Input readOnly className="bg-muted" value={`${payrollSnapshot.employerCpfRate}%`} />
+                      </FormItem>
+                      <FormItem>
+                        <FormLabel>CPF Amount (Employer)</FormLabel>
+                        <Input readOnly className="bg-muted" value={formatCurrency(payrollSnapshot.monthlyEmployerCpf)} />
                       </FormItem>
                       <FormItem>
                         <FormLabel>Net Salary (Monthly)</FormLabel>

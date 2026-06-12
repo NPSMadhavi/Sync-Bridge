@@ -24,10 +24,20 @@ import {
 import AssetForm from "@/components/forms/AssetForm";
 import { TableRowActions } from "@/components/ui/table-row-actions";
 import {
+  EntityViewField,
+  EntityViewFieldGrid,
+  EntityViewSection,
+  EntityViewSheet,
+  formatViewDate,
+  formatViewStatus,
+  formatViewValue,
+} from "@/components/ui/entity-view-sheet";
+import {
   Plus,
   Loader2,
   Edit,
   Trash2,
+  Eye,
   AlertCircle,
   Laptop,
   Monitor,
@@ -49,9 +59,11 @@ import AssignAssetModal from "@/components/modals/AssignAssetModal";
 export default function AssetsPage() {
   const { toast } = useToast();
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
+  const [viewingAsset, setViewingAsset] = useState<Asset | null>(null);
   
   // Fetch assets
   const { data: assets = [], isLoading } = useQuery<Asset[]>({
@@ -88,6 +100,11 @@ export default function AssetsPage() {
   const handleEditAsset = (id: number) => {
     setSelectedAssetId(id);
     setIsFormDialogOpen(true);
+  };
+
+  const handleViewAsset = (asset: Asset) => {
+    setViewingAsset(asset);
+    setIsViewDialogOpen(true);
   };
   
   const handleDeleteAsset = (id: number) => {
@@ -200,6 +217,12 @@ export default function AssetsPage() {
                         <TableRowActions
                           actions={[
                             {
+                              icon: Eye,
+                              label: "View",
+                              variant: "view",
+                              onClick: () => handleViewAsset(asset),
+                            },
+                            {
                               icon: Edit,
                               label: "Edit",
                               variant: "edit",
@@ -276,6 +299,46 @@ export default function AssetsPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {viewingAsset && (
+        <EntityViewSheet
+          open={isViewDialogOpen}
+          onOpenChange={setIsViewDialogOpen}
+          title="Asset Details"
+          description="View complete asset information"
+          onClose={() => {
+            setIsViewDialogOpen(false);
+            setViewingAsset(null);
+          }}
+        >
+          <EntityViewSection title="Asset Information">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Asset Tag" value={viewingAsset.tag} />
+              <EntityViewField label="Type" value={viewingAsset.type} />
+              <EntityViewField label="Category" value={viewingAsset.category} />
+              <EntityViewField label="Serial Number" value={viewingAsset.serial} />
+              <EntityViewField label="Status" value={formatViewStatus(viewingAsset.status)} />
+              <EntityViewField label="Location" value={formatViewValue(viewingAsset.location)} />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+          <EntityViewSection title="Purchase & Warranty">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Purchase Date" value={formatViewDate(viewingAsset.purchaseDate)} />
+              <EntityViewField label="Warranty Expiry" value={formatViewDate(viewingAsset.warrantyExpiry)} />
+              <EntityViewField
+                label="Has License"
+                value={viewingAsset.hasLicense ? "Yes" : "No"}
+              />
+              <EntityViewField
+                label="Vendor ID"
+                value={viewingAsset.vendorId != null ? String(viewingAsset.vendorId) : "—"}
+              />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+        </EntityViewSheet>
+      )}
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

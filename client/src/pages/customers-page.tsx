@@ -14,6 +14,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Dashboard from "@/components/layout/Dashboard";
 import { TableRowActions } from "@/components/ui/table-row-actions";
+import {
+  EntityViewField,
+  EntityViewFieldGrid,
+  EntityViewSection,
+  EntityViewSheet,
+  formatViewDate,
+  formatViewValue,
+} from "@/components/ui/entity-view-sheet";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -63,6 +71,7 @@ interface CustomerFormData {
 export default function CustomersPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerToDeleteId, setCustomerToDeleteId] = useState<string | null>(null);
@@ -274,6 +283,11 @@ export default function CustomersPage() {
       notes: customer.notes
     });
     setIsEditDialogOpen(true);
+  };
+
+  const handleView = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setIsViewDialogOpen(true);
   };
 
   const handleDelete = (id: string) => {
@@ -551,6 +565,12 @@ export default function CustomersPage() {
                       <TableRowActions
                         actions={[
                           {
+                            icon: Eye,
+                            label: "View",
+                            variant: "view",
+                            onClick: () => handleView(customer),
+                          },
+                          {
                             icon: Edit,
                             label: "Edit",
                             variant: "edit",
@@ -717,6 +737,50 @@ export default function CustomersPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {selectedCustomer && (
+        <EntityViewSheet
+          open={isViewDialogOpen}
+          onOpenChange={setIsViewDialogOpen}
+          title="Customer Details"
+          description="View complete customer information"
+          onClose={() => {
+            setIsViewDialogOpen(false);
+            setSelectedCustomer(null);
+          }}
+        >
+          <EntityViewSection title="Customer Information">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Name" value={selectedCustomer.name} />
+              <EntityViewField label="Company" value={formatViewValue(selectedCustomer.company)} />
+              <EntityViewField label="Email" value={selectedCustomer.email} />
+              <EntityViewField label="Phone" value={formatViewValue(selectedCustomer.phone)} />
+              <EntityViewField
+                label="Status"
+                value={selectedCustomer.isActive ? "Active" : "Inactive"}
+              />
+              <EntityViewField label="Tax ID" value={formatViewValue(selectedCustomer.taxId)} />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+          <EntityViewSection title="Address">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Address" value={formatViewValue(selectedCustomer.address)} fullWidth />
+              <EntityViewField label="City" value={formatViewValue(selectedCustomer.city)} />
+              <EntityViewField label="State" value={formatViewValue(selectedCustomer.state)} />
+              <EntityViewField label="Zip Code" value={formatViewValue(selectedCustomer.zipCode)} />
+              <EntityViewField label="Country" value={formatViewValue(selectedCustomer.country)} />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+          <EntityViewSection title="Additional Details">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Notes" value={formatViewValue(selectedCustomer.notes)} fullWidth />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+
+        </EntityViewSheet>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

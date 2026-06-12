@@ -178,7 +178,11 @@ export function calculateSingaporePayrollSnapshot(
   const overtimePay = round2(params.overtimePay ?? 0);
 
   const annualSalary = round2(monthlySalary * 12);
-  const cpfApplicableSalary = round2(Math.min(monthlySalary, CPF_WAGE_CEILING));
+  // Gross Salary = Monthly Salary + Allowance - Deductions (+ overtime)
+  const grossSalary = round2(
+    Math.max(0, monthlySalary + allowances + overtimePay - deductions)
+  );
+  const cpfApplicableSalary = round2(Math.min(grossSalary, CPF_WAGE_CEILING));
 
   const { employerRate, employeeRate } = getCpfRates(
     params.age,
@@ -193,22 +197,13 @@ export function calculateSingaporePayrollSnapshot(
   const annualEmployerCpf = round2(monthlyEmployerCpf * 12);
   const annualTotalCpf = round2(monthlyTotalCpf * 12);
 
-  // IRAS tax reference (not applied during payroll processing):
-  // const chargeableIncome = round2(Math.max(0, annualSalary - annualEmployeeCpf));
-  // const annualIncomeTax = calculateResidentIncomeTax(chargeableIncome);
-  // const monthlyIncomeTax = round2(annualIncomeTax / 12);
-  // const taxBreakdown = getIncomeTaxBreakdown(chargeableIncome);
-  // const effectiveTaxRate =
-  //   chargeableIncome > 0 ? round2((annualIncomeTax / chargeableIncome) * 100) : 0;
-
   const chargeableIncome = 0;
   const annualIncomeTax = 0;
   const monthlyIncomeTax = 0;
   const taxBreakdown: TaxSlabBreakdownRow[] = [];
   const effectiveTaxRate = 0;
 
-  const grossMonthly = round2(monthlySalary + allowances + overtimePay);
-  const netSalary = round2(grossMonthly - deductions - monthlyEmployeeCpf);
+  const netSalary = round2(grossSalary - monthlyEmployeeCpf);
 
   return {
     monthlySalary,
@@ -239,10 +234,17 @@ export function calculateProcessPayroll(params: CalculatePayrollParams & {
   const overtimePay =
     params.overtimePay ??
     round2((params.overtimeHours ?? 0) * (params.overtimeRate ?? 0));
-  const snapshot = calculateSingaporePayrollSnapshot({ ...params, overtimePay });
   const allowances = round2(params.monthlyAllowances ?? 0);
   const deductions = round2(params.monthlyDeductions ?? 0);
-  const grossSalary = round2(snapshot.monthlySalary + allowances + overtimePay);
+  const snapshot = calculateSingaporePayrollSnapshot({
+    ...params,
+    overtimePay,
+    monthlyAllowances: allowances,
+    monthlyDeductions: deductions,
+  });
+  const grossSalary = round2(
+    Math.max(0, snapshot.monthlySalary + allowances + overtimePay - deductions)
+  );
 
   return {
     ...snapshot,

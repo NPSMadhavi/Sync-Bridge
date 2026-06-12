@@ -22,7 +22,8 @@ import {
   BellIcon,
   TrendingUp,
   ShoppingCart,
-  CalendarClock
+  CalendarClock,
+  Building2
 } from "lucide-react";
 
 type MenuItem = {
@@ -65,6 +66,12 @@ export default function Sidebar({ isCollapsed, onCollapsedChange }: {
       name: "Licenses",
       href: "/licenses",
       icon: <Key className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
+      hideForRoles: ["vendor"],
+    },
+    {
+      name: "Company",
+      href: "/company",
+      icon: <Building2 className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
       hideForRoles: ["vendor"],
     },
     {

@@ -12,17 +12,57 @@ export function getCurrentPayPeriod() {
   return { payPeriodStart, payPeriodEnd };
 }
 
+export function toDateOnly(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  return String(value).slice(0, 10);
+}
+
+export function payPeriodOverlapsMonth(
+  payPeriodStart: string,
+  payPeriodEnd: string,
+  year: number,
+  month: number
+): boolean {
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const start = toDateOnly(payPeriodStart);
+  const end = toDateOnly(payPeriodEnd);
+  return start <= monthEnd && end >= monthStart;
+}
+
+export function getProcessedMonthsForEmployee(
+  employeeDbId: number,
+  year: number,
+  records: any[]
+): number[] {
+  const months: number[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const hasRecord = records.some(
+      (record) =>
+        record.employeeId === employeeDbId &&
+        payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, m)
+    );
+    if (hasRecord) months.push(m);
+  }
+  return months;
+}
+
 export function isPayrollProcessedForPeriod(
   employeeDbId: number,
   records: any[],
   payPeriodStart: string,
   payPeriodEnd: string
 ) {
+  const start = toDateOnly(payPeriodStart);
+  const year = parseInt(start.slice(0, 4), 10);
+  const month = parseInt(start.slice(5, 7), 10);
+  if (!year || !month) return false;
+
   return records.some(
     (record) =>
       record.employeeId === employeeDbId &&
-      record.payPeriodStart === payPeriodStart &&
-      record.payPeriodEnd === payPeriodEnd
+      payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, month)
   );
 }
 

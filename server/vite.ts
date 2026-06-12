@@ -45,6 +45,11 @@ export async function setupVite(app: Express, server: Server) {
 
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
+    // Never serve SPA HTML for API or uploaded file paths
+    if (req.path.startsWith("/api") || req.path.startsWith("/uploads")) {
+      return next();
+    }
+
     const url = req.originalUrl;
 
     try {
@@ -98,9 +103,9 @@ export function serveStatic(app: Express) {
   // Serve static files
   app.use(express.static(distPath));
 
-  // Handle client-side routing by serving index.html for all routes except /api
+  // Handle client-side routing by serving index.html for all routes except /api and /uploads
   app.get("*", (req, res) => {
-    if (!req.path.startsWith("/api")) {
+    if (!req.path.startsWith("/api") && !req.path.startsWith("/uploads")) {
       res.sendFile(path.join(distPath, "index.html"));
     }
   });

@@ -85,7 +85,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
             <HelpCircle className="h-5 w-5" />
           </Button>
           
-          <ThemeToggle />
+          {/* <ThemeToggle /> */}
           
           <div className="relative">
             <Link href="/settings">

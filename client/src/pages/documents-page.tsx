@@ -16,11 +16,13 @@ import { CompanyDocument } from "@shared/schema";
 import { queryClient, apiRequest, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  EntityViewField,
+  EntityViewFieldGrid,
+  EntityViewSection,
+  EntityViewSheet,
+  formatViewDate,
+  formatViewValue,
+} from "@/components/ui/entity-view-sheet";
 import CompanyDocumentForm from "@/components/forms/CompanyDocumentForm";
 import { TableRowActions } from "@/components/ui/table-row-actions";
 import {
@@ -233,61 +235,65 @@ export default function DocumentsPage() {
         </Tabs>
       </div>
       
-      {/* View Document Dialog */}
-      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
-              Document Details
-            </DialogTitle>
-          </DialogHeader>
-          {viewingDocument && (
-            <div className="space-y-4 py-2">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground font-medium">Title</p>
-                  <p className="font-semibold">{viewingDocument.title}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground font-medium">Document Type</p>
-                  <p className="font-semibold">{formatDocumentType(viewingDocument.documentType)}</p>
-                </div>
-                {viewingDocument.customType && (
-                  <div>
-                    <p className="text-muted-foreground font-medium">Custom Type</p>
-                    <p className="font-semibold">{viewingDocument.customType}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-muted-foreground font-medium">Issue Date</p>
-                  <p className="font-semibold">
-                    {viewingDocument.issueDate ? new Date(viewingDocument.issueDate).toLocaleDateString() : "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground font-medium">Expiry Date</p>
-                  <p className="font-semibold">
-                    {viewingDocument.expiryDate ? new Date(viewingDocument.expiryDate).toLocaleDateString() : "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground font-medium">Status</p>
+      {/* View Document */}
+      <EntityViewSheet
+        open={isViewDialogOpen}
+        onOpenChange={setIsViewDialogOpen}
+        title="Document Details"
+        description="View complete document information"
+        onClose={() => {
+          setIsViewDialogOpen(false);
+          setViewingDocument(null);
+        }}
+      >
+        {viewingDocument && (
+          <>
+            <EntityViewSection title="Document Information">
+              <EntityViewFieldGrid>
+                <EntityViewField label="Title" value={viewingDocument.title} />
+                <EntityViewField
+                  label="Document Type"
+                  value={formatDocumentType(viewingDocument.documentType)}
+                />
+                <EntityViewField
+                  label="Custom Type"
+                  value={formatViewValue(viewingDocument.customType)}
+                />
+                <EntityViewField label="Issue Date" value={formatViewDate(viewingDocument.issueDate)} />
+                <EntityViewField label="Expiry Date" value={formatViewDate(viewingDocument.expiryDate)} />
+                <EntityViewField label="Status">
                   <Badge variant={getExpiryStatus(viewingDocument.expiryDate).variant}>
                     {getExpiryStatus(viewingDocument.expiryDate).label}
                   </Badge>
-                </div>
-              </div>
-              {viewingDocument.notes && (
-                <div>
-                  <p className="text-muted-foreground font-medium text-sm">Notes</p>
-                  <p className="text-sm mt-1 p-3 bg-muted rounded-md">{viewingDocument.notes}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+                </EntityViewField>
+                <EntityViewField
+                  label="File"
+                  fullWidth
+                >
+                  {viewingDocument.filePath ? (
+                    <a
+                      href={"/" + viewingDocument.filePath.replace(/\\/g, "/")}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline break-all"
+                    >
+                      {viewingDocument.title || "View document"}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </EntityViewField>
+                <EntityViewField
+                  label="Notes"
+                  value={formatViewValue(viewingDocument.notes)}
+                  fullWidth
+                />
+              </EntityViewFieldGrid>
+            </EntityViewSection>
+
+          </>
+        )}
+      </EntityViewSheet>
 
       {/* Company Document Form */}
       <CompanyDocumentForm

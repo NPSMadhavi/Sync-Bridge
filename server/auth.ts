@@ -312,8 +312,14 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/logout", (req, res, next) => {
+    const sessionId = req.session?.id;
     req.logout((err) => {
       if (err) return next(err);
+      if (sessionId) {
+        import("./payslip-zip")
+          .then(({ cleanupSessionPayslipZips }) => cleanupSessionPayslipZips(sessionId))
+          .catch(() => undefined);
+      }
       res.sendStatus(200);
     });
   });
