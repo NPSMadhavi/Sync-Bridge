@@ -26,8 +26,14 @@ import {
   payments,
   userPermissions,
   payrollRecords,
+  documentReminderHistory,
   employeePayroll,
+  documentReminders,
+  licenseReminders,
   emailSettings,
+  runningNumbers,
+  formatRunningNumber,
+  RUNNING_NUMBER_MODULE_EMPLOYEE,
   Asset,
   InsertAsset,
   AssetAssignment,
@@ -62,7 +68,26 @@ import {
   InsertInvoiceItem,
   Payment,
   InsertPayment,
+  Employee,
+  InsertEmployee,
+  RunningNumber,
+  SaveRunningNumber,
 } from '@shared/schema';
+import {
+  computeDocumentExpiryStats,
+  filterExpiredDocuments,
+  filterExpiringSoonDocuments,
+  getDaysUntilExpiry,
+  isDocumentExpired,
+  isDocumentExpiringSoon,
+  startOfDay,
+  DOCUMENT_EXPIRY_SOON_DAYS,
+} from '@shared/document-expiry';
+import {
+  documentTypeLabel,
+  type DocumentExpiryRecord,
+} from '@shared/document-reminder-utils';
+import { normalizePermissions } from '@shared/permissions';
 import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or, getTableColumns } from 'drizzle-orm';
 import { DataEncryption } from './utils/encryption';
 
@@ -103,8 +128,14 @@ export interface IStorage {
   
   // Email Settings operations
   getEmailSettings(tenantId: number): Promise<EmailSettings | undefined>;
+  getAnyActiveEmailSettings(): Promise<EmailSettings | undefined>;
   createEmailSettings(emailSettings: InsertEmailSettings): Promise<EmailSettings>;
   updateEmailSettings(tenantId: number, emailSettings: Partial<InsertEmailSettings>): Promise<EmailSettings | undefined>;
+  
+  // Running Number operations
+  getRunningNumber(tenantId: number, moduleName: string): Promise<RunningNumber | undefined>;
+  upsertRunningNumber(tenantId: number, moduleName: string, data: SaveRunningNumber): Promise<RunningNumber>;
+  createEmployeeWithRunningNumber(tenantId: number, employee: Omit<InsertEmployee, 'employeeId'>): Promise<Employee>;
   
   // User operations
   getUser(id: number): Promise<User | undefined>;
@@ -132,6 +163,54 @@ export interface IStorage {
   createDependent(dependent: InsertDependent): Promise<Dependent>;
   updateDependent(id: number, dependent: Partial<InsertDependent>): Promise<Dependent | undefined>;
   deleteDependent(id: number): Promise<void>;
+
+  // Document reminder operations
+  scheduleDocumentReminder(data: {
+    tenantId?: number | null;
+    employeeId: number;
+    dependentId?: number | null;
+    documentType: string;
+    expiryDate?: Date | null;
+    reminderDate: Date;
+    status: "pending" | "sent" | "snoozed" | "closed";
+    reminderKind?: string | null;
+    startDate?: Date | null;
+    endDate?: Date | null;
+    emailSentAt?: Date;
+  }): Promise<void>;
+  getDueDocumentReminders(asOf: Date): Promise<(typeof documentReminderHistory.$inferSelect)[]>;
+  hasAutoReminderSent(
+    employeeId: number,
+    dependentId: number | null,
+    documentType: string,
+    reminderKind: string
+  ): Promise<boolean>;
+  markDocumentReminderSent(id: number, sentAt: Date): Promise<void>;
+  getDocumentRemindersForDocument(documentId: number): Promise<{ daysBefore: number }[]>;
+  getLicenseRemindersForLicense(licenseId: number): Promise<{ daysBefore: number }[]>;
+  replaceLicenseReminders(licenseId: number, reminders: { daysBefore: number }[]): Promise<void>;
+  hasConfiguredReminderBeenSent(params: {
+    documentType: string;
+    entityId: number;
+    reminderKind: string;
+    reminderDate: Date;
+  }): Promise<boolean>;
+  getExpiringDocumentRecords(
+    type: string,
+    tenantId?: number
+  ): Promise<any[]>;
+  getDocumentExpiryRecords(
+    mode: "expiring" | "expired",
+    tenantId?: number
+  ): Promise<import("@shared/document-reminder-utils").DocumentExpiryRecord[]>;
+  isDocumentReminderSnoozed(
+    reminderType: string,
+    employeeDbId?: number | null,
+    dependentId?: number | null,
+    entityId?: number | null
+  ): Promise<boolean>;
+  hasNotificationForEntity(userId: number, entityType: string): Promise<boolean>;
+  getNotificationRecipientUsers(tenantId?: number): Promise<User[]>;
   
   // Asset operations
   getAsset(id: number): Promise<Asset | undefined>;
@@ -212,6 +291,7 @@ export interface IStorage {
   getUnseenNotificationsByUserId(userId: number): Promise<Notification[]>;
   createNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationAsSeen(id: number): Promise<Notification | undefined>;
+  markAllNotificationsAsSeen(userId: number): Promise<void>;
   deleteNotification(id: number): Promise<void>;
   
   // Audit Log operations
@@ -290,10 +370,14 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(insertUser: InsertUser, tenantId: number): Promise<User> {
     const hashedPassword = await this.hashPassword(insertUser.password);
+    const { permissions, ...rest } = insertUser as InsertUser & {
+      permissions?: Record<string, boolean>;
+    };
     const [newUser] = await db.insert(users).values({
-      ...insertUser,
+      ...rest,
       password: hashedPassword,
       tenantId,
+      permissions: permissions ? normalizePermissions(permissions) : {},
     }).returning();
     return newUser;
   }
@@ -311,13 +395,21 @@ export class DatabaseStorage implements IStorage {
       email?: string;
       password?: string;
       role?: typeof users.$inferSelect['role'];
+      permissions?: Record<string, boolean>;
+      sendReminderEmails?: boolean;
     }
 
     const updateData: UpdateData = {};
     
-    if (userData.name) updateData.name = userData.name;
-    if (userData.email) updateData.email = userData.email;
-    if (userData.role) updateData.role = userData.role;
+    if (userData.name !== undefined) updateData.name = userData.name;
+    if (userData.email !== undefined) updateData.email = userData.email;
+    if (userData.role !== undefined) updateData.role = userData.role;
+    if (userData.sendReminderEmails !== undefined) {
+      updateData.sendReminderEmails = userData.sendReminderEmails;
+    }
+    if ((userData as UpdateData).permissions !== undefined) {
+      updateData.permissions = normalizePermissions((userData as UpdateData).permissions);
+    }
     
     if (userData.password) {
       updateData.password = await this.hashPassword(userData.password);
@@ -405,6 +497,7 @@ export class DatabaseStorage implements IStorage {
       joinDate: toDate(employee.joinDate),
       dateOfBirth: toPgDate(employee.dateOfBirth),
       passportExpiry: toDate(employee.passportExpiry),
+      nricExpiry: toDate(employee.nricExpiry),
       visaExpiry: toDate(employee.visaExpiry),
     };
   }
@@ -436,6 +529,68 @@ export class DatabaseStorage implements IStorage {
         throw fallbackError;
       }
     }
+  }
+
+  private async insertEmployeeWithClient(
+    client: typeof db,
+    employee: InsertEmployee
+  ): Promise<Employee> {
+    const normalizedEmployee = this.normalizeEmployeeDates(employee);
+    try {
+      const encryptedEmployee = await DataEncryption.encryptObject(
+        normalizedEmployee,
+        SENSITIVE_FIELDS.employees
+      );
+      const [newEmployee] = await client.insert(employees).values(encryptedEmployee).returning();
+      return newEmployee;
+    } catch (error) {
+      console.error('Error creating employee in transaction (with encryption):', error);
+      const [newEmployee] = await client.insert(employees).values(normalizedEmployee).returning();
+      return newEmployee;
+    }
+  }
+
+  async createEmployeeWithRunningNumber(
+    tenantId: number,
+    employee: Omit<InsertEmployee, 'employeeId'>
+  ): Promise<Employee> {
+    return db.transaction(async (tx) => {
+      const [config] = await tx
+        .select()
+        .from(runningNumbers)
+        .where(
+          and(
+            eq(runningNumbers.tenantId, tenantId),
+            eq(runningNumbers.moduleName, RUNNING_NUMBER_MODULE_EMPLOYEE)
+          )
+        )
+        .for('update')
+        .limit(1);
+
+      if (!config) {
+        throw new Error('Running number configuration not found for Employee module');
+      }
+
+      const employeeId = formatRunningNumber(
+        config.prefix,
+        config.nextCounter,
+        config.suffix
+      );
+
+      await tx
+        .update(runningNumbers)
+        .set({
+          nextCounter: config.nextCounter + 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(runningNumbers.id, config.id));
+
+      return this.insertEmployeeWithClient(tx, {
+        ...employee,
+        tenantId: employee.tenantId ?? tenantId,
+        employeeId,
+      } as InsertEmployee);
+    });
   }
 
   async updateEmployee(id: number, employeeData: Partial<InsertEmployee>): Promise<Employee | undefined> {
@@ -753,6 +908,15 @@ export class DatabaseStorage implements IStorage {
     return settings;
   }
 
+  async getAnyActiveEmailSettings(): Promise<EmailSettings | undefined> {
+    const [settings] = await db
+      .select()
+      .from(emailSettings)
+      .where(eq(emailSettings.isActive, true))
+      .limit(1);
+    return settings;
+  }
+
   async createEmailSettings(emailSettingsData: InsertEmailSettings): Promise<EmailSettings> {
     const [newSettings] = await db.insert(emailSettings).values({
       ...emailSettingsData,
@@ -769,12 +933,503 @@ export class DatabaseStorage implements IStorage {
     return updatedSettings;
   }
 
+  async getRunningNumber(tenantId: number, moduleName: string): Promise<RunningNumber | undefined> {
+    const [config] = await db
+      .select()
+      .from(runningNumbers)
+      .where(
+        and(
+          eq(runningNumbers.tenantId, tenantId),
+          eq(runningNumbers.moduleName, moduleName)
+        )
+      )
+      .limit(1);
+    return config;
+  }
+
+  async upsertRunningNumber(
+    tenantId: number,
+    moduleName: string,
+    data: SaveRunningNumber
+  ): Promise<RunningNumber> {
+    const existing = await this.getRunningNumber(tenantId, moduleName);
+    if (existing) {
+      const [updated] = await db
+        .update(runningNumbers)
+        .set({
+          prefix: data.prefix,
+          nextCounter: data.nextCounter,
+          suffix: data.suffix ?? "",
+          updatedAt: new Date(),
+        })
+        .where(eq(runningNumbers.id, existing.id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db
+      .insert(runningNumbers)
+      .values({
+        tenantId,
+        moduleName,
+        prefix: data.prefix,
+        nextCounter: data.nextCounter,
+        suffix: data.suffix ?? "",
+        updatedAt: new Date(),
+      })
+      .returning();
+    return created;
+  }
+
   // Add other placeholder methods as needed
-  async getDependent(id: number): Promise<Dependent | undefined> { return undefined; }
-  async getDependentsByEmployeeId(employeeId: number): Promise<Dependent[]> { return []; }
-  async createDependent(dependent: InsertDependent): Promise<Dependent> { throw new Error('Not implemented'); }
-  async updateDependent(id: number, dependent: Partial<InsertDependent>): Promise<Dependent | undefined> { return undefined; }
-  async deleteDependent(id: number): Promise<void> { }
+  async getDependent(id: number): Promise<Dependent | undefined> {
+    const [row] = await db.select().from(dependents).where(eq(dependents.id, id));
+    return row;
+  }
+
+  async getDependentsByEmployeeId(employeeId: number): Promise<Dependent[]> {
+    return db.select().from(dependents).where(eq(dependents.employeeId, employeeId));
+  }
+
+  async createDependent(dependent: InsertDependent): Promise<Dependent> {
+    const encrypted = await DataEncryption.encryptObject(dependent, SENSITIVE_FIELDS.dependents);
+    const [row] = await db.insert(dependents).values(encrypted).returning();
+    return row;
+  }
+
+  async updateDependent(id: number, dependent: Partial<InsertDependent>): Promise<Dependent | undefined> {
+    const encrypted = await DataEncryption.encryptObject(dependent, SENSITIVE_FIELDS.dependents);
+    const [row] = await db.update(dependents).set(encrypted).where(eq(dependents.id, id)).returning();
+    return row;
+  }
+
+  async deleteDependent(id: number): Promise<void> {
+    await db.delete(dependents).where(eq(dependents.id, id));
+  }
+
+  async scheduleDocumentReminder(data: {
+    tenantId?: number | null;
+    employeeId?: number | null;
+    dependentId?: number | null;
+    entityId?: number | null;
+    documentType: string;
+    expiryDate?: Date | null;
+    reminderDate: Date;
+    status: "pending" | "sent" | "snoozed" | "closed";
+    reminderKind?: string | null;
+    startDate?: Date | null;
+    endDate?: Date | null;
+    emailSentAt?: Date;
+  }): Promise<void> {
+    await db.insert(documentReminderHistory).values({
+      tenantId: data.tenantId ?? null,
+      employeeId: data.employeeId ?? null,
+      dependentId: data.dependentId ?? null,
+      entityId: data.entityId ?? null,
+      documentType: data.documentType,
+      expiryDate: data.expiryDate ?? null,
+      reminderDate: data.reminderDate,
+      status: data.status,
+      reminderKind: data.reminderKind ?? null,
+      startDate: data.startDate ?? null,
+      endDate: data.endDate ?? null,
+      emailSentAt: data.emailSentAt ?? null,
+      updatedAt: new Date(),
+    });
+  }
+
+  async getDueDocumentReminders(asOf: Date): Promise<(typeof documentReminderHistory.$inferSelect)[]> {
+    const dayEnd = new Date(asOf);
+    dayEnd.setHours(23, 59, 59, 999);
+    return db
+      .select()
+      .from(documentReminderHistory)
+      .where(
+        and(
+          eq(documentReminderHistory.status, "pending"),
+          lte(documentReminderHistory.reminderDate, dayEnd)
+        )
+      );
+  }
+
+  async hasAutoReminderSent(
+    employeeId: number,
+    dependentId: number | null,
+    documentType: string,
+    reminderKind: string
+  ): Promise<boolean> {
+    const conditions = [
+      eq(documentReminderHistory.employeeId, employeeId),
+      eq(documentReminderHistory.documentType, documentType),
+      eq(documentReminderHistory.reminderKind, reminderKind),
+      eq(documentReminderHistory.status, "sent"),
+    ];
+    if (dependentId != null) {
+      conditions.push(eq(documentReminderHistory.dependentId, dependentId));
+    } else {
+      conditions.push(isNull(documentReminderHistory.dependentId));
+    }
+    const rows = await db.select().from(documentReminderHistory).where(and(...conditions)).limit(1);
+    return rows.length > 0;
+  }
+
+  async markDocumentReminderSent(id: number, sentAt: Date): Promise<void> {
+    await db
+      .update(documentReminderHistory)
+      .set({ status: "sent", emailSentAt: sentAt, updatedAt: new Date() })
+      .where(eq(documentReminderHistory.id, id));
+  }
+
+  async getDocumentRemindersForDocument(documentId: number): Promise<{ daysBefore: number }[]> {
+    const rows = await db
+      .select({ daysBefore: documentReminders.daysBefore })
+      .from(documentReminders)
+      .where(eq(documentReminders.documentId, documentId));
+    return rows;
+  }
+
+  async getLicenseRemindersForLicense(licenseId: number): Promise<{ daysBefore: number }[]> {
+    const rows = await db
+      .select({ daysBefore: licenseReminders.daysBefore })
+      .from(licenseReminders)
+      .where(eq(licenseReminders.licenseId, licenseId));
+    return rows;
+  }
+
+  async replaceLicenseReminders(licenseId: number, reminders: { daysBefore: number }[]): Promise<void> {
+    await db.delete(licenseReminders).where(eq(licenseReminders.licenseId, licenseId));
+    if (reminders.length > 0) {
+      await db.insert(licenseReminders).values(
+        reminders.map((reminder) => ({
+          licenseId,
+          daysBefore: reminder.daysBefore,
+        }))
+      );
+    }
+  }
+
+  async hasConfiguredReminderBeenSent(params: {
+    documentType: string;
+    entityId: number;
+    reminderKind: string;
+    reminderDate: Date;
+  }): Promise<boolean> {
+    const dayStart = new Date(params.reminderDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(params.reminderDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const rows = await db
+      .select()
+      .from(documentReminderHistory)
+      .where(
+        and(
+          eq(documentReminderHistory.documentType, params.documentType),
+          eq(documentReminderHistory.entityId, params.entityId),
+          eq(documentReminderHistory.reminderKind, params.reminderKind),
+          eq(documentReminderHistory.status, "sent"),
+          gte(documentReminderHistory.reminderDate, dayStart),
+          lte(documentReminderHistory.reminderDate, dayEnd)
+        )
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async getExpiringDocumentRecords(type: string, tenantId?: number): Promise<any[]> {
+    if (type === "all" || type === "expiring") {
+      return this.getDocumentExpiryRecords("expiring", tenantId);
+    }
+    if (type === "expired") {
+      return this.getDocumentExpiryRecords("expired", tenantId);
+    }
+    const all = await this.getDocumentExpiryRecords("expiring", tenantId);
+    return all.filter((r) => r.reminderType === type);
+  }
+
+  async getDocumentExpiryRecords(
+    mode: "expiring" | "expired",
+    tenantId?: number
+  ): Promise<DocumentExpiryRecord[]> {
+    const referenceDate = new Date();
+    const results: DocumentExpiryRecord[] = [];
+
+    const pushRecord = (params: {
+      recordKey: string;
+      reminderType: string;
+      employeeDbId?: number | null;
+      employeeId: string;
+      employeeName: string;
+      dependentId?: number | null;
+      dependentName?: string | null;
+      expiry: Date | string | null | undefined;
+      entityId?: number | null;
+      email?: string;
+    }) => {
+      if (!params.expiry) return;
+      const days = getDaysUntilExpiry(params.expiry, referenceDate);
+      if (days === null) return;
+
+      if (mode === "expiring") {
+        if (!isDocumentExpiringSoon(params.expiry, referenceDate, DOCUMENT_EXPIRY_SOON_DAYS)) return;
+        results.push({
+          recordKey: params.recordKey,
+          reminderType: params.reminderType,
+          employeeDbId: params.employeeDbId ?? null,
+          employeeId: params.employeeId,
+          employeeName: params.employeeName,
+          dependentId: params.dependentId ?? null,
+          dependentName: params.dependentName ?? null,
+          documentType: documentTypeLabel(params.reminderType),
+          expiryDate: new Date(params.expiry).toISOString(),
+          daysRemaining: days,
+          entityId: params.entityId ?? null,
+          email: params.email,
+        });
+      } else if (isDocumentExpired(params.expiry, referenceDate)) {
+        results.push({
+          recordKey: params.recordKey,
+          reminderType: params.reminderType,
+          employeeDbId: params.employeeDbId ?? null,
+          employeeId: params.employeeId,
+          employeeName: params.employeeName,
+          dependentId: params.dependentId ?? null,
+          dependentName: params.dependentName ?? null,
+          documentType: documentTypeLabel(params.reminderType),
+          expiryDate: new Date(params.expiry).toISOString(),
+          daysExpired: Math.abs(days),
+          entityId: params.entityId ?? null,
+          email: params.email,
+        });
+      }
+    };
+
+    let employeeQuery = db
+      .select({
+        id: employees.id,
+        employeeId: employees.employeeId,
+        name: employees.name,
+        email: employees.email,
+        passportExpiry: employees.passportExpiry,
+        visaExpiry: employees.visaExpiry,
+        nricExpiry: employees.nricExpiry,
+      })
+      .from(employees);
+    if (tenantId !== undefined) {
+      employeeQuery = employeeQuery.where(eq(employees.tenantId, tenantId)) as typeof employeeQuery;
+    }
+    const employeeRows = await employeeQuery;
+
+    for (const row of employeeRows) {
+      pushRecord({
+        recordKey: `emp-passport-${row.id}`,
+        reminderType: "employee_passport",
+        employeeDbId: row.id,
+        employeeId: row.employeeId,
+        employeeName: row.name,
+        expiry: row.passportExpiry,
+        email: row.email ?? undefined,
+      });
+      pushRecord({
+        recordKey: `emp-visa-${row.id}`,
+        reminderType: "employee_visa",
+        employeeDbId: row.id,
+        employeeId: row.employeeId,
+        employeeName: row.name,
+        expiry: row.visaExpiry,
+        email: row.email ?? undefined,
+      });
+      pushRecord({
+        recordKey: `emp-nric-${row.id}`,
+        reminderType: "employee_nric",
+        employeeDbId: row.id,
+        employeeId: row.employeeId,
+        employeeName: row.name,
+        expiry: row.nricExpiry,
+        email: row.email ?? undefined,
+      });
+    }
+
+    let dependentQuery = db
+      .select({
+        dependentId: dependents.id,
+        dependentName: dependents.name,
+        passportExpiry: dependents.passportExpiry,
+        visaExpiry: dependents.visaExpiry,
+        employeeDbId: employees.id,
+        employeeId: employees.employeeId,
+        employeeName: employees.name,
+        email: employees.email,
+      })
+      .from(dependents)
+      .innerJoin(employees, eq(dependents.employeeId, employees.id));
+    if (tenantId !== undefined) {
+      dependentQuery = dependentQuery.where(eq(employees.tenantId, tenantId)) as typeof dependentQuery;
+    }
+    const dependentRows = await dependentQuery;
+
+    for (const row of dependentRows) {
+      pushRecord({
+        recordKey: `dep-passport-${row.dependentId}`,
+        reminderType: "dependent_passport",
+        employeeDbId: row.employeeDbId,
+        employeeId: row.employeeId,
+        employeeName: row.employeeName,
+        dependentId: row.dependentId,
+        dependentName: row.dependentName,
+        expiry: row.passportExpiry,
+        email: row.email ?? undefined,
+      });
+      pushRecord({
+        recordKey: `dep-visa-${row.dependentId}`,
+        reminderType: "dependent_visa",
+        employeeDbId: row.employeeDbId,
+        employeeId: row.employeeId,
+        employeeName: row.employeeName,
+        dependentId: row.dependentId,
+        dependentName: row.dependentName,
+        expiry: row.visaExpiry,
+        email: row.email ?? undefined,
+      });
+    }
+
+    let licenseQuery = db
+      .select({
+        id: licenses.id,
+        name: licenses.name,
+        expiryDate: licenses.expiryDate,
+      })
+      .from(licenses);
+    if (tenantId !== undefined) {
+      licenseQuery = licenseQuery.where(eq(licenses.tenantId, tenantId)) as typeof licenseQuery;
+    }
+    const licenseRows = await licenseQuery;
+    for (const license of licenseRows) {
+      pushRecord({
+        recordKey: `license-${license.id}`,
+        reminderType: "license",
+        employeeId: "—",
+        employeeName: license.name,
+        expiry: license.expiryDate,
+        entityId: license.id,
+      });
+    }
+
+    let companyDocsQuery = db
+      .select({
+        id: companyDocuments.id,
+        title: companyDocuments.title,
+        expiryDate: companyDocuments.expiryDate,
+      })
+      .from(companyDocuments);
+    if (tenantId !== undefined) {
+      companyDocsQuery = companyDocsQuery.where(eq(companyDocuments.tenantId, tenantId)) as typeof companyDocsQuery;
+    }
+    const companyDocRows = await companyDocsQuery;
+    for (const doc of companyDocRows) {
+      pushRecord({
+        recordKey: `company-doc-${doc.id}`,
+        reminderType: "company_document",
+        employeeId: "—",
+        employeeName: doc.title,
+        expiry: doc.expiryDate,
+        entityId: doc.id,
+      });
+    }
+
+    let employeeDocsQuery = db
+      .select({
+        id: employeeDocuments.id,
+        expiryDate: employeeDocuments.expiryDate,
+        documentType: employeeDocuments.documentType,
+        employeeDbId: employees.id,
+        employeeId: employees.employeeId,
+        employeeName: employees.name,
+        email: employees.email,
+      })
+      .from(employeeDocuments)
+      .innerJoin(employees, eq(employeeDocuments.employeeId, employees.id));
+    if (tenantId !== undefined) {
+      employeeDocsQuery = employeeDocsQuery.where(eq(employees.tenantId, tenantId)) as typeof employeeDocsQuery;
+    }
+    const employeeDocRows = await employeeDocsQuery;
+    for (const doc of employeeDocRows) {
+      pushRecord({
+        recordKey: `emp-doc-${doc.id}`,
+        reminderType: "employee_document",
+        employeeDbId: doc.employeeDbId,
+        employeeId: doc.employeeId,
+        employeeName: doc.employeeName,
+        expiry: doc.expiryDate,
+        entityId: doc.id,
+        email: doc.email ?? undefined,
+      });
+    }
+
+    return results.sort(
+      (a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime()
+    );
+  }
+
+  async isDocumentReminderSnoozed(
+    reminderType: string,
+    employeeDbId?: number | null,
+    dependentId?: number | null,
+    entityId?: number | null
+  ): Promise<boolean> {
+    const today = startOfDay(new Date());
+    const conditions = [
+      eq(documentReminderHistory.documentType, reminderType),
+      or(
+        eq(documentReminderHistory.status, "snoozed"),
+        eq(documentReminderHistory.status, "pending")
+      )!,
+      gt(documentReminderHistory.reminderDate, today),
+    ];
+
+    if (employeeDbId != null) {
+      conditions.push(eq(documentReminderHistory.employeeId, employeeDbId));
+    } else if (entityId != null) {
+      conditions.push(eq(documentReminderHistory.entityId, entityId));
+    }
+
+    if (dependentId != null) {
+      conditions.push(eq(documentReminderHistory.dependentId, dependentId));
+    }
+
+    const rows = await db
+      .select()
+      .from(documentReminderHistory)
+      .where(and(...conditions))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async hasNotificationForEntity(userId: number, entityType: string): Promise<boolean> {
+    const rows = await db
+      .select()
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.targetUserId, userId),
+          eq(notifications.entityType, entityType),
+          eq(notifications.seen, false)
+        )
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async getNotificationRecipientUsers(tenantId?: number): Promise<User[]> {
+    const allUsers = await this.getUsers(tenantId);
+    return allUsers.filter(
+      (user) =>
+        user.role === "admin" ||
+        user.role === "super_admin" ||
+        user.role === "hr_manager" ||
+        user.isSuperAdmin
+    );
+  }
 
   async getAsset(id: number): Promise<Asset | undefined> {
     const result = await db.select().from(assets).where(eq(assets.id, id)).limit(1);
@@ -995,7 +1650,13 @@ export class DatabaseStorage implements IStorage {
   async deleteEmployeeDocument(id: number): Promise<void> { }
 
   async getCompanyDocument(id: number): Promise<CompanyDocument | undefined> { return undefined; }
-  async getCompanyDocuments(tenantId?: number): Promise<CompanyDocument[]> { return []; }
+  async getCompanyDocuments(tenantId?: number): Promise<CompanyDocument[]> {
+    let query = db.select().from(companyDocuments);
+    if (tenantId !== undefined) {
+      query = query.where(eq(companyDocuments.tenantId, tenantId));
+    }
+    return await query.orderBy(desc(companyDocuments.createdAt));
+  }
   async createCompanyDocument(document: InsertCompanyDocument): Promise<CompanyDocument> { throw new Error('Not implemented'); }
   async updateCompanyDocument(id: number, document: Partial<InsertCompanyDocument>): Promise<CompanyDocument | undefined> { return undefined; }
   async deleteCompanyDocument(id: number): Promise<void> { }
@@ -1006,7 +1667,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNotificationsByUserId(userId: number): Promise<Notification[]> {
-    return await db.select().from(notifications).where(eq(notifications.targetUserId, userId));
+    return await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.targetUserId, userId))
+      .orderBy(desc(notifications.createdAt));
   }
 
   async getUnseenNotificationsByUserId(userId: number): Promise<Notification[]> {
@@ -1077,6 +1742,13 @@ export class DatabaseStorage implements IStorage {
       .where(eq(notifications.id, id))
       .returning();
     return updatedNotification;
+  }
+
+  async markAllNotificationsAsSeen(userId: number): Promise<void> {
+    await db
+      .update(notifications)
+      .set({ seen: true })
+      .where(and(eq(notifications.targetUserId, userId), eq(notifications.seen, false)));
   }
 
   async deleteNotification(id: number): Promise<void> {
@@ -1308,34 +1980,37 @@ export class DatabaseStorage implements IStorage {
       const thresholdDate = new Date(today);
       thresholdDate.setDate(thresholdDate.getDate() + daysThreshold);
 
+      const tenantFilter = tenantId ? eq(companyDocuments.tenantId, tenantId) : undefined;
+
       const rows = await db
         .select({
-          id: employeeDocuments.id,
-          documentType: employeeDocuments.documentType,
-          expiryDate: employeeDocuments.expiryDate,
-          employeeId: employeeDocuments.employeeId,
-          employeeName: employees.name,
+          id: companyDocuments.id,
+          documentType: companyDocuments.documentType,
+          title: companyDocuments.title,
+          issueDate: companyDocuments.issueDate,
+          expiryDate: companyDocuments.expiryDate,
+          notes: companyDocuments.notes,
         })
-        .from(employeeDocuments)
-        .leftJoin(employees, eq(employeeDocuments.employeeId, employees.id))
+        .from(companyDocuments)
         .where(and(
-          tenantId ? eq(employeeDocuments.tenantId, tenantId) : undefined,
-          isNotNull(employeeDocuments.expiryDate),
-          gte(employeeDocuments.expiryDate, today),
-          lte(employeeDocuments.expiryDate, thresholdDate)
+          tenantFilter,
+          isNotNull(companyDocuments.expiryDate),
+          gt(companyDocuments.expiryDate, today),
+          lte(companyDocuments.expiryDate, thresholdDate)
         ))
-        .orderBy(employeeDocuments.expiryDate);
+        .orderBy(companyDocuments.expiryDate);
 
       return rows.map((doc) => ({
         id: doc.id,
         documentType: doc.documentType,
-        name: doc.employeeName || "Unknown",
+        title: doc.title,
+        name: doc.title,
+        issueDate: doc.issueDate ? new Date(doc.issueDate).toISOString() : null,
         expiryDate: doc.expiryDate ? new Date(doc.expiryDate).toISOString() : null,
         daysUntilExpiry: doc.expiryDate
           ? Math.ceil((new Date(doc.expiryDate).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
           : 0,
-        employeeId: doc.employeeId,
-        employeeName: doc.employeeName || "Unknown",
+        notes: doc.notes || "",
       }));
     } catch (error) {
       console.error('Error fetching expiring documents:', error);
@@ -1344,65 +2019,153 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDashboardStats(tenantId?: number): Promise<any> {
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+    const referenceDate = new Date();
+    const today = startOfDay(referenceDate);
+    const thirtyDaysFromNow = startOfDay(referenceDate);
+    thirtyDaysFromNow.setDate(today.getDate() + 30);
 
-      const thirtyDaysFromNow = new Date(today);
-      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+    let licenseExpiryQuery = db.select({ count: sql<number>`count(*)` }).from(licenses);
+    if (tenantId !== undefined) {
+      licenseExpiryQuery = licenseExpiryQuery.where(
+        and(
+          eq(licenses.tenantId, tenantId),
+          isNotNull(licenses.expiryDate),
+          gte(licenses.expiryDate, today),
+          lte(licenses.expiryDate, thirtyDaysFromNow)
+        )
+      );
+    } else {
+      licenseExpiryQuery = licenseExpiryQuery.where(
+        and(
+          isNotNull(licenses.expiryDate),
+          gte(licenses.expiryDate, today),
+          lte(licenses.expiryDate, thirtyDaysFromNow)
+        )
+      );
+    }
+    const licenseExpiryRow = await licenseExpiryQuery;
 
-      const tenantFilterEmployees = tenantId ? eq(employees.tenantId, tenantId) : undefined;
-      const tenantFilterAssets = tenantId ? eq(assets.tenantId, tenantId) : undefined;
-      const tenantFilterVendors = tenantId ? eq(vendors.tenantId, tenantId) : undefined;
-      const tenantFilterCustomers = tenantId ? eq(customers.tenantId, tenantId) : undefined;
-      const tenantFilterAssignments = tenantId ? eq(assetAssignments.tenantId, tenantId) : undefined;
-      const tenantFilterDocuments = tenantId ? eq(employeeDocuments.tenantId, tenantId) : undefined;
-      const tenantFilterLicenses = tenantId ? eq(licenses.tenantId, tenantId) : undefined;
+    let employeeCountQuery = db.select({ count: sql<number>`count(*)` }).from(employees);
+    if (tenantId !== undefined) {
+      employeeCountQuery = employeeCountQuery.where(eq(employees.tenantId, tenantId));
+    }
+    const employeeCountRow = await employeeCountQuery;
 
-      const employeeCountRow = await db.select({ count: sql<number>`count(*)` }).from(employees).where(tenantFilterEmployees);
-      const assetCountRow = await db.select({ count: sql<number>`count(*)` }).from(assets).where(tenantFilterAssets);
-      const vendorCountRow = await db.select({ count: sql<number>`count(*)` }).from(vendors).where(tenantFilterVendors);
-      const customerCountRow = await db.select({ count: sql<number>`count(*)` }).from(customers).where(tenantFilterCustomers);
-      const assignmentCountRow = await db.select({ count: sql<number>`count(*)` }).from(assetAssignments).where(tenantFilterAssignments);
-      const documentCountRow = await db.select({ count: sql<number>`count(*)` }).from(employeeDocuments).where(tenantFilterDocuments);
-      const expiringSoonDocumentRow = await db.select({ count: sql<number>`count(*)` }).from(employeeDocuments).where(and(
-        tenantFilterDocuments,
-        isNotNull(employeeDocuments.expiryDate),
-        gte(employeeDocuments.expiryDate, today),
-        lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
-      ));
-      const expiredDocumentRow = await db.select({ count: sql<number>`count(*)` }).from(employeeDocuments).where(and(
-        tenantFilterDocuments,
-        isNotNull(employeeDocuments.expiryDate),
-        lt(employeeDocuments.expiryDate, today)
-      ));
-      const licenseExpiryRow = await db.select({ count: sql<number>`count(*)` }).from(licenses).where(and(
-        tenantFilterLicenses,
-        isNotNull(licenses.expiryDate),
-        gte(licenses.expiryDate, today),
-        lte(licenses.expiryDate, thirtyDaysFromNow)
-      ));
+    let passportExpiryCountQuery = db.select({ count: sql<number>`count(*)` }).from(employees);
+    const passportExpiryConditions = and(
+      isNotNull(employees.passportExpiry),
+      lte(employees.passportExpiry, thirtyDaysFromNow)
+    );
+    if (tenantId !== undefined) {
+      passportExpiryCountQuery = passportExpiryCountQuery.where(
+        and(eq(employees.tenantId, tenantId), passportExpiryConditions)
+      );
+    } else {
+      passportExpiryCountQuery = passportExpiryCountQuery.where(passportExpiryConditions);
+    }
+    const passportExpiryCountRow = await passportExpiryCountQuery;
 
-      const assetDistributionRows = await db.select({
+    let visaExpiryCountQuery = db.select({ count: sql<number>`count(*)` }).from(employees);
+    const visaExpiryConditions = and(
+      isNotNull(employees.visaExpiry),
+      lte(employees.visaExpiry, thirtyDaysFromNow)
+    );
+    if (tenantId !== undefined) {
+      visaExpiryCountQuery = visaExpiryCountQuery.where(
+        and(eq(employees.tenantId, tenantId), visaExpiryConditions)
+      );
+    } else {
+      visaExpiryCountQuery = visaExpiryCountQuery.where(visaExpiryConditions);
+    }
+    const visaExpiryCountRow = await visaExpiryCountQuery;
+
+    let dependentPassportExpiryCountQuery = db
+      .select({ count: sql<number>`count(*)` })
+      .from(dependents)
+      .innerJoin(employees, eq(dependents.employeeId, employees.id));
+    const depPassportConditions = and(
+      isNotNull(dependents.passportExpiry),
+      lte(dependents.passportExpiry, thirtyDaysFromNow)
+    );
+    if (tenantId !== undefined) {
+      dependentPassportExpiryCountQuery = dependentPassportExpiryCountQuery.where(
+        and(eq(employees.tenantId, tenantId), depPassportConditions)
+      );
+    } else {
+      dependentPassportExpiryCountQuery = dependentPassportExpiryCountQuery.where(depPassportConditions);
+    }
+    const dependentPassportExpiryCountRow = await dependentPassportExpiryCountQuery;
+
+    let dependentVisaExpiryCountQuery = db
+      .select({ count: sql<number>`count(*)` })
+      .from(dependents)
+      .innerJoin(employees, eq(dependents.employeeId, employees.id));
+    const depVisaConditions = and(
+      isNotNull(dependents.visaExpiry),
+      lte(dependents.visaExpiry, thirtyDaysFromNow)
+    );
+    if (tenantId !== undefined) {
+      dependentVisaExpiryCountQuery = dependentVisaExpiryCountQuery.where(
+        and(eq(employees.tenantId, tenantId), depVisaConditions)
+      );
+    } else {
+      dependentVisaExpiryCountQuery = dependentVisaExpiryCountQuery.where(depVisaConditions);
+    }
+    const dependentVisaExpiryCountRow = await dependentVisaExpiryCountQuery;
+
+    let assetCountQuery = db.select({ count: sql<number>`count(*)` }).from(assets);
+    if (tenantId !== undefined) {
+      assetCountQuery = assetCountQuery.where(eq(assets.tenantId, tenantId));
+    }
+    const assetCountRow = await assetCountQuery;
+
+    let vendorCountQuery = db.select({ count: sql<number>`count(*)` }).from(vendors);
+    if (tenantId !== undefined) {
+      vendorCountQuery = vendorCountQuery.where(eq(vendors.tenantId, tenantId));
+    }
+    const vendorCountRow = await vendorCountQuery;
+
+    let customerCountQuery = db.select({ count: sql<number>`count(*)` }).from(customers);
+    if (tenantId !== undefined) {
+      customerCountQuery = customerCountQuery.where(eq(customers.tenantId, tenantId));
+    }
+    const customerCountRow = await customerCountQuery;
+
+    let assignmentCountQuery = db.select({ count: sql<number>`count(*)` }).from(assetAssignments);
+    if (tenantId !== undefined) {
+      assignmentCountQuery = assignmentCountQuery.where(eq(assetAssignments.tenantId, tenantId));
+    }
+    const assignmentCountRow = await assignmentCountQuery;
+
+    let assetDistributionQuery = db
+      .select({
         type: assets.type,
-        count: sql<number>`count(*)`
+        count: sql<number>`count(*)`,
       })
-        .from(assets)
-        .where(tenantFilterAssets)
-        .groupBy(assets.type)
-        .orderBy(desc(sql`count(*)`));
+      .from(assets)
+      .groupBy(assets.type)
+      .orderBy(desc(sql`count(*)`));
+    if (tenantId !== undefined) {
+      assetDistributionQuery = assetDistributionQuery.where(eq(assets.tenantId, tenantId));
+    }
+    const assetDistributionRows = await assetDistributionQuery;
 
-      const recentEmployeeRows = await db.select({
+    let recentEmployeeQuery = db
+      .select({
         id: employees.id,
         name: employees.name,
         createdAt: employees.createdAt,
       })
-        .from(employees)
-        .where(tenantFilterEmployees)
-        .orderBy(desc(employees.createdAt))
-        .limit(3);
+      .from(employees)
+      .orderBy(desc(employees.createdAt))
+      .limit(3);
+    if (tenantId !== undefined) {
+      recentEmployeeQuery = recentEmployeeQuery.where(eq(employees.tenantId, tenantId));
+    }
+    const recentEmployeeRows = await recentEmployeeQuery;
 
-      const recentAssignmentRows = await db.select({
+    let recentAssignmentQuery = db
+      .select({
         id: assetAssignments.id,
         dateAssigned: assetAssignments.dateAssigned,
         dateReturned: assetAssignments.dateReturned,
@@ -1414,164 +2177,154 @@ export class DatabaseStorage implements IStorage {
         employeeName: employees.name,
         employeeDepartment: employees.department,
       })
-        .from(assetAssignments)
-        .leftJoin(assets, eq(assetAssignments.assetId, assets.id))
-        .leftJoin(employees, eq(assetAssignments.employeeId, employees.id))
-        .where(tenantFilterAssignments)
-        .orderBy(desc(assetAssignments.dateAssigned))
-        .limit(5);
-
-      const expiringDocumentRows = await db.select({
-        id: employeeDocuments.id,
-        documentType: employeeDocuments.documentType,
-        expiryDate: employeeDocuments.expiryDate,
-        employeeId: employeeDocuments.employeeId,
-        employeeName: employees.name,
-      })
-        .from(employeeDocuments)
-        .leftJoin(employees, eq(employeeDocuments.employeeId, employees.id))
-        .where(and(
-          tenantFilterDocuments,
-          isNotNull(employeeDocuments.expiryDate),
-          gte(employeeDocuments.expiryDate, today),
-          lte(employeeDocuments.expiryDate, thirtyDaysFromNow)
-        ))
-        .orderBy(employeeDocuments.expiryDate);
-
-      const totalEmployees = Number(employeeCountRow[0]?.count || 0);
-      const totalAssets = Number(assetCountRow[0]?.count || 0);
-      const totalVendors = Number(vendorCountRow[0]?.count || 0);
-      const totalCustomers = Number(customerCountRow[0]?.count || 0);
-      const totalAssignments = Number(assignmentCountRow[0]?.count || 0);
-      const totalDocuments = Number(documentCountRow[0]?.count || 0);
-      const expiringSoonDocuments = Number(expiringSoonDocumentRow[0]?.count || 0);
-      const expiredDocuments = Number(expiredDocumentRow[0]?.count || 0);
-      const licenseExpiry = Number(licenseExpiryRow[0]?.count || 0);
-
-      const distributionWithPercentage = assetDistributionRows.map((item) => ({
-        type: item.type || "Unknown",
-        count: Number(item.count || 0),
-        percentage: totalAssets > 0 ? Math.round((Number(item.count || 0) / totalAssets) * 100) : 0,
-      }));
-
-      const validDocuments = Math.max(0, totalDocuments - expiringSoonDocuments - expiredDocuments);
-      const validPercentage = totalDocuments > 0 ? Math.round((validDocuments / totalDocuments) * 100) : 0;
-      const expiringSoonPercentage = totalDocuments > 0 ? Math.round((expiringSoonDocuments / totalDocuments) * 100) : 0;
-      const expiredPercentage = totalDocuments > 0 ? Math.round((expiredDocuments / totalDocuments) * 100) : 0;
-
-      const recentActivities = [
-        ...recentEmployeeRows.map((employee) => ({
-          id: employee.id,
-          type: "system" as const,
-          message: `New employee added: ${employee.name}`,
-          timestamp: employee.createdAt ? new Date(employee.createdAt).toLocaleString() : "",
-          sortTime: employee.createdAt ? new Date(employee.createdAt).getTime() : 0,
-        })),
-        ...recentAssignmentRows.map((assignment) => ({
-          id: assignment.id,
-          type: "assignment" as const,
-          message: `${assignment.assetType || "Asset"} assigned to ${assignment.employeeName || "employee"}`,
-          timestamp: assignment.dateAssigned ? new Date(assignment.dateAssigned).toLocaleString() : "",
-          sortTime: assignment.dateAssigned ? new Date(assignment.dateAssigned).getTime() : 0,
-        })),
-      ]
-        .sort((a, b) => b.sortTime - a.sortTime)
-        .slice(0, 5)
-        .map(({ sortTime, ...activity }) => activity);
-
-      const recentAssignments = recentAssignmentRows.map((assignment) => ({
-        id: assignment.id,
-        assetId: assignment.assetId,
-        employeeId: assignment.employeeId,
-        dateAssigned: assignment.dateAssigned ? new Date(assignment.dateAssigned).toLocaleDateString() : "",
-        status: assignment.dateReturned ? "returned" : "active",
-        asset: {
-          id: assignment.assetId || 0,
-          name: assignment.assetType ? assignment.assetType.charAt(0).toUpperCase() + assignment.assetType.slice(1) : "Unknown",
-          type: assignment.assetType || "Unknown",
-          tag: assignment.assetTag || "",
-          serial: assignment.assetSerial || "",
-        },
-        employee: {
-          id: assignment.employeeId || 0,
-          name: assignment.employeeName || "Unknown",
-          department: assignment.employeeDepartment || "Unknown",
-        },
-      }));
-
-      const expiringDocuments = expiringDocumentRows.map((doc) => ({
-        id: doc.id,
-        type: doc.documentType,
-        name: doc.employeeName || "Unknown",
-        daysUntilExpiry: doc.expiryDate
-          ? Math.ceil((new Date(doc.expiryDate).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-          : 0,
-        employeeId: doc.employeeId,
-      }));
-
-      return {
-        counts: {
-          employees: totalEmployees,
-          assets: totalAssets,
-          vendors: totalVendors,
-          customers: totalCustomers,
-          assignments: totalAssignments,
-          documents: totalDocuments,
-          expiringDocuments: expiringSoonDocuments + expiredDocuments,
-          licenseExpiry,
-        },
-        assetDistribution: distributionWithPercentage,
-        documentStatus: {
-          valid: {
-            count: validDocuments,
-            percentage: validPercentage,
-          },
-          expiringSoon: {
-            count: expiringSoonDocuments,
-            percentage: expiringSoonPercentage,
-          },
-          expired: {
-            count: expiredDocuments,
-            percentage: expiredPercentage,
-          },
-        },
-        recentActivities,
-        recentAssignments,
-        expiringDocuments,
-      };
-    } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
-      return {
-        counts: {
-          employees: 0,
-          assets: 0,
-          vendors: 0,
-          customers: 0,
-          assignments: 0,
-          documents: 0,
-          expiringDocuments: 0,
-          licenseExpiry: 0,
-        },
-        assetDistribution: [],
-        documentStatus: {
-          valid: {
-            count: 0,
-            percentage: 0,
-          },
-          expiringSoon: {
-            count: 0,
-            percentage: 0,
-          },
-          expired: {
-            count: 0,
-            percentage: 0,
-          },
-        },
-        recentActivities: [],
-        recentAssignments: [],
-        expiringDocuments: [],
-      };
+      .from(assetAssignments)
+      .leftJoin(assets, eq(assetAssignments.assetId, assets.id))
+      .leftJoin(employees, eq(assetAssignments.employeeId, employees.id))
+      .orderBy(desc(assetAssignments.dateAssigned))
+      .limit(5);
+    if (tenantId !== undefined) {
+      recentAssignmentQuery = recentAssignmentQuery.where(eq(assetAssignments.tenantId, tenantId));
     }
+    const recentAssignmentRows = await recentAssignmentQuery;
+
+    let companyDocsQuery = db
+      .select({
+        id: companyDocuments.id,
+        documentType: companyDocuments.documentType,
+        title: companyDocuments.title,
+        expiryDate: companyDocuments.expiryDate,
+      })
+      .from(companyDocuments);
+    if (tenantId !== undefined) {
+      companyDocsQuery = companyDocsQuery.where(eq(companyDocuments.tenantId, tenantId));
+    }
+    const companyDocs = await companyDocsQuery;
+
+    const docStats = computeDocumentExpiryStats(companyDocs, referenceDate);
+    const totalDocuments = docStats.total;
+
+    const expiringRecords = await this.getDocumentExpiryRecords("expiring", tenantId);
+    const expiredRecords = await this.getDocumentExpiryRecords("expired", tenantId);
+    const expiringSoonDocuments = expiringRecords.length;
+    const expiredDocuments = expiredRecords.length;
+    const validDocuments = docStats.valid;
+
+    const expiringDocumentRows = filterExpiringSoonDocuments(companyDocs, referenceDate).sort(
+      (a, b) => new Date(a.expiryDate!).getTime() - new Date(b.expiryDate!).getTime()
+    );
+    const expiredDocumentRows = filterExpiredDocuments(companyDocs, referenceDate).sort(
+      (a, b) => new Date(b.expiryDate!).getTime() - new Date(a.expiryDate!).getTime()
+    );
+
+    const totalEmployees = Number(employeeCountRow[0]?.count || 0);
+    const totalAssets = Number(assetCountRow[0]?.count || 0);
+    const totalVendors = Number(vendorCountRow[0]?.count || 0);
+    const totalCustomers = Number(customerCountRow[0]?.count || 0);
+    const totalAssignments = Number(assignmentCountRow[0]?.count || 0);
+    const licenseExpiry = Number(licenseExpiryRow[0]?.count || 0);
+
+    const distributionWithPercentage = assetDistributionRows.map((item) => ({
+      type: item.type || "Unknown",
+      count: Number(item.count || 0),
+      percentage: totalAssets > 0 ? Math.round((Number(item.count || 0) / totalAssets) * 100) : 0,
+    }));
+
+    const docsWithExpiry = validDocuments + expiringSoonDocuments + expiredDocuments;
+    const validPercentage =
+      docsWithExpiry > 0 ? Math.round((validDocuments / docsWithExpiry) * 100) : 0;
+    const expiringSoonPercentage =
+      docsWithExpiry > 0 ? Math.round((expiringSoonDocuments / docsWithExpiry) * 100) : 0;
+    const expiredPercentage =
+      docsWithExpiry > 0 ? Math.round((expiredDocuments / docsWithExpiry) * 100) : 0;
+
+    const recentActivities = [
+      ...recentEmployeeRows.map((employee) => ({
+        id: employee.id,
+        type: "system" as const,
+        message: `New employee added: ${employee.name}`,
+        timestamp: employee.createdAt ? new Date(employee.createdAt).toLocaleString() : "",
+        sortTime: employee.createdAt ? new Date(employee.createdAt).getTime() : 0,
+      })),
+      ...recentAssignmentRows.map((assignment) => ({
+        id: assignment.id,
+        type: "assignment" as const,
+        message: `${assignment.assetType || "Asset"} assigned to ${assignment.employeeName || "employee"}`,
+        timestamp: assignment.dateAssigned ? new Date(assignment.dateAssigned).toLocaleString() : "",
+        sortTime: assignment.dateAssigned ? new Date(assignment.dateAssigned).getTime() : 0,
+      })),
+    ]
+      .sort((a, b) => b.sortTime - a.sortTime)
+      .slice(0, 5)
+      .map(({ sortTime, ...activity }) => activity);
+
+    const recentAssignments = recentAssignmentRows.map((assignment) => ({
+      id: assignment.id,
+      assetId: assignment.assetId,
+      employeeId: assignment.employeeId,
+      dateAssigned: assignment.dateAssigned ? new Date(assignment.dateAssigned).toLocaleDateString() : "",
+      status: assignment.dateReturned ? "returned" : "active",
+      asset: {
+        id: assignment.assetId || 0,
+        name: assignment.assetType
+          ? assignment.assetType.charAt(0).toUpperCase() + assignment.assetType.slice(1)
+          : "Unknown",
+        type: assignment.assetType || "Unknown",
+        tag: assignment.assetTag || "",
+        serial: assignment.assetSerial || "",
+      },
+      employee: {
+        id: assignment.employeeId || 0,
+        name: assignment.employeeName || "Unknown",
+        department: assignment.employeeDepartment || "Unknown",
+      },
+    }));
+
+    const expiringDocuments = expiringDocumentRows.map((doc) => ({
+      id: doc.id,
+      type: doc.documentType,
+      name: doc.title || "Unknown",
+      daysUntilExpiry: getDaysUntilExpiry(doc.expiryDate, referenceDate) ?? 0,
+    }));
+
+    const expiredDocumentsList = expiredDocumentRows.map((doc) => ({
+      id: doc.id,
+      type: doc.documentType,
+      name: doc.title || "Unknown",
+      daysUntilExpiry: getDaysUntilExpiry(doc.expiryDate, referenceDate) ?? 0,
+    }));
+
+    return {
+      counts: {
+        employees: totalEmployees,
+        assets: totalAssets,
+        vendors: totalVendors,
+        customers: totalCustomers,
+        assignments: totalAssignments,
+        documents: totalDocuments,
+        expiringDocuments: expiringSoonDocuments,
+        expiredDocuments,
+        licenseExpiry: expiringRecords.filter((r) => r.reminderType === "license").length,
+      },
+      assetDistribution: distributionWithPercentage,
+      documentStatus: {
+        valid: {
+          count: validDocuments,
+          percentage: validPercentage,
+        },
+        expiringSoon: {
+          count: expiringSoonDocuments,
+          percentage: expiringSoonPercentage,
+        },
+        expired: {
+          count: expiredDocuments,
+          percentage: expiredPercentage,
+        },
+      },
+      recentActivities,
+      recentAssignments,
+      expiringDocuments,
+      expiredDocuments: expiredDocumentsList,
+    };
   }
 
   private normalizeAssetDates(asset: Partial<InsertAsset>): Partial<InsertAsset> {

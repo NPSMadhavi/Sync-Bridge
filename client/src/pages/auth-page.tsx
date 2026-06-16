@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Shield, Brain, Activity, Sparkles, Zap, Network, Bot, Binary } from "lucide-react";
 import { Redirect } from "wouter";
+import { getDefaultRouteForUser } from "@shared/permissions";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -157,11 +158,7 @@ export default function AuthPage() {
   }
 
   if (user) {
-    // Redirect vendors to vendor dashboard, others to main dashboard
-    if (user.role === 'vendor') {
-      return <Redirect to="/vendor-dashboard" />;
-    }
-    return <Redirect to="/" />;
+    return <Redirect to={getDefaultRouteForUser(user)} />;
   }
 
   const onLogin = (data: LoginFormValues) => {

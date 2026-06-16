@@ -93,8 +93,9 @@ export default function ExpiringDocuments({ documents, className }: ExpiringDocu
                       variant="outline" 
                       size="sm"
                       className="text-xs px-3 py-1 h-auto"
+                      asChild
                     >
-                      View
+                      <Link href="/documents?tab=expiring">View</Link>
                     </Button>
                   </div>
                 </div>
@@ -111,7 +112,7 @@ export default function ExpiringDocuments({ documents, className }: ExpiringDocu
         
         {documents.length > 0 && (
           <div className="mt-4 text-center">
-            <Link href="/documents">
+            <Link href="/documents?tab=expiring">
               <Button variant="link" className="text-sm font-medium">
                 View all expiring documents
               </Button>

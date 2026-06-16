@@ -237,6 +237,103 @@ router.post("/", requireTenant, async (req, res) => {
   }
 });
 
+// Get documents expiring soon (must be before /:id)
+router.get("/expiring", async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const tenant = (req as any).tenant;
+    
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const thirtyDaysFromNow = new Date();
+    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+
+    const selectFields = {
+      id: companyDocuments.id,
+      title: companyDocuments.title,
+      documentType: companyDocuments.documentType,
+      customType: companyDocuments.customType,
+      expiryDate: companyDocuments.expiryDate,
+      uploadedBy: users.name,
+    };
+
+    Object.entries(selectFields).forEach(([key, value]) => {
+      if (!value) {
+        console.error(`Field ${key} is undefined in company documents or users table`);
+        throw new Error(`Invalid field in select: ${key}`);
+      }
+    });
+
+    let query = db
+      .select(selectFields)
+      .from(companyDocuments)
+      .leftJoin(users, eq(companyDocuments.uploadedBy, users.id));
+
+    let conditions = [
+      lt(companyDocuments.expiryDate, thirtyDaysFromNow),
+      gte(companyDocuments.expiryDate, new Date())
+    ];
+
+    if (user?.role === 'super_admin' || user?.isSuperAdmin) {
+      if (tenant) {
+        conditions.push(eq(companyDocuments.tenantId, tenant.id));
+      }
+    } else {
+      if (!tenant) {
+        return res.status(400).json({ message: 'Tenant context required for regular users' });
+      }
+      conditions.push(eq(companyDocuments.tenantId, tenant.id));
+    }
+
+    const expiringDocs = await query
+      .where(and(...conditions))
+      .orderBy(companyDocuments.expiryDate);
+
+    res.json(expiringDocs);
+  } catch (error) {
+    console.error("Error fetching expiring documents:", error);
+    res.status(500).json({ error: "Failed to fetch expiring documents" });
+  }
+});
+
+// Get single company document with reminders
+router.get("/:id", requireTenant, async (req, res) => {
+  try {
+    const tenant = (req as any).tenant;
+    const documentId = parseInt(req.params.id);
+
+    if (isNaN(documentId)) {
+      return res.status(400).json({ error: "Invalid document ID" });
+    }
+
+    const [document] = await db
+      .select()
+      .from(companyDocuments)
+      .where(
+        tenant
+          ? and(eq(companyDocuments.id, documentId), eq(companyDocuments.tenantId, tenant.id))
+          : eq(companyDocuments.id, documentId)
+      )
+      .limit(1);
+
+    if (!document) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    const reminders = await db
+      .select({ daysBefore: documentReminders.daysBefore })
+      .from(documentReminders)
+      .where(eq(documentReminders.documentId, documentId));
+
+    res.json({ ...document, reminders });
+  } catch (error) {
+    console.error("Error fetching company document:", error);
+    res.status(500).json({ error: "Failed to fetch document" });
+  }
+});
+
 // Update company document
 router.put("/:id", requireTenant, async (req, res) => {
   try {
@@ -338,73 +435,6 @@ router.delete("/:id", requireTenant, async (req, res) => {
   } catch (error) {
     console.error("Error deleting company document:", error);
     res.status(500).json({ error: "Failed to delete document" });
-  }
-});
-
-// Get documents expiring soon
-router.get("/expiring", async (req, res) => {
-  try {
-    const user = (req as any).user;
-    const tenant = (req as any).tenant;
-    
-    if (!user) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-
-    // Define and validate select fields
-    const selectFields = {
-      id: companyDocuments.id,
-      title: companyDocuments.title,
-      documentType: companyDocuments.documentType,
-      customType: companyDocuments.customType,
-      expiryDate: companyDocuments.expiryDate,
-      uploadedBy: users.name,
-    };
-
-    // Validate that all fields exist on their respective tables
-    Object.entries(selectFields).forEach(([key, value]) => {
-      if (!value) {
-        console.error(`Field ${key} is undefined in company documents or users table`);
-        throw new Error(`Invalid field in select: ${key}`);
-      }
-    });
-
-    console.log('Fields being selected:', selectFields);
-
-    let query = db
-      .select(selectFields)
-      .from(companyDocuments)
-      .leftJoin(users, eq(companyDocuments.uploadedBy, users.id));
-
-    // Apply tenant filter based on user role
-    let conditions = [
-      lt(companyDocuments.expiryDate, thirtyDaysFromNow),
-      gte(companyDocuments.expiryDate, new Date())
-    ];
-
-    if (user?.role === 'super_admin' || user?.isSuperAdmin) {
-      if (tenant) {
-        conditions.push(eq(companyDocuments.tenantId, tenant.id));
-      }
-      // If no tenant, fetch all (global access for super admin)
-    } else {
-      if (!tenant) {
-        return res.status(400).json({ message: 'Tenant context required for regular users' });
-      }
-      conditions.push(eq(companyDocuments.tenantId, tenant.id));
-    }
-
-    const expiringDocs = await query
-      .where(and(...conditions))
-      .orderBy(companyDocuments.expiryDate);
-
-    res.json(expiringDocs);
-  } catch (error) {
-    console.error("Error fetching expiring documents:", error);
-    res.status(500).json({ error: "Failed to fetch expiring documents" });
   }
 });
 

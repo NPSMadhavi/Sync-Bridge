@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -26,15 +26,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Info, Calculator } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  calculateSingaporePayrollSnapshot,
   calculateAgeFromDob,
   mapEmployeeResidency,
-  mapPrStatusToYear,
   residencyLabel,
 } from "@shared/singapore-payroll";
+import { usePayrollCalculationPreview } from "@/hooks/use-payroll-calculation-preview";
+import PayrollCalculationPreviewPanel from "@/components/payroll/PayrollCalculationPreviewPanel";
 
 const payrollConfigFormSchema = z.object({
   employeeId: z.coerce.number().min(1, "Please select an employee"),
@@ -172,6 +171,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
   const watchedDeductionMedical = form.watch("deductionMedical");
   const watchedDeductionAdvance = form.watch("deductionAdvance");
   const watchedDeductionOthers = form.watch("deductionOthers");
+  const watchedOvertimeRate = form.watch("overtimeRate");
 
   useEffect(() => {
     if (isEditMode) return;
@@ -211,48 +211,56 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
     (Number(watchedDeductionMedical) || 0) +
     (Number(watchedDeductionAdvance) || 0) +
     (Number(watchedDeductionOthers) || 0);
-  const grossSalaryPreview =
-    Number(watchedSalary) > 0
-      ? Math.max(0, Number(watchedSalary) + allowanceTotal - deductionTotal)
-      : 0;
 
-  const payrollSnapshot = useMemo(() => {
+  const calculationInput = useMemo(() => {
     const salary = Number(watchedSalary);
     const age = Number(watchedAge);
-    if (!salary || salary <= 0 || !age) return null;
+    if (!salary || salary <= 0 || !age || age < 16) return null;
 
-    const { residencyType } = mapEmployeeResidency({
-      nationality: watchedCitizenship,
+    const { residencyType, prYear } = mapEmployeeResidency({
+      residencyType: watchedCitizenship,
       prStatus: watchedPrStatus,
     });
-    const prYear =
-      residencyType === "pr" ? mapPrStatusToYear(watchedPrStatus) : null;
 
-    return calculateSingaporePayrollSnapshot({
-      monthlySalary: salary,
+    return {
+      grossSalary: salary,
       age,
-      residencyType,
-      prYear,
-      monthlyAllowances: allowanceTotal,
-      monthlyDeductions: deductionTotal,
-    });
+      citizenshipStatus: residencyType,
+      prYear: residencyType === "pr" ? prYear : null,
+      monthlyAllowances: {
+        transport: Number(watchedAllowanceTransport) || 0,
+        meal: Number(watchedAllowanceMeal) || 0,
+        phone: Number(watchedAllowancePhone) || 0,
+        others: Number(watchedAllowanceOthers) || 0,
+      },
+      monthlyDeductions: {
+        medical: Number(watchedDeductionMedical) || 0,
+        advance: Number(watchedDeductionAdvance) || 0,
+        others: Number(watchedDeductionOthers) || 0,
+      },
+      overtimeHours: 0,
+      overtimeRate: Number(watchedOvertimeRate) || 0,
+    };
   }, [
     watchedSalary,
     watchedAge,
     watchedCitizenship,
     watchedPrStatus,
-    allowanceTotal,
-    deductionTotal,
+    watchedAllowanceTransport,
+    watchedAllowanceMeal,
+    watchedAllowancePhone,
+    watchedAllowanceOthers,
+    watchedDeductionMedical,
+    watchedDeductionAdvance,
+    watchedDeductionOthers,
+    watchedOvertimeRate,
   ]);
 
-  useEffect(() => {
-    if (payrollSnapshot) {
-      form.setValue("taxRate", payrollSnapshot.effectiveTaxRate, { shouldValidate: false });
-    }
-  }, [payrollSnapshot, form]);
+  const { calculation, isLoading: isCalculating, error: calculationError } =
+    usePayrollCalculationPreview(calculationInput);
 
   const buildPayload = (data: PayrollConfigFormData) => {
-    if (!payrollSnapshot) throw new Error("Unable to calculate payroll — check salary and age");
+    if (!calculation) throw new Error("Unable to calculate payroll — check salary and age");
 
     const {
       age,
@@ -286,11 +294,11 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
       taxRate: 0,
       taxAmount: 0,
       incomeTax: 0,
-      cpfRate: payrollSnapshot.employeeCpfRate,
-      cpfAmount: payrollSnapshot.monthlyEmployeeCpf,
-      employerCpfRate: payrollSnapshot.employerCpfRate,
-      employerCpfAmount: payrollSnapshot.monthlyEmployerCpf,
-      netSalary: payrollSnapshot.netSalary,
+      cpfRate: calculation.employeeCpfRate,
+      cpfAmount: calculation.employeeCpf,
+      employerCpfRate: calculation.employerCpfRate,
+      employerCpfAmount: calculation.employerCpf,
+      netSalary: calculation.netPay,
     };
   };
 
@@ -644,8 +652,8 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                 </CardContent>
               </Card>
 
-              {/* Auto-calculated payroll fields — existing */}
-              {payrollSnapshot && (
+              {/* Auto-calculated payroll fields */}
+              {calculation && (
                 <Card>
                   <CardHeader><CardTitle>Auto-Calculated Payroll Values</CardTitle></CardHeader>
                   <CardContent>
@@ -655,28 +663,28 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                         <Input
                           readOnly
                           className="bg-muted"
-                          value={formatCurrency(grossSalaryPreview)}
+                          value={formatCurrency(calculation.grossPay || 0)}
                         />
                       </FormItem>
                       <FormItem>
                         <FormLabel>CPF Rate (Employee %)</FormLabel>
-                        <Input readOnly className="bg-muted" value={`${payrollSnapshot.employeeCpfRate}%`} />
+                        <Input readOnly className="bg-muted" value={`${calculation.employeeCpfRate}%`} />
                       </FormItem>
                       <FormItem>
                         <FormLabel>CPF Amount (Employee)</FormLabel>
-                        <Input readOnly className="bg-muted" value={formatCurrency(payrollSnapshot.monthlyEmployeeCpf)} />
+                        <Input readOnly className="bg-muted" value={formatCurrency(calculation.employeeCpf || 0)} />
                       </FormItem>
                       <FormItem>
                         <FormLabel>CPF Rate (Employer %)</FormLabel>
-                        <Input readOnly className="bg-muted" value={`${payrollSnapshot.employerCpfRate}%`} />
+                        <Input readOnly className="bg-muted" value={`${calculation.employerCpfRate}%`} />
                       </FormItem>
                       <FormItem>
                         <FormLabel>CPF Amount (Employer)</FormLabel>
-                        <Input readOnly className="bg-muted" value={formatCurrency(payrollSnapshot.monthlyEmployerCpf)} />
+                        <Input readOnly className="bg-muted" value={formatCurrency(calculation.employerCpf || 0)} />
                       </FormItem>
                       <FormItem>
                         <FormLabel>Net Salary (Monthly)</FormLabel>
-                        <Input readOnly className="bg-muted" value={formatCurrency(payrollSnapshot.netSalary)} />
+                        <Input readOnly className="bg-muted" value={formatCurrency(calculation.netPay || 0)} />
                       </FormItem>
                     </div>
                   </CardContent>
@@ -725,7 +733,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
 
               <div className="flex justify-end gap-4">
                 <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-                <Button type="submit" disabled={saveMutation.isPending || !payrollSnapshot}>
+                <Button type="submit" disabled={saveMutation.isPending || !calculation || isCalculating}>
                   {saveMutation.isPending
                     ? isEditMode ? "Updating..." : "Creating..."
                     : isEditMode ? "Update Payroll Configuration" : "Create Payroll Configuration"}
@@ -736,33 +744,13 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
         </div>
 
         <div className="lg:col-span-1">
-          <Card className="sticky top-4">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calculator className="h-5 w-5 text-blue-600" />
-                CPF Preview
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {payrollSnapshot && selectedEmployee ? (
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Salary</span><span className="font-medium">{formatCurrency(payrollSnapshot.monthlySalary)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Annual Income</span><span className="font-medium">{formatCurrency(payrollSnapshot.annualSalary)}</span></div>
-                  <div className="flex justify-between"><span>Employee CPF ({payrollSnapshot.employeeCpfRate}%)</span><span>−{formatCurrency(payrollSnapshot.monthlyEmployeeCpf)}</span></div>
-                  <div className="flex justify-between"><span>Employer CPF ({payrollSnapshot.employerCpfRate}%)</span><span>{formatCurrency(payrollSnapshot.monthlyEmployerCpf)}</span></div>
-                  <div className="border-t pt-2 flex justify-between font-bold text-lg"><span>Net Salary</span><span className="text-green-600">{formatCurrency(payrollSnapshot.netSalary)}</span></div>
-                  {/* Singapore tax preview reference (not shown):
-                  chargeableIncome, annualIncomeTax, monthlyIncomeTax, taxBreakdown
-                  */}
-                </div>
-              ) : (
-                <div className="text-center text-muted-foreground py-8">
-                  <Calculator className="h-12 w-12 mx-auto opacity-30 mb-2" />
-                  <p className="text-sm">Select an employee with salary and DOB to preview CPF.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <PayrollCalculationPreviewPanel
+            className="sticky top-4"
+            calculation={calculation}
+            isLoading={isCalculating}
+            error={calculationError}
+            emptyMessage="Select an employee with salary and date of birth to preview CPF."
+          />
         </div>
       </div>
     </div>

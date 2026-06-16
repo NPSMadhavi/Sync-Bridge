@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/popover";
 import { SyncBridgeDateObjectPicker } from "@/components/ui/sync-bridge-date-picker";
 import { isAfter, isBefore } from "date-fns";
-import { Loader2, Shield, DollarSign, Users, Building, RotateCcw, CheckCircle, Search } from "lucide-react";
+import { Loader2, Shield, DollarSign, Users, Building, RotateCcw, CheckCircle, Search, Clock, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -60,6 +60,10 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 
+const reminderSchema = z.object({
+  daysBefore: z.number().min(1, "Must be at least 1 day").max(365, "Cannot exceed 365 days"),
+});
+
 // Extend the insertLicenseSchema with enhanced validations
 const licenseFormSchema = insertLicenseSchema.extend({
   name: z.string().min(1, "Name is required"),
@@ -79,6 +83,7 @@ const licenseFormSchema = insertLicenseSchema.extend({
   vendor: z.string().optional().nullable(),
   renewalCycle: z.enum(["none", "monthly", "yearly", "custom"]).optional().nullable(),
   status: z.enum(["active", "expired", "revoked", "assigned"]).optional().nullable(),
+  reminders: z.array(reminderSchema).max(5, "Maximum 5 reminders allowed").optional(),
 }).refine((data) => {
   // Validate that expiry date is after purchase date
   if (data.purchaseDate && data.expiryDate) {
@@ -114,6 +119,15 @@ export default function LicenseForm({
     queryKey: ["/api/assets"],
   });
 
+  const { data: licenseDetails } = useQuery<{ reminders?: { daysBefore: number }[] }>({
+    queryKey: ["/api/licenses", license?.id],
+    enabled: !!license?.id && isOpen,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/licenses/${license!.id}`);
+      return res.json();
+    },
+  });
+
   // Initialize form with default values or existing license data
   const form = useForm<LicenseFormValues>({
     resolver: zodResolver(licenseFormSchema),
@@ -130,8 +144,35 @@ export default function LicenseForm({
       vendor: license?.vendor || "",
       renewalCycle: license?.renewalCycle || "none",
       status: license?.status || "active",
+      reminders: [],
     },
   });
+
+  const { fields: reminderFields, append: addReminder, remove: removeReminder } = useFieldArray({
+    control: form.control,
+    name: "reminders",
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      form.reset({
+        name: license?.name || "",
+        licenseKey: license?.licenseKey || "",
+        type: license?.type || "software",
+        assetId: license?.assetId || null,
+        purchaseDate: license?.purchaseDate ? new Date(license.purchaseDate) : null,
+        expiryDate: license?.expiryDate ? new Date(license.expiryDate) : null,
+        cost: license?.cost || "",
+        seats: license?.seats || null,
+        notes: license?.notes || "",
+        vendor: license?.vendor || "",
+        renewalCycle: license?.renewalCycle || "none",
+        status: license?.status || "active",
+        reminders: licenseDetails?.reminders?.map((r) => ({ daysBefore: r.daysBefore })) ?? [],
+      });
+      setSelectedAssetId(license?.assetId || null);
+    }
+  }, [isOpen, license, licenseDetails, form]);
 
   const isEditMode = !!license;
 
@@ -632,6 +673,82 @@ export default function LicenseForm({
                     </Card>
                     
                   </div>
+                </div>
+
+                {/* Expiry Reminders */}
+                <div className="mt-8 col-span-full max-w-7xl mx-auto">
+                  <Card>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <Clock className="h-4 w-4" />
+                        Expiry Reminders
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="ml-auto"
+                          onClick={() => addReminder({ daysBefore: 30 })}
+                          disabled={reminderFields.length >= 5}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Reminder
+                        </Button>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {reminderFields.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-2">
+                          No reminders set. Add a reminder to receive email and in-app notifications before expiry.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          {reminderFields.map((reminder, index) => (
+                            <div key={reminder.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                              <div className="flex-1">
+                                <FormField
+                                  control={form.control}
+                                  name={`reminders.${index}.daysBefore`}
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm">Days before expiry</FormLabel>
+                                      <Select
+                                        onValueChange={(value) => field.onChange(parseInt(value))}
+                                        value={field.value?.toString()}
+                                      >
+                                        <FormControl>
+                                          <SelectTrigger>
+                                            <SelectValue placeholder="Select days" />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                          <SelectItem value="1">1 day</SelectItem>
+                                          <SelectItem value="3">3 days</SelectItem>
+                                          <SelectItem value="7">1 week</SelectItem>
+                                          <SelectItem value="14">2 weeks</SelectItem>
+                                          <SelectItem value="30">1 month</SelectItem>
+                                          <SelectItem value="60">2 months</SelectItem>
+                                          <SelectItem value="90">3 months</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeReminder(index)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 </div>
 
                 {/* Additional Info Section - Full Width */}

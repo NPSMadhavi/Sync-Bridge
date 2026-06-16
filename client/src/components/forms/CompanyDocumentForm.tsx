@@ -1,10 +1,10 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCompanyDocumentSchema, companyDocumentTypeEnum, CompanyDocument } from "@shared/schema";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,7 +58,7 @@ const companyDocumentFormSchema = z.object({
   issueDate: z.date().optional().nullable(),
   expiryDate: z.date().optional().nullable(),
   notes: z.string().optional(),
-  fileData: z.string().min(1, "Document file is required"),
+  fileData: z.string().optional(),
   reminders: z.array(reminderSchema).max(5, "Maximum 5 reminders allowed").optional(),
 }).refine((data) => {
   // Require custom type if "other" is selected
@@ -90,10 +90,19 @@ interface CompanyDocumentFormProps {
 
 export default function CompanyDocumentForm({ document, isOpen, onClose }: CompanyDocumentFormProps) {
   const { toast } = useToast();
-  const [isEditMode] = useState(!!document);
+  const isEditMode = !!document;
   const [file, setFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: documentDetails } = useQuery<{ reminders?: { daysBefore: number }[] }>({
+    queryKey: ["/api/company-documents", document?.id],
+    enabled: !!document?.id && isOpen,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/company-documents/${document!.id}`);
+      return res.json();
+    },
+  });
   
   const form = useForm<CompanyDocumentFormData>({
     resolver: zodResolver(companyDocumentFormSchema),
@@ -114,6 +123,22 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
     control: form.control,
     name: "reminders",
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      form.reset({
+        title: document?.title || "",
+        documentType: document?.documentType || "company_license",
+        customType: document?.customType || "",
+        issueDate: document?.issueDate ? new Date(document.issueDate) : null,
+        expiryDate: document?.expiryDate ? new Date(document.expiryDate) : null,
+        notes: document?.notes || "",
+        fileData: "",
+        reminders: documentDetails?.reminders?.map((r) => ({ daysBefore: r.daysBefore })) ?? [],
+      });
+      setFile(null);
+    }
+  }, [isOpen, document, documentDetails, form]);
 
   // Watch document type to show/hide custom type field
   const watchedDocumentType = form.watch("documentType");
@@ -181,6 +206,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
       });
       queryClient.invalidateQueries({ queryKey: ["/api/company-documents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       form.reset();
       setFile(null);
       onClose();
@@ -207,6 +233,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
       });
       queryClient.invalidateQueries({ queryKey: ["/api/company-documents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       onClose();
     },
     onError: (error: Error) => {
@@ -223,6 +250,10 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
     if (document) {
       updateMutation.mutate(values);
     } else {
+      if (!values.fileData) {
+        form.setError("fileData", { message: "Document file is required" });
+        return;
+      }
       createMutation.mutate(values);
     }
   };
@@ -294,7 +325,7 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
                         name="fileData"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Upload Document*</FormLabel>
+                            <FormLabel>{isEditMode ? "Replace Document (optional)" : "Upload Document*"}</FormLabel>
                             <FormControl>
                               <div
                                 className={cn(

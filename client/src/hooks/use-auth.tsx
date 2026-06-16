@@ -7,6 +7,7 @@ import {
 import { insertUserSchema, User } from "@shared/schema";
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { normalizePermissions } from "@shared/permissions";
 import { z } from "zod";
 
 // Login validation schema
@@ -62,7 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('Auth: User tenant ID:', user.tenantId);
       console.log('Auth: Is super admin:', user.isSuperAdmin);
       
-      queryClient.setQueryData(["/api/user"], user);
+      queryClient.setQueryData(["/api/user"], {
+        ...user,
+        permissions: normalizePermissions(user.permissions),
+      });
       toast({
         title: "Login successful",
         description: `Welcome back, ${user.name}!`,

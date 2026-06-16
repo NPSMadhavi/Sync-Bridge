@@ -97,6 +97,31 @@ export const filterByTenant = (tenantId: number) => {
   return eq(tenants.id, tenantId);
 };
 
+/** Resolve tenant ID for API writes when super admin has no tenant on the session. */
+export async function resolveRequestTenantId(req: Request, user?: any): Promise<number | null> {
+  const tenant = await getTenantFromRequest(req);
+  if (tenant?.id) return tenant.id;
+  if (user?.tenantId) return user.tenantId;
+
+  const header = req.headers["x-tenant-id"];
+  if (typeof header === "string") {
+    const parsed = parseInt(header, 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  const bodyTenantId = req.body?.tenantId;
+  if (bodyTenantId != null && bodyTenantId !== "") {
+    const parsed = Number(bodyTenantId);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  if (user?.role === "super_admin" || user?.isSuperAdmin) {
+    return 1;
+  }
+
+  return null;
+}
+
 // Helper function to get tenant ID from request
 export const getTenantIdFromRequest = (req: Request): number | null => {
   const user = req.user as any;

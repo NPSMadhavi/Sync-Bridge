@@ -7,14 +7,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Edit, Trash2, ArrowLeft, Mail, User } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Mail, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Dashboard from "@/components/layout/Dashboard";
 import { TableRowActions } from "@/components/ui/table-row-actions";
-import { useLocation } from "wouter";
-import { useAuth } from "@/hooks/use-auth";
+import UserPermissionsEditor from "@/components/forms/UserPermissionsEditor";
+import { usePermissions } from "@/hooks/use-permissions";
+import {
+  createEmptyPermissions,
+  normalizePermissions,
+  type UserPermissionsMap,
+} from "@shared/permissions";
 
 interface User {
   id: string;
@@ -22,6 +27,7 @@ interface User {
   email: string;
   role: 'super_admin' | 'admin' | 'hr_manager' | 'employee' | 'vendor';
   isActive: boolean;
+  permissions?: UserPermissionsMap;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +37,7 @@ interface UserFormData {
   email: string;
   password: string;
   role: string;
+  permissions: UserPermissionsMap;
 }
 
 export default function UserManagementPage() {
@@ -42,16 +49,16 @@ export default function UserManagementPage() {
     name: '',
     email: '',
     password: '',
-    role: 'employee'
+    role: 'employee',
+    permissions: createEmptyPermissions(),
   });
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [, setLocation] = useLocation();
-  const { user: currentUser } = useAuth();
+  const { canView, isAdmin, isSuperAdmin } = usePermissions();
 
-  // Role-based access: only super_admin and admin can manage users
-  const canManageUsers = currentUser?.role === 'super_admin' || (currentUser as any)?.isSuperAdmin || currentUser?.role === 'admin';
+  const canManageUsers = canView("userManagement") && (isAdmin || isSuperAdmin);
+  const showModuleAccess = !["super_admin", "admin"].includes(formData.role);
 
   // Fetch users
   const { data: users = [], isLoading } = useQuery({
@@ -139,7 +146,8 @@ export default function UserManagementPage() {
       name: '',
       email: '',
       password: '',
-      role: 'employee'
+      role: 'employee',
+      permissions: createEmptyPermissions(),
     });
   };
 
@@ -149,7 +157,8 @@ export default function UserManagementPage() {
       name: user.name,
       email: user.email,
       password: '',
-      role: user.role
+      role: user.role,
+      permissions: normalizePermissions(user.permissions),
     });
     setIsEditDialogOpen(true);
   };
@@ -160,10 +169,18 @@ export default function UserManagementPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const payload = {
+      ...formData,
+      ...(showModuleAccess ? { permissions: formData.permissions } : {}),
+    };
     if (selectedUser) {
-      updateUserMutation.mutate({ id: selectedUser.id, data: formData });
+      const { password, ...updateData } = payload;
+      updateUserMutation.mutate({
+        id: selectedUser.id,
+        data: password ? payload : updateData,
+      });
     } else {
-      addUserMutation.mutate(formData);
+      addUserMutation.mutate(payload);
     }
   };
 
@@ -179,7 +196,71 @@ export default function UserManagementPage() {
     { value: 'hr_manager', label: 'HR Manager' },
     { value: 'employee', label: 'Employee' },
     { value: 'vendor', label: 'Vendor' }
-  ];
+  ].filter((role) => role.value !== 'super_admin' || isSuperAdmin);
+
+  const renderUserFormFields = (passwordRequired: boolean) => (
+    <>
+      <div>
+        <Label htmlFor="name">Name *</Label>
+        <Input
+          id="name"
+          value={formData.name}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          required
+        />
+      </div>
+      <div>
+        <Label htmlFor="email">Email *</Label>
+        <Input
+          id="email"
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          required
+        />
+      </div>
+      <div>
+        <Label htmlFor="password">Password {passwordRequired ? "*" : "(leave blank to keep current)"}</Label>
+        <Input
+          id="password"
+          type="password"
+          value={formData.password}
+          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+          required={passwordRequired}
+        />
+      </div>
+      <div>
+        <Label htmlFor="role">Role *</Label>
+        <Select
+          value={formData.role}
+          onValueChange={(value) =>
+            setFormData({
+              ...formData,
+              role: value,
+              permissions: ["super_admin", "admin"].includes(value)
+                ? createEmptyPermissions()
+                : formData.permissions,
+            })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select role" />
+          </SelectTrigger>
+          <SelectContent>
+            {roles.map((role) => (
+              <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {showModuleAccess && (
+        <UserPermissionsEditor
+          value={formData.permissions}
+          onChange={(permissions) => setFormData({ ...formData, permissions })}
+        />
+      )}
+    </>
+  );
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
@@ -240,48 +321,7 @@ export default function UserManagementPage() {
           {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto px-6 pb-24">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="role">Role</Label>
-                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.map((role) => (
-                      <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {renderUserFormFields(true)}
               <div className="flex justify-end space-x-2">
                 <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                   Cancel
@@ -398,47 +438,7 @@ export default function UserManagementPage() {
           {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto px-6 pb-24">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="edit_name">Name</Label>
-              <Input
-                id="edit_name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_email">Email</Label>
-              <Input
-                id="edit_email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_password">New Password (leave blank to keep current)</Label>
-              <Input
-                id="edit_password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_role">Role</Label>
-              <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {renderUserFormFields(false)}
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel

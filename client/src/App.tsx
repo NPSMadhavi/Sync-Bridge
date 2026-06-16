@@ -24,12 +24,14 @@ import InvoicesPage from "@/pages/invoices-page";
 import UserManagementPage from "@/pages/user-management-page";
 import NotificationsPage from "@/pages/notifications-page";
 import InterviewSlotsPage from "@/pages/interview-slots-page";
+import NoAccessPage from "@/pages/no-access-page";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { canViewModule, getDefaultRouteForUser, isSuperAdminUser, isVendorUser } from "@shared/permissions";
 
 // Always use light theme — theme switching is disabled
 const initializeTheme = () => {
@@ -48,26 +50,37 @@ function Router() {
     <>
       <Switch>
         <Route path="/">
-          {!user ? <Redirect to="/auth" /> : user.role === 'vendor' ? <Redirect to="/vendor-dashboard" /> : <HomePage />}
+          {!user ? (
+            <Redirect to="/auth" />
+          ) : isVendorUser(user) ? (
+            <Redirect to="/vendor-dashboard" />
+          ) : isSuperAdminUser(user) ? (
+            <Redirect to="/users" />
+          ) : !canViewModule(user, "dashboard") ? (
+            <Redirect to={getDefaultRouteForUser(user)} />
+          ) : (
+            <HomePage />
+          )}
         </Route>
-        <ProtectedRoute path="/assets" component={AssetsPage} />
-        <ProtectedRoute path="/company" component={CompaniesPage} />
-        <ProtectedRoute path="/employees" component={EmployeesPage} />
-        <ProtectedRoute path="/documents" component={DocumentsPage} />
-        <ProtectedRoute path="/payroll" component={PayrollPage} />
-        <ProtectedRoute path="/licenses" component={LicensesPage} />
-        <ProtectedRoute path="/vendors" component={VendorsPage} />
-        <ProtectedRoute path="/customers" component={CustomersPage} />
-        <ProtectedRoute path="/invoices" component={InvoicesPage} />
-        <ProtectedRoute path="/users" component={UserManagementPage} />
-        <ProtectedRoute path="/notifications" component={NotificationsPage} />
-        <ProtectedRoute path="/interview-slots" component={InterviewSlotsPage} />
-        <ProtectedRoute path="/settings" component={SettingsPage} />
+        <ProtectedRoute path="/assets" component={AssetsPage} module="assets" />
+        <ProtectedRoute path="/company" component={CompaniesPage} module="company" />
+        <ProtectedRoute path="/employees" component={EmployeesPage} module="employee" />
+        <ProtectedRoute path="/documents" component={DocumentsPage} module="documents" />
+        <ProtectedRoute path="/payroll" component={PayrollPage} module="payroll" />
+        <ProtectedRoute path="/licenses" component={LicensesPage} module="licenses" />
+        <ProtectedRoute path="/vendors" component={VendorsPage} module="vendors" />
+        <ProtectedRoute path="/customers" component={CustomersPage} module="customers" />
+        <ProtectedRoute path="/invoices" component={InvoicesPage} module="documents" />
+        <ProtectedRoute path="/users" component={UserManagementPage} module="userManagement" />
+        <ProtectedRoute path="/notifications" component={NotificationsPage} adminOnly />
+        <ProtectedRoute path="/interview-slots" component={InterviewSlotsPage} module="employee" />
+        <ProtectedRoute path="/settings" component={SettingsPage} module="settings" />
         <ProtectedRoute path="/vendor-settings" component={VendorSettingsPage} />
         <ProtectedRoute path="/vendor-dashboard" component={VendorDashboardPage} />
         <ProtectedRoute path="/products" component={ProductsPage} />
-        <ProtectedRoute path="/reports" component={ReportsPage} />
-        <ProtectedRoute path="/audit-logs" component={AuditLogsPage} />
+        <ProtectedRoute path="/reports" component={ReportsPage} module="documents" />
+        <ProtectedRoute path="/audit-logs" component={AuditLogsPage} adminOnly />
+        <ProtectedRoute path="/no-access" component={NoAccessPage} />
         <Route path="/auth" component={AuthPage} />
         <Route path="/vendor-orders" element={<div />} />
         <Route component={NotFound} />

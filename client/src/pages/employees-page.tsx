@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Dashboard from "@/components/layout/Dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,9 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { getEffectiveTenantId } from "@/lib/tenant-context";
+import { isExpiryDueForAttention } from "@shared/document-expiry";
+import { useLocation } from "wouter";
 import { exportEmployeesToExcel, parseEmployeeImportFile, type EmployeeImportRow } from "@/lib/excel-utils";
 import { insertEmployeeSchema } from "@shared/schema";
 import { ZodError } from "zod";
@@ -52,6 +55,7 @@ interface Employee {
   employeeId: string;
   userId?: number;
   name: string;
+  email?: string;
   department: string;
   designation: string;
   joinDate: string;
@@ -64,6 +68,7 @@ interface Employee {
   finNumber?: string;
   passportNumber?: string;
   passportExpiry?: string;
+  nricExpiry?: string;
   visaNumber?: string;
   visaExpiry?: string;
   visaType?: 's_pass' | 'work_permit' | 'employment_pass' | 'pr' | 'dependent_pass' | 'ltvp' | 'student_pass' | 'other';
@@ -89,16 +94,19 @@ interface EmployeeCompanyHistoryRecord {
 interface EmployeeFormData {
   employeeId: string;
   name: string;
+  email: string;
   department: string;
   designation: string;
   joinDate: string;
   dateOfBirth: string;
   salary: string;
+  annualSalary: string;
   status: 'active' | 'resigned' | 'on_hold' | 'terminated';
   nationality: 'citizen' | 'pr' | 'foreigner';
   prStatus: '' | 'year_1' | 'year_2' | 'year_3_plus';
   nricNumber: string;
   finNumber: string;
+  nricExpiry: string;
   passportNumber: string;
   passportExpiry: string;
   visaNumber: string;
@@ -134,7 +142,8 @@ function normalizeNationality(n?: string | null): 'citizen' | 'pr' | 'foreigner'
 
 function buildEmployeePayload(
   data: EmployeeFormData,
-  tenantId?: number | null
+  tenantId?: number | null,
+  options?: { omitEmployeeId?: boolean }
 ) {
   const joinDateRaw = data.joinDate?.trim();
   const joinDate = joinDateRaw
@@ -144,8 +153,9 @@ function buildEmployeePayload(
     : new Date().toISOString();
 
   return {
-    employeeId: data.employeeId?.trim() || '',
+    ...(options?.omitEmployeeId ? {} : { employeeId: data.employeeId?.trim() || '' }),
     name: data.name?.trim() || '',
+    email: data.email?.trim() || '',
     department: data.department?.trim() || '',
     designation: data.designation?.trim() || '',
     joinDate,
@@ -155,6 +165,12 @@ function buildEmployeePayload(
         : data.dateOfBirth
       : null,
     salary: data.salary === '' || data.salary == null ? null : String(data.salary),
+    annualSalary:
+      data.annualSalary === '' || data.annualSalary == null
+        ? data.salary
+          ? String(Number(data.salary) * 12)
+          : null
+        : String(data.annualSalary),
     status: data.status || 'active',
     nationality: data.nationality || 'citizen',
     prStatus:
@@ -163,6 +179,9 @@ function buildEmployeePayload(
         : null,
     nricNumber: data.nricNumber?.trim() || null,
     finNumber: data.finNumber?.trim() || null,
+    nricExpiry: data.nricExpiry?.trim()
+      ? new Date(data.nricExpiry).toISOString()
+      : null,
     passportNumber: data.passportNumber?.trim() || null,
     passportExpiry: data.passportExpiry?.trim()
       ? new Date(data.passportExpiry).toISOString()
@@ -214,22 +233,27 @@ export default function EmployeesPage() {
   });
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [expiryFilter, setExpiryFilter] = useState<'passportExpiry' | 'visaExpiry' | null>(null);
+  const [, setLocation] = useLocation();
   const [visibleNumbers, setVisibleNumbers] = useState<{
     [key: string]: { visible: boolean; timeout?: NodeJS.Timeout };
   }>({});
   const [formData, setFormData] = useState<EmployeeFormData>({
     employeeId: '',
-    name: 'John',
+    name: '',
+    email: '',
     department: '',
     designation: '',
     joinDate: new Date().toISOString().split('T')[0],
     dateOfBirth: '',
     salary: '',
+    annualSalary: '',
     status: 'active',
     nationality: 'citizen',
     prStatus: '',
     nricNumber: '',
     finNumber: '',
+    nricExpiry: '',
     passportNumber: '',
     passportExpiry: '',
     visaNumber: '',
@@ -249,7 +273,34 @@ export default function EmployeesPage() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { user, isLoading: userLoading } = useAuth();
+  const { user, isLoading: userLoading, tenantId: authTenantId } = useAuth();
+  const effectiveTenantId = getEffectiveTenantId(user, authTenantId);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const filter = params.get("filter");
+    if (filter === "passportExpiry" || filter === "visaExpiry") {
+      setExpiryFilter(filter);
+    } else {
+      setExpiryFilter(null);
+    }
+  }, []);
+
+  const clearExpiryFilter = () => {
+    setExpiryFilter(null);
+    setLocation("/employees");
+  };
+
+  const { data: runningNumberConfig } = useQuery({
+    queryKey: ["running-number", "employee"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/running-numbers/employee");
+      return response.json();
+    },
+    enabled: !!user,
+  });
+
+  const autoEmployeeId = runningNumberConfig?.configured === true;
 
   // Function to toggle number visibility
   const toggleNumberVisibility = (key: string, number: string) => {
@@ -296,7 +347,9 @@ export default function EmployeesPage() {
     if (!number) return '';
     
     // Check if user has permission to view unmasked data by default
-    const canViewUnmasked = user?.isSuperAdmin || ['super_admin', 'admin', 'hr_manager'].includes(user?.role || '');
+    const canViewUnmasked =
+      user?.isSuperAdmin ||
+      ["super_admin", "admin", "hr_manager"].includes(user?.role || "");
     
     // If user has permission, show full number by default, otherwise show masked
     const shouldShowMasked = !canViewUnmasked && !visibleNumbers[key]?.visible;
@@ -396,13 +449,18 @@ export default function EmployeesPage() {
   // Add employee mutation
   const addEmployeeMutation = useMutation({
     mutationFn: async (data: EmployeeFormData) => {
-      if (!data.employeeId?.trim() || !data.name?.trim() || !data.department?.trim() || !data.designation?.trim()) {
+      if (!autoEmployeeId && !data.employeeId?.trim()) {
         throw new Error('Please fill in Employee ID, Name, Department, and Designation.');
+      }
+      if (!data.name?.trim() || !data.department?.trim() || !data.designation?.trim()) {
+        throw new Error('Please fill in Name, Department, and Designation.');
       }
       if (!data.joinDate?.trim()) {
         throw new Error('Join date is required.');
       }
-      const payload = buildEmployeePayload(data, user?.tenantId);
+      const payload = buildEmployeePayload(data, effectiveTenantId, {
+        omitEmployeeId: autoEmployeeId,
+      });
       console.log('Adding employee with data:', payload);
       const response = await apiRequest('POST', '/api/employees', payload);
       console.log('Add employee response:', response);
@@ -421,6 +479,8 @@ export default function EmployeesPage() {
         description: "Employee added successfully",
       });
       queryClient.invalidateQueries({ queryKey: ['employees'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ['running-number', 'employee'] });
       setIsAddModalOpen(false);
       resetForm();
     },
@@ -443,7 +503,7 @@ export default function EmployeesPage() {
       
       const updateData = buildEmployeePayload(
         data,
-        user?.tenantId || selectedEmployee?.tenantId
+        effectiveTenantId || selectedEmployee?.tenantId
       );
       
       console.log('Update data with tenantId:', JSON.stringify(updateData, null, 2));
@@ -465,6 +525,7 @@ export default function EmployeesPage() {
         description: "Employee updated successfully",
       });
       queryClient.invalidateQueries({ queryKey: ['employees'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsEditModalOpen(false);
       resetForm();
     },
@@ -498,6 +559,7 @@ export default function EmployeesPage() {
         description: "Employee deleted successfully",
       });
       queryClient.invalidateQueries({ queryKey: ['employees'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDeleteDialogOpen(false);
     },
     onError: (error: any) => {
@@ -513,17 +575,20 @@ export default function EmployeesPage() {
   const resetForm = () => {
     setFormData({
       employeeId: '',
-      name: 'John',
+      name: '',
+      email: '',
       department: '',
       designation: '',
       joinDate: new Date().toISOString().split('T')[0],
       dateOfBirth: '',
       salary: '',
+      annualSalary: '',
       status: 'active',
       nationality: 'citizen',
       prStatus: '',
       nricNumber: '',
       finNumber: '',
+      nricExpiry: '',
       passportNumber: '',
       passportExpiry: '',
       visaNumber: '',
@@ -542,16 +607,23 @@ export default function EmployeesPage() {
     setFormData({
       employeeId: employee.employeeId,
       name: employee.name,
+      email: employee.email || '',
       department: employee.department,
       designation: employee.designation,
       joinDate: employee.joinDate ? employee.joinDate.split('T')[0] : '',
       dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.split('T')[0] : '',
       salary: employee.salary ? String(employee.salary) : '',
+      annualSalary: employee.salary
+        ? String(Number(employee.salary) * 12)
+        : (employee as any).annualSalary
+          ? String((employee as any).annualSalary)
+          : '',
       status: employee.status,
       nationality: normalizeNationality(employee.nationality),
       prStatus: employee.prStatus || '',
       nricNumber: employee.nricNumber || '',
       finNumber: employee.finNumber || '',
+      nricExpiry: employee.nricExpiry ? String(employee.nricExpiry).split('T')[0] : '',
       passportNumber: employee.passportNumber || '',
       passportExpiry: employee.passportExpiry || '',
       visaNumber: employee.visaNumber || '',
@@ -589,6 +661,15 @@ export default function EmployeesPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email.trim())) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid email address.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (isEditModalOpen) {
       updateEmployeeMutation.mutate(formData);
     } else {
@@ -596,63 +677,110 @@ export default function EmployeesPage() {
     }
   };
 
+  const matchesExpiryFilter = (employee: Employee) => {
+    if (!expiryFilter) return true;
+    const expiryDate =
+      expiryFilter === "passportExpiry" ? employee.passportExpiry : employee.visaExpiry;
+    return isExpiryDueForAttention(expiryDate);
+  };
+
   const filteredEmployees = employees.filter((employee: Employee) =>
-    employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    employee.employeeId.toLowerCase().includes(searchTerm.toLowerCase())
+    matchesExpiryFilter(employee) &&
+    (employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    employee.employeeId.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const isForeigner = formData.nationality === 'foreigner';
   const isPr = formData.nationality === 'pr';
-  const computedAnnualSalary = formData.salary
-    ? (parseFloat(formData.salary) * 12).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '—';
+  const computedAnnualSalary = formData.annualSalary
+    ? Number(formData.annualSalary).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : formData.salary
+      ? (parseFloat(formData.salary) * 12).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '—';
 
   const renderEmployeeFormDetailsGrid = (idPrefix: 'add' | 'edit') => {
     const p = idPrefix === 'edit' ? 'edit_' : '';
     const passportVisKey =
       idPrefix === 'edit' ? 'edit_passport' : isForeigner ? 'add_passport_foreigner' : 'add_passport';
+    const employeeIdDisplayOnly = autoEmployeeId || idPrefix === 'edit';
+    const employeeIdValue =
+      idPrefix === 'add' && autoEmployeeId
+        ? runningNumberConfig?.preview ?? 'Auto-generated'
+        : formData.employeeId;
 
     return (
       <div className="space-y-6">
         <h3 className="text-lg font-semibold border-b pb-2">Personal Information</h3>
         <div className="grid grid-cols-2 gap-4">
+          {/* Row 1: Employee ID | NRIC / ID Number + NRIC Expiry */}
           <div>
-            <Label htmlFor={`${p}employee_id`}>Employee ID*</Label>
-            <Input
-              id={`${p}employee_id`}
-              placeholder="e.g. EMP001"
-              value={formData.employeeId}
-              onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-              required
-            />
-            <p className="text-sm text-muted-foreground mt-1">Unique identifier for the employee</p>
-          </div>
-          <div>
-            {!isForeigner ? (
+            <Label htmlFor={`${p}employee_id`}>
+              Employee ID{!employeeIdDisplayOnly ? '*' : ''}
+            </Label>
+            {employeeIdDisplayOnly ? (
               <>
-                <Label htmlFor={`${p}nric_number`}>NRIC / ID Number</Label>
                 <Input
-                  id={`${p}nric_number`}
-                  placeholder="e.g. S1234567A"
-                  value={formData.nricNumber || ''}
-                  onChange={(e) => setFormData({ ...formData, nricNumber: e.target.value })}
+                  id={`${p}employee_id`}
+                  value={employeeIdValue}
+                  readOnly
+                  className="bg-muted/50 cursor-default"
                 />
-                <p className="text-sm text-muted-foreground mt-1">Singapore NRIC or ID number</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {idPrefix === 'add' && autoEmployeeId
+                    ? 'Automatically assigned from Running Number settings'
+                    : 'Unique identifier for the employee'}
+                </p>
               </>
             ) : (
               <>
-                <Label htmlFor={`${p}fin_number`}>NRIC / ID Number</Label>
                 <Input
-                  id={`${p}fin_number`}
-                  placeholder="e.g. G1234567X"
-                  value={formData.finNumber || ''}
-                  onChange={(e) => setFormData({ ...formData, finNumber: e.target.value })}
+                  id={`${p}employee_id`}
+                  placeholder="e.g. EMP001"
+                  value={formData.employeeId}
+                  onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
+                  required
                 />
-                <p className="text-sm text-muted-foreground mt-1">Foreigner Identification Number</p>
+                <p className="text-sm text-muted-foreground mt-1">Unique identifier for the employee</p>
               </>
             )}
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              {!isForeigner ? (
+                <>
+                  <Label htmlFor={`${p}nric_number`}>NRIC / ID Number</Label>
+                  <Input
+                    id={`${p}nric_number`}
+                    placeholder="e.g. S1234567A"
+                    value={formData.nricNumber || ''}
+                    onChange={(e) => setFormData({ ...formData, nricNumber: e.target.value })}
+                  />
+                  <p className="text-sm text-muted-foreground mt-1">Singapore NRIC or ID number</p>
+                </>
+              ) : (
+                <>
+                  <Label htmlFor={`${p}fin_number`}>NRIC / ID Number</Label>
+                  <Input
+                    id={`${p}fin_number`}
+                    placeholder="e.g. G1234567X"
+                    value={formData.finNumber || ''}
+                    onChange={(e) => setFormData({ ...formData, finNumber: e.target.value })}
+                  />
+                  <p className="text-sm text-muted-foreground mt-1">Foreigner Identification Number</p>
+                </>
+              )}
+            </div>
+            <div>
+              <Label htmlFor={`${p}nric_expiry`}>NRIC Expiry Date</Label>
+              <StringDatePicker
+                value={formData.nricExpiry || ''}
+                onChange={(val) => setFormData({ ...formData, nricExpiry: val })}
+              />
+              <p className="text-sm text-muted-foreground mt-1">When does the NRIC or ID expire</p>
+            </div>
+          </div>
 
+          {/* Row 2: Full Name | Passport Number + Passport Expiry */}
           <div>
             <Label htmlFor={`${p}first_name`}>Full Name*</Label>
             <Input
@@ -661,42 +789,72 @@ export default function EmployeesPage() {
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
             />
-            <p className="text-sm text-muted-foreground mt-1">Employee's full legal name</p>
+            <p className="text-sm text-muted-foreground mt-1">Employee&apos;s full legal name</p>
           </div>
-          <div>
-            <Label htmlFor={`${p}passport_number`}>Passport Number</Label>
-            <div className="relative">
-              <Input
-                id={`${p}passport_number`}
-                placeholder="e.g. A1234567 (will be masked in display)"
-                value={formData.passportNumber || ''}
-                onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
-              />
-              {formData.passportNumber && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                  onClick={() => toggleNumberVisibility(passportVisKey, formData.passportNumber || '')}
-                >
-                  {visibleNumbers[passportVisKey]?.visible ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </Button>
-              )}
-            </div>
-            {formData.passportNumber && (
-              <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                <span className="font-medium">Display Value: </span>
-                {getDisplayValue(passportVisKey, formData.passportNumber)}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor={`${p}passport_number`}>Passport Number</Label>
+              <div className="relative">
+                <Input
+                  id={`${p}passport_number`}
+                  placeholder="e.g. A1234567 (will be masked in display)"
+                  value={formData.passportNumber || ''}
+                  onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
+                />
+                {formData.passportNumber && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => toggleNumberVisibility(passportVisKey, formData.passportNumber || '')}
+                  >
+                    {visibleNumbers[passportVisKey]?.visible ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
               </div>
-            )}
-            <p className="text-sm text-muted-foreground mt-1">Passport number will be displayed as **** 1234 for security</p>
+              {formData.passportNumber && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-medium">Display Value: </span>
+                  {getDisplayValue(passportVisKey, formData.passportNumber)}
+                </div>
+              )}
+              
+            </div>
+            <div>
+              <Label htmlFor={`${p}passport_expiry`}>Passport Expiry</Label>
+              <StringDatePicker
+                value={formData.passportExpiry || ''}
+                onChange={(val) => setFormData({ ...formData, passportExpiry: val })}
+              />
+           
+            </div>
           </div>
 
+          {/* Row 3: Email | Join Date */}
+          <div>
+            <Label htmlFor={`${p}email`}>Email*</Label>
+            <Input
+              id={`${p}email`}
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor={`${p}hire_date`}>Join Date*</Label>
+            <StringDatePicker
+              value={formData.joinDate}
+              onChange={(val) => setFormData({ ...formData, joinDate: val })}
+            />
+          </div>
+
+          {/* Row 4: Department | Date of Birth */}
           <div>
             <Label htmlFor={`${p}department`}>Department*</Label>
             <Input
@@ -706,17 +864,16 @@ export default function EmployeesPage() {
               onChange={(e) => setFormData({ ...formData, department: e.target.value })}
               required
             />
-            <p className="text-sm text-muted-foreground mt-1">Employee's department or division</p>
           </div>
           <div>
-            <Label htmlFor={`${p}passport_expiry`}>Passport Expiry</Label>
+            <Label htmlFor={`${p}date_of_birth`}>Date of Birth*</Label>
             <StringDatePicker
-              value={formData.passportExpiry || ''}
-              onChange={(val) => setFormData({ ...formData, passportExpiry: val })}
+              value={formData.dateOfBirth}
+              onChange={(val) => setFormData({ ...formData, dateOfBirth: val })}
             />
-            <p className="text-sm text-muted-foreground mt-1">When does the passport expire</p>
           </div>
 
+          {/* Row 5: Designation | Status */}
           <div>
             <Label htmlFor={`${p}position`}>Designation*</Label>
             <Input
@@ -726,24 +883,6 @@ export default function EmployeesPage() {
               onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
               required
             />
-            <p className="text-sm text-muted-foreground mt-1">Employee's job title or position</p>
-          </div>
-          <div>
-            <Label htmlFor={`${p}date_of_birth`}>Date of Birth*</Label>
-            <StringDatePicker
-              value={formData.dateOfBirth}
-              onChange={(val) => setFormData({ ...formData, dateOfBirth: val })}
-            />
-            <p className="text-sm text-muted-foreground mt-1">Employee's date of birth</p>
-          </div>
-
-          <div>
-            <Label htmlFor={`${p}hire_date`}>Join Date*</Label>
-            <StringDatePicker
-              value={formData.joinDate}
-              onChange={(val) => setFormData({ ...formData, joinDate: val })}
-            />
-            <p className="text-sm text-muted-foreground mt-1">When did the employee join the company</p>
           </div>
           <div>
             <Label htmlFor={`${p}status`}>Status</Label>
@@ -763,26 +902,65 @@ export default function EmployeesPage() {
                 <SelectItem value="terminated">Terminated</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-sm text-muted-foreground mt-1">Current employment status</p>
           </div>
 
-          <div>
-            <Label htmlFor={`${p}salary`}>Salary*</Label>
-            <Input
-              id={`${p}salary`}
-              type="number"
-              min="1"
-              step="0.01"
-              value={formData.salary}
-              onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
-              required
+          {/* Row 6: Company | Salary + Annual Salary */}
+          <div className="space-y-2">
+            <Label htmlFor={`${p}company`}>Company</Label>
+            <CompanySearchSelect
+              companies={companies}
+              value={formData.companyId}
+              onValueChange={(value) => setFormData({ ...formData, companyId: value })}
+              placeholder={idPrefix === 'edit' ? 'Select Company' : 'Search company...'}
             />
+            {idPrefix === 'edit' ? (
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                <span className="text-sm text-muted-foreground">Assign Employee to a Company</span>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-sm font-semibold text-gray-900 hover:text-primary active:text-primary"
+                  onClick={() => selectedEmployee && handleHistory(selectedEmployee)}
+                >
+                  (View History)
+                </Button>
+              </div>
+            ) : null}
           </div>
-          <div>
-            <Label>Annual Salary</Label>
-            <Input value={computedAnnualSalary} readOnly className="bg-muted cursor-not-allowed" />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor={`${p}salary`}>Salary*</Label>
+              <Input
+                id={`${p}salary`}
+                type="number"
+                min="1"
+                step="0.01"
+                value={formData.salary}
+                onChange={(e) => {
+                  const salary = e.target.value;
+                  setFormData({
+                    ...formData,
+                    salary,
+                    annualSalary: salary ? String(Number(salary) * 12) : '',
+                  });
+                }}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor={`${p}annual_salary`}>Annual Salary</Label>
+              <Input
+                id={`${p}annual_salary`}
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.annualSalary}
+                onChange={(e) => setFormData({ ...formData, annualSalary: e.target.value })}
+              />
+            </div>
           </div>
 
+          {/* Row 7: Nationality | PR Status — below */}
           <div>
             <Label htmlFor={`${p}nationality`}>Nationality</Label>
             <Select
@@ -826,17 +1004,6 @@ export default function EmployeesPage() {
             ) : (
               <Input readOnly disabled className="bg-muted cursor-not-allowed" value="—" />
             )}
-          </div>
-
-          <div className="col-span-2">
-            <Label htmlFor={`${p}company`}>Company</Label>
-            <CompanySearchSelect
-              companies={companies}
-              value={formData.companyId}
-              onValueChange={(value) => setFormData({ ...formData, companyId: value })}
-              placeholder="Search company..."
-            />
-            <p className="text-sm text-muted-foreground mt-1">Assign employee to a company</p>
           </div>
         </div>
       </div>
@@ -960,7 +1127,7 @@ export default function EmployeesPage() {
         try {
           insertEmployeeSchema.parse({
             ...row.data,
-            tenantId: user?.tenantId ?? undefined,
+            tenantId: effectiveTenantId ?? undefined,
           });
         } catch (err: unknown) {
           if (err instanceof ZodError) {
@@ -1005,6 +1172,7 @@ export default function EmployeesPage() {
           prStatus: (d.prStatus as EmployeeFormData["prStatus"]) || "",
           nricNumber: String(d.nricNumber ?? ""),
           finNumber: String(d.finNumber ?? ""),
+          nricExpiry: "",
           passportNumber: String(d.passportNumber ?? ""),
           passportExpiry: d.passportExpiry ? String(d.passportExpiry) : "",
           visaNumber: String(d.visaNumber ?? ""),
@@ -1016,7 +1184,7 @@ export default function EmployeesPage() {
           nricScan: "",
           visaScan: "",
         };
-        const payload = buildEmployeePayload(formRow, user?.tenantId);
+        const payload = buildEmployeePayload(formRow, effectiveTenantId);
         const res = await apiRequest("POST", "/api/employees", payload);
         if (!res.ok) {
           const errText = await res.text();
@@ -1082,7 +1250,21 @@ export default function EmployeesPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>All Employees</CardTitle>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>All Employees</CardTitle>
+              {expiryFilter && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {expiryFilter === "passportExpiry"
+                      ? "Passport expiring or expired (30 days)"
+                      : "Visa expiring or expired (30 days)"}
+                  </Badge>
+                  <Button variant="ghost" size="sm" onClick={clearExpiryFilter}>
+                    Clear filter
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -1116,21 +1298,33 @@ export default function EmployeesPage() {
                   Add First Employee
                 </Button>
               </div>
+            ) : filteredEmployees.length === 0 ? (
+              <div className="text-center py-8">
+                <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No Employees Found</h3>
+                <p className="text-gray-600 mb-4">
+                  {expiryFilter
+                    ? "No employees match this expiry filter."
+                    : "No employees match your search."}
+                </p>
+                {expiryFilter && (
+                  <Button variant="outline" onClick={clearExpiryFilter}>
+                    Clear filter
+                  </Button>
+                )}
+              </div>
             ) : (
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Employee ID</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Position</TableHead>
+                      <TableHead>Full Name</TableHead>
+                      <TableHead>Email</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead>Company</TableHead>
-                      <TableHead>DOB</TableHead>
-                      <TableHead>Salary (Monthly)</TableHead>
-                      <TableHead>Annual Salary</TableHead>
+                      <TableHead>Passport Expiry</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Passport/Visa</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1139,94 +1333,18 @@ export default function EmployeesPage() {
                       <TableRow key={employee.id}>
                         <TableCell>{employee.employeeId}</TableCell>
                         <TableCell>{employee.name}</TableCell>
-                        <TableCell>{employee.designation}</TableCell>
+                        <TableCell>{employee.email || '—'}</TableCell>
                         <TableCell>{employee.department}</TableCell>
                         <TableCell>{displayCompanyName(employee)}</TableCell>
-                        <TableCell>{employee.dateOfBirth ? new Date(employee.dateOfBirth).toLocaleDateString('en-GB') : '-'}</TableCell>
-                        <TableCell>{employee.salary ? `$${Number(employee.salary).toLocaleString('en-SG', { minimumFractionDigits: 2 })}` : '-'}</TableCell>
                         <TableCell>
-                          {employee.salary
-                            ? `$${(Number(employee.salary) * 12).toLocaleString('en-SG', { minimumFractionDigits: 2 })}`
-                            : '-'}
+                          {employee.passportExpiry
+                            ? new Date(employee.passportExpiry).toLocaleDateString('en-GB')
+                            : '—'}
                         </TableCell>
                         <TableCell>
                           <Badge variant={employee.status === 'active' ? 'default' : 'secondary'}>
                             {employee.status}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            {normalizeNationality(employee.nationality) !== 'foreigner' ? (
-                              // Singaporean/PR - show NRIC
-                              employee.nricNumber && (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-xs text-gray-500">NRIC:</span>
-                                  <span className="text-xs font-mono">
-                                    {getDisplayValue(`table_nric_${employee.id}`, employee.nricNumber)}
-                                  </span>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-3 w-3 p-0"
-                                    onClick={() => toggleNumberVisibility(`table_nric_${employee.id}`, employee.nricNumber || '')}
-                                  >
-                                    {visibleNumbers[`table_nric_${employee.id}`]?.visible ? (
-                                      <EyeOff className="h-2 w-2" />
-                                    ) : (
-                                      <Eye className="h-2 w-2" />
-                                    )}
-                                  </Button>
-                                </div>
-                              )
-                            ) : (
-                              // Foreigner - show passport and visa
-                              <>
-                                {employee.passportNumber && (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-xs text-gray-500">Passport:</span>
-                                    <span className="text-xs font-mono">
-                                      {getDisplayValue(`table_passport_${employee.id}`, employee.passportNumber)}
-                                    </span>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-3 w-3 p-0"
-                                      onClick={() => toggleNumberVisibility(`table_passport_${employee.id}`, employee.passportNumber || '')}
-                                    >
-                                      {visibleNumbers[`table_passport_${employee.id}`]?.visible ? (
-                                        <EyeOff className="h-2 w-2" />
-                                      ) : (
-                                        <Eye className="h-2 w-2" />
-                                      )}
-                                    </Button>
-                                  </div>
-                                )}
-                                {employee.visaNumber && (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-xs text-gray-500">Visa:</span>
-                                    <span className="text-xs font-mono">
-                                      {getDisplayValue(`table_visa_${employee.id}`, employee.visaNumber)}
-                                    </span>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-3 w-3 p-0"
-                                      onClick={() => toggleNumberVisibility(`table_visa_${employee.id}`, employee.visaNumber || '')}
-                                    >
-                                      {visibleNumbers[`table_visa_${employee.id}`]?.visible ? (
-                                        <EyeOff className="h-2 w-2" />
-                                      ) : (
-                                        <Eye className="h-2 w-2" />
-                                      )}
-                                    </Button>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
                         </TableCell>
                         <TableCell>
                           <TableRowActions

@@ -186,6 +186,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
         description: "The asset has been created successfully.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       form.reset();
       if (onSuccess) onSuccess();
     },
@@ -221,6 +222,7 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/assets", assetId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       if (onSuccess) onSuccess();
     },
     onError: (error: Error) => {

@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,27 +10,25 @@ import {
   FileTextIcon,
   Store,
   Settings,
-  FileBarChart,
-  ClipboardListIcon,
   LogOut,
   Key,
-  Receipt,
   UserCheck,
   Menu,
   X,
   Package,
   Calculator,
-  BellIcon,
   TrendingUp,
   ShoppingCart,
-  CalendarClock,
-  Building2
+  Building2,
 } from "lucide-react";
+import type { ModuleKey } from "@shared/permissions";
+import { isVendorUser } from "@shared/permissions";
 
 type MenuItem = {
   name: string;
   href: string;
   icon: React.ReactNode;
+  module?: ModuleKey;
   roles?: string[];
   hideForRoles?: string[];
 };
@@ -40,13 +39,15 @@ export default function Sidebar({ isCollapsed, onCollapsedChange }: {
 }) {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const { canView } = usePermissions();
 
-  const isVendor = user?.role === 'vendor';
+  const isVendor = isVendorUser(user);
 
   const mainMenuItems: MenuItem[] = [
     {
       name: "Dashboard",
       href: "/",
+      module: "dashboard",
       icon: <LayoutDashboard className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
       hideForRoles: ["vendor"],
     },
@@ -59,42 +60,51 @@ export default function Sidebar({ isCollapsed, onCollapsedChange }: {
     {
       name: "Assets",
       href: "/assets",
+      module: "assets",
       icon: <MonitorIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
       hideForRoles: ["vendor"],
     },
     {
       name: "Licenses",
       href: "/licenses",
+      module: "licenses",
       icon: <Key className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
       hideForRoles: ["vendor"],
     },
     {
       name: "Company",
       href: "/company",
+      module: "company",
       icon: <Building2 className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
       hideForRoles: ["vendor"],
     },
     {
       name: "Employees",
       href: "/employees",
+      module: "employee",
       icon: <UsersIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
+      hideForRoles: ["vendor"],
     },
     {
       name: "Payroll",
       href: "/payroll",
+      module: "payroll",
       icon: <Calculator className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
-      roles: ["super_admin", "admin", "hr_manager", "vendor"],
+      hideForRoles: ["vendor"],
     },
     {
       name: "Documents",
       href: "/documents",
+      module: "documents",
       icon: <FileTextIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
+      hideForRoles: ["vendor"],
     },
     {
       name: "Vendors",
       href: "/vendors",
+      module: "vendors",
       icon: <Store className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
-   
+      hideForRoles: ["vendor"],
     },
     {
       name: "Vendor Orders",
@@ -111,44 +121,25 @@ export default function Sidebar({ isCollapsed, onCollapsedChange }: {
     {
       name: "Customers",
       href: "/customers",
+      module: "customers",
       icon: <UserCheck className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
+      hideForRoles: ["vendor"],
     },
-    // {
-    //   name: "Invoices",
-    //   href: "/invoices",
-    //   icon: <Receipt className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
-    // },
   ];
 
   const managementMenuItems: MenuItem[] = [
     {
       name: "User Management",
       href: "/users",
+      module: "userManagement",
       icon: <UsersIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
     {
-      name: "Notifications",
-      href: "/notifications",
-      icon: <BellIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
-      roles: ["super_admin", "admin"],
-    },
-
-    {
       name: "Settings",
       href: "/settings",
+      module: "settings",
       icon: <Settings className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
     },
-    // {
-    //   name: isVendor ? "Profit Reports" : "Reports",
-    //   href: "/reports",
-    //   icon: <FileBarChart className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
-    // },
-    // {
-    //   name: "Audit Logs",
-    //   href: "/audit-logs",
-    //   icon: <ClipboardListIcon className={cn(isCollapsed ? "h-6 w-6" : "h-5 w-5 mr-3", "text-slate-400")} />,
-    //   roles: ["super_admin", "admin"],
-    // },
   ];
 
   return (
@@ -156,7 +147,6 @@ export default function Sidebar({ isCollapsed, onCollapsedChange }: {
       "fixed top-0 left-0 h-screen bg-slate-900 border-r border-slate-700 flex flex-col transition-all duration-300 text-white z-30",
       isCollapsed ? "w-16" : "w-64"
     )}>
-      {/* Header */}
       <div className="p-6 border-b border-slate-700 flex-shrink-0">
         <div className="flex items-center justify-between">
           {!isCollapsed && (
@@ -183,9 +173,7 @@ export default function Sidebar({ isCollapsed, onCollapsedChange }: {
         </div>
       </div>
 
-      {/* Navigation - This will scroll if content overflows */}
       <nav className="flex-1 p-4 space-y-6 overflow-y-auto">
-        {/* Main Menu */}
         <div>
           {!isCollapsed && (
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
@@ -200,33 +188,35 @@ export default function Sidebar({ isCollapsed, onCollapsedChange }: {
                 isActive={location === item.href}
                 userRole={user?.role}
                 isCollapsed={isCollapsed}
+                canView={canView}
               />
             ))}
           </div>
         </div>
 
-        {/* Management Menu */}
-        <div>
-          {!isCollapsed && (
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-              MANAGEMENT
-            </h3>
-          )}
-          <div className="space-y-1">
-            {managementMenuItems.map((item) => (
-              <SidebarItem
-                key={item.name}
-                item={item}
-                isActive={location === item.href}
-                userRole={user?.role}
-                isCollapsed={isCollapsed}
-              />
-            ))}
+        {!isVendor && (
+          <div>
+            {!isCollapsed && (
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                MANAGEMENT
+              </h3>
+            )}
+            <div className="space-y-1">
+              {managementMenuItems.map((item) => (
+                <SidebarItem
+                  key={item.name}
+                  item={item}
+                  isActive={location === item.href}
+                  userRole={user?.role}
+                  isCollapsed={isCollapsed}
+                  canView={canView}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </nav>
 
-      {/* User Info - Fixed at bottom */}
       <div className="p-4 border-t border-slate-700 flex-shrink-0">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0">
@@ -262,16 +252,19 @@ interface SidebarItemProps {
   isActive: boolean;
   userRole?: string;
   isCollapsed?: boolean;
+  canView: (module: ModuleKey) => boolean;
 }
 
-function SidebarItem({ item, isActive, userRole, isCollapsed }: SidebarItemProps) {
-  // Check if user has permission to access this item
+function SidebarItem({ item, isActive, userRole, isCollapsed, canView }: SidebarItemProps) {
   if (item.roles && userRole && !item.roles.includes(userRole)) {
     return null;
   }
 
-  // Check if item should be hidden for this user role
   if (item.hideForRoles && userRole && item.hideForRoles.includes(userRole)) {
+    return null;
+  }
+
+  if (item.module && !canView(item.module)) {
     return null;
   }
 

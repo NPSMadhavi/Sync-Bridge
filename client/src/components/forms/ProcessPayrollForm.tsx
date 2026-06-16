@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { processIndividualPayrollForConfig, getCurrentPayPeriod } from "@/lib/payroll-batch-utils";
 import { insertPayrollRecordSchema } from "@shared/schema";
 import { Calculator, CheckCircle, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -99,14 +100,12 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
     resolver: zodResolver(processPayrollSchema),
     defaultValues: {
       overtimeHours: 0,
-      payPeriodStart: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-      payPeriodEnd: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
+      ...getCurrentPayPeriod(),
     },
   });
 
   const processPayrollMutation = useMutation({
     mutationFn: async (data: ProcessPayrollFormData) => {
-      // Validate required data
       if (!payrollCalculation) {
         throw new Error("Please calculate payroll first");
       }
@@ -114,52 +113,26 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
         throw new Error("No employee or payroll configuration selected.");
       }
 
-      // Ensure all numeric fields are properly converted to numbers
-      const breakdown = payrollCalculation.breakdown || {};
-      const allowances = breakdown.allowances ? Object.fromEntries(Object.entries(breakdown.allowances).map(([k, v]) => [k, Number(v)])) : {};
-      const deductions = breakdown.deductions ? Object.fromEntries(Object.entries(breakdown.deductions).map(([k, v]) => [k, Number(v)])) : {};
+      const result = await processIndividualPayrollForConfig(
+        selectedEmployee.payrollConfig,
+        data.payPeriodStart,
+        data.payPeriodEnd,
+        Number(data.overtimeHours) || 0,
+        data.notes || ""
+      );
 
-      const payload = {
-        employeeId: Number(data.employeeId),
-        payrollConfigId: Number(selectedEmployee.payrollConfig.id),
-        payPeriodStart: data.payPeriodStart,
-        payPeriodEnd: data.payPeriodEnd,
-        baseSalary: Number(breakdown.baseSalary || 0),
-        overtimeHours: Number(data.overtimeHours || 0),
-        overtimePay: Number(breakdown.overtimePay || 0),
-        allowances,
-        deductions,
-        grossPay: Number(payrollCalculation.grossPay || 0),
-        taxDeduction: 0,
-        cpfDeduction: Number(payrollCalculation.employeeCpf || 0),
-        netPay: Number(payrollCalculation.netPay || 0),
-        status: 'pending',
-        notes: data.notes || '',
-      };
-
-      console.log('Process Payroll Payload:', payload);
-      console.log('Payload types:', Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, typeof v])));
-
-      const res = await apiRequest("POST", "/api/payroll/records", payload);
-      
-      if (!res.ok) {
-        const contentType = res.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-          const text = await res.text();
-          throw new Error("Server error: " + text.slice(0, 200));
-        }
-        const errorData = await res.json();
-        throw new Error(errorData.message || "Failed to process payroll");
+      if (!result.ok) {
+        throw new Error(result.message || "Failed to process payroll");
       }
-      
-      return await res.json();
+
+      return result;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
       toast({
-        title: "Payroll Processed Successfully - Ready for Export",
-        description: "Payroll record has been saved and is ready for export.",
+        title: result.action === "updated" ? "Payroll Updated" : "Payroll Processed Successfully",
+        description: "Payroll saved and payslip downloaded automatically.",
       });
       onSuccess();
     },

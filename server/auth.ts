@@ -9,6 +9,8 @@ import { db } from "./db";
 import { User as SelectUser, userRoleEnum, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
+import { normalizePermissions } from "@shared/permissions";
+import { z } from "zod";
 
 // Define custom info type for authentication
 interface AuthInfo {
@@ -305,7 +307,10 @@ export function setupAuth(app: Express) {
         
       // Return the user without the password
       const { password, ...userWithoutPassword } = user;
-      return res.status(200).json(userWithoutPassword);
+      return res.status(200).json({
+        ...userWithoutPassword,
+        permissions: normalizePermissions(userWithoutPassword.permissions),
+      });
 
       });
     })(req, res, next);
@@ -326,9 +331,49 @@ export function setupAuth(app: Express) {
 
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    // Return the user without the password
     const { password, ...userWithoutPassword } = req.user;
-    res.json(userWithoutPassword);
+    res.json({
+      ...userWithoutPassword,
+      permissions: normalizePermissions(userWithoutPassword.permissions),
+    });
+  });
+
+  app.put("/api/profile", async (req, res, next) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const profileSchema = z.object({
+        name: z.string().min(2, "Name must be at least 2 characters"),
+        email: z.string().email("Please enter a valid email address"),
+        sendReminderEmails: z.boolean(),
+      });
+
+      const data = profileSchema.parse(req.body);
+      const existing = await storage.getUserByEmail(data.email);
+      if (existing && existing.id !== req.user!.id) {
+        return res.status(400).json({ message: "Email address is already in use" });
+      }
+
+      const updated = await storage.updateUser(req.user!.id, {
+        name: data.name,
+        email: data.email,
+        sendReminderEmails: data.sendReminderEmails,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const { password, ...safeUser } = updated;
+      res.json({
+        ...safeUser,
+        permissions: normalizePermissions(safeUser.permissions),
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   // Role-based authentication middleware

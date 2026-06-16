@@ -1,5 +1,6 @@
-import { pgTable, text, integer, serial, timestamp, boolean, pgEnum, uuid, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, serial, timestamp, boolean, pgEnum, uuid, foreignKey, unique, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
+import type { UserPermissionsMap } from "./permissions";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
@@ -21,6 +22,7 @@ export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'sent', 'pai
 export const paymentMethodEnum = pgEnum('payment_method', ['bank_transfer', 'credit_card', 'cash', 'check', 'other']);
 export const visaTypeEnum = pgEnum('visa_type', ['s_pass', 'work_permit', 'employment_pass', 'pr', 'dependent_pass', 'ltvp', 'student_pass', 'other']);
 export const employeeStatusEnum = pgEnum('employee_status', ['active', 'resigned', 'on_hold', 'terminated']);
+export const documentReminderStatusEnum = pgEnum('document_reminder_status', ['pending', 'sent', 'snoozed', 'closed']);
 export const nationalityEnum = pgEnum('nationality', ['citizen', 'pr', 'foreigner', 'singaporean_pr']);
 export const prStatusEnum = pgEnum('pr_status', ['year_1', 'year_2', 'year_3_plus']);
 export const relationshipEnum = pgEnum('relationship', ['spouse', 'child', 'parent', 'sibling', 'other']);
@@ -68,6 +70,34 @@ export const emailSettings = pgTable("email_settings", {
   }).onDelete("cascade"),
 }));
 
+export const RUNNING_NUMBER_MODULE_EMPLOYEE = "Employee" as const;
+
+export const runningNumbers = pgTable("running_numbers", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  moduleName: text("module_name").notNull(),
+  prefix: text("prefix").notNull(),
+  nextCounter: integer("next_counter").notNull(),
+  suffix: text("suffix").default(""),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  tenantModuleUnique: unique("running_numbers_tenant_module_unique").on(table.tenantId, table.moduleName),
+  tenantIdFk: foreignKey({
+    columns: [table.tenantId],
+    foreignColumns: [tenants.id],
+    name: "running_numbers_tenant_id_fk"
+  }).onDelete("cascade"),
+}));
+
+export function formatRunningNumber(
+  prefix: string,
+  nextCounter: number,
+  suffix?: string | null
+): string {
+  return `${prefix}${nextCounter}${suffix ?? ""}`;
+}
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").references(() => tenants.id),
@@ -81,6 +111,8 @@ export const users = pgTable("users", {
   emailVerificationExpiry: timestamp("email_verification_expiry"),
   isActive: boolean("is_active").default(true),
   allowedModules: text("allowed_modules").array(),
+  permissions: jsonb("permissions").$type<UserPermissionsMap>().default({}),
+  sendReminderEmails: boolean("send_reminder_emails").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -108,11 +140,13 @@ export const employees = pgTable("employees", {
   employeeId: text("employee_id").notNull(),
   userId: integer("user_id").references(() => users.id),
   name: text("name").notNull(),
+  email: text("email"),
   department: text("department").notNull(),
   designation: text("designation").notNull(),
   joinDate: timestamp("join_date").notNull(),
   dateOfBirth: date("date_of_birth"),
   salary: decimal("salary", { precision: 12, scale: 2 }),
+  annualSalary: decimal("annual_salary", { precision: 12, scale: 2 }),
   status: employeeStatusEnum("status").notNull().default('active'),
   nationality: nationalityEnum("nationality"),
   prStatus: text("pr_status"),
@@ -120,6 +154,7 @@ export const employees = pgTable("employees", {
   finNumber: text("fin_number"),
   passportNumber: text("passport_number"),
   passportExpiry: timestamp("passport_expiry"),
+  nricExpiry: timestamp("nric_expiry"),
   visaNumber: text("visa_number"),
   visaExpiry: timestamp("visa_expiry"),
   visaType: visaTypeEnum("visa_type"),
@@ -159,6 +194,24 @@ export const dependents = pgTable("dependents", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const documentReminderHistory = pgTable("document_reminder_history", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  employeeId: integer("employee_id").references(() => employees.id),
+  dependentId: integer("dependent_id").references(() => dependents.id),
+  entityId: integer("entity_id"),
+  documentType: text("document_type").notNull(),
+  expiryDate: timestamp("expiry_date"),
+  reminderDate: timestamp("reminder_date").notNull(),
+  status: documentReminderStatusEnum("status").notNull().default('pending'),
+  reminderKind: text("reminder_kind"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  emailSentAt: timestamp("email_sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const assets = pgTable("assets", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").references(() => tenants.id),
@@ -190,6 +243,13 @@ export const licenses = pgTable("licenses", {
   renewalCycle: renewalCycleEnum("renewal_cycle").default('none'),
   status: licenseStatusEnum("status").default('active'),
   notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const licenseReminders = pgTable("license_reminders", {
+  id: serial("id").primaryKey(),
+  licenseId: integer("license_id").references(() => licenses.id, { onDelete: "cascade" }).notNull(),
+  daysBefore: integer("days_before").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -423,6 +483,8 @@ export const payrollRecords = pgTable("payroll_records", {
   payrollConfigId: integer("payroll_config_id").references(() => employeePayroll.id).notNull(),
   payPeriodStart: date("pay_period_start").notNull(),
   payPeriodEnd: date("pay_period_end").notNull(),
+  payrollMonth: integer("payroll_month"),
+  payrollYear: integer("payroll_year"),
   baseSalary: decimal("base_salary", { precision: 10, scale: 2 }).notNull(),
   overtimeHours: decimal("overtime_hours", { precision: 6, scale: 2 }).default('0.00'),
   overtimePay: decimal("overtime_pay", { precision: 10, scale: 2 }).default('0.00'),
@@ -559,7 +621,7 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
   licenses: many(licenses),
 }));
 
-export const licensesRelations = relations(licenses, ({ one }) => ({
+export const licensesRelations = relations(licenses, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [licenses.tenantId],
     references: [tenants.id],
@@ -567,6 +629,14 @@ export const licensesRelations = relations(licenses, ({ one }) => ({
   asset: one(assets, {
     fields: [licenses.assetId],
     references: [assets.id],
+  }),
+  reminders: many(licenseReminders),
+}));
+
+export const licenseRemindersRelations = relations(licenseReminders, ({ one }) => ({
+  license: one(licenses, {
+    fields: [licenseReminders.licenseId],
+    references: [licenses.id],
   }),
 }));
 
@@ -777,6 +847,7 @@ export const insertUserPermissionSchema = createInsertSchema(userPermissions).om
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees, {
+  email: z.string().email("Valid email is required"),
   nationality: z.enum(['citizen', 'pr', 'foreigner', 'singaporean_pr']).optional().nullable(),
   prStatus: z.preprocess(
     (val) => (val === '' || val === null || val === undefined ? null : val),
@@ -819,8 +890,22 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
     if (typeof val === 'string') return val;
     return val?.toString() || null;
   }),
+  annualSalary: z.union([z.string(), z.number()]).optional().nullable().transform(val => {
+    if (val === null || val === undefined || val === '') return null;
+    if (typeof val === 'string') return val;
+    return val?.toString() || null;
+  }),
   // passportExpiry and visaExpiry are timestamp columns — use ISO strings
   passportExpiry: z.string().optional().nullable().transform(str => {
+    if (!str || str.trim() === '') return null;
+    try {
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  }),
+  nricExpiry: z.string().optional().nullable().transform(str => {
     if (!str || str.trim() === '') return null;
     try {
       const d = new Date(str);
@@ -920,6 +1005,30 @@ export const insertTenantSchema = createInsertSchema(tenants)
   .omit({ id: true, createdAt: true });
 
 export const insertEmailSettingsSchema = createInsertSchema(emailSettings)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+export const saveRunningNumberSchema = z.object({
+  prefix: z.string().trim().min(1, { message: "Prefix is required" }),
+  nextCounter: z.preprocess(
+    (val) => {
+      if (val === "" || val === null || val === undefined) return undefined;
+      if (typeof val === "string") return val.trim();
+      return val;
+    },
+    z.coerce
+      .number({ invalid_type_error: "Next Counter must be numeric" })
+      .int({ message: "Next Counter must be numeric" })
+      .min(0, { message: "Counter cannot be negative" })
+  ),
+  suffix: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((val) => val ?? ""),
+  tenantId: z.coerce.number().int().positive().optional(),
+});
+
+export const insertRunningNumberSchema = createInsertSchema(runningNumbers)
   .omit({ id: true, createdAt: true, updatedAt: true });
 
 export const insertCustomerSchema = createInsertSchema(customers, {
@@ -1063,6 +1172,9 @@ export type Tenant = typeof tenants.$inferSelect;
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
 export type EmailSettings = typeof emailSettings.$inferSelect;
 export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
+export type RunningNumber = typeof runningNumbers.$inferSelect;
+export type InsertRunningNumber = z.infer<typeof insertRunningNumberSchema>;
+export type SaveRunningNumber = z.infer<typeof saveRunningNumberSchema>;
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Invoice = typeof invoices.$inferSelect;
@@ -1114,6 +1226,7 @@ export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type EmployeeCompanyHistory = typeof employeeCompanyHistory.$inferSelect;
 export type InsertEmployeeCompanyHistory = typeof employeeCompanyHistory.$inferInsert;
 export type DocumentReminder = typeof documentReminders.$inferSelect;
+export type LicenseReminder = typeof licenseReminders.$inferSelect;
 export type InsertDocumentReminder = z.infer<typeof insertDocumentReminderSchema>;
 
 export type InvoiceDesign = typeof invoiceDesigns.$inferSelect;

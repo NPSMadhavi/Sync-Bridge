@@ -3,7 +3,7 @@ import Dashboard from "@/components/layout/Dashboard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Input, NumberInput } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { 
@@ -27,8 +27,13 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Plus, Receipt, UserCheck, Mail, Send } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Loader2, Mail, Send, Hash } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { formatRunningNumber } from "@shared/schema";
+import { canManageRunningNumber } from "@/lib/running-number-access";
+import { RunningNumberSettingsCard } from "@/components/settings/RunningNumberSettingsCard";
 
 // Profile form schema
 const profileFormSchema = z.object({
@@ -38,6 +43,7 @@ const profileFormSchema = z.object({
   email: z.string().email({
     message: "Please enter a valid email address.",
   }),
+  sendReminderEmails: z.boolean(),
 });
 
 // Password form schema
@@ -70,9 +76,7 @@ const emailSettingsFormSchema = z.object({
   smtpUser: z.string().min(1, {
     message: "SMTP Username is required.",
   }),
-  smtpPass: z.string().min(1, {
-    message: "SMTP Password is required.",
-  }),
+  smtpPass: z.string().optional(),
   emailFrom: z.string().email({
     message: "Please enter a valid email address.",
   }),
@@ -82,15 +86,39 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>;
 type PasswordFormValues = z.infer<typeof passwordFormSchema>;
 type EmailSettingsFormValues = z.infer<typeof emailSettingsFormSchema>;
 
+const runningNumberFormSchema = z.object({
+  prefix: z.string().trim().min(1, { message: "Prefix is required" }),
+  nextCounter: z
+    .string()
+    .trim()
+    .min(1, { message: "Next Counter is required" })
+    .refine((val) => !Number.isNaN(Number(val)), {
+      message: "Next Counter must be numeric",
+    })
+    .refine((val) => Number.isInteger(Number(val)), {
+      message: "Next Counter must be numeric",
+    })
+    .refine((val) => Number(val) >= 0, {
+      message: "Counter cannot be negative",
+    }),
+  suffix: z.string().optional(),
+});
+
+type RunningNumberFormValues = z.infer<typeof runningNumberFormSchema>;
+
 export default function SettingsPage() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, tenantId: authTenantId } = useAuth();
   const queryClient = useQueryClient();
+  const manageRunningNumber = canManageRunningNumber(user);
+  const effectiveTenantId =
+    authTenantId ??
+    (user?.role === "super_admin" || user?.isSuperAdmin ? 1 : null);
   const [activeTab, setActiveTab] = useState("profile");
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
-  const [isSavingSystem, setIsSavingSystem] = useState(false);
   const [isSavingEmailSettings, setIsSavingEmailSettings] = useState(false);
+  const [isSavingRunningNumber, setIsSavingRunningNumber] = useState(false);
+  const [isSavingSystem, setIsSavingSystem] = useState(false);
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testEmail, setTestEmail] = useState("");
   
@@ -106,6 +134,7 @@ export default function SettingsPage() {
     defaultValues: {
       name: user?.name || "",
       email: user?.email || "",
+      sendReminderEmails: user?.sendReminderEmails ?? false,
     },
   });
 
@@ -115,6 +144,7 @@ export default function SettingsPage() {
       profileForm.reset({
         name: user.name || "",
         email: user.email || "",
+        sendReminderEmails: user.sendReminderEmails ?? false,
       });
     }
   }, [user, profileForm]);
@@ -167,25 +197,57 @@ export default function SettingsPage() {
       });
     }
   }, [emailSettings, emailSettingsForm]);
+
+  const runningNumberForm = useForm<RunningNumberFormValues>({
+    resolver: zodResolver(runningNumberFormSchema),
+    defaultValues: {
+      prefix: "",
+      nextCounter: "",
+      suffix: "",
+    },
+  });
+
+  const { data: runningNumberSettings, isLoading: runningNumberLoading } = useQuery({
+    queryKey: ["running-number", "employee"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/running-numbers/employee");
+      return await response.json();
+    },
+    enabled: !!user && manageRunningNumber && effectiveTenantId != null,
+  });
+
+  React.useEffect(() => {
+    if (runningNumberSettings?.configured) {
+      runningNumberForm.reset({
+        prefix: runningNumberSettings.prefix || "",
+        nextCounter:
+          runningNumberSettings.nextCounter != null
+            ? String(runningNumberSettings.nextCounter)
+            : "",
+        suffix: runningNumberSettings.suffix || "",
+      });
+    }
+  }, [runningNumberSettings, runningNumberForm]);
+
+  const watchedPrefix = runningNumberForm.watch("prefix");
+  const watchedCounter = runningNumberForm.watch("nextCounter");
+  const watchedSuffix = runningNumberForm.watch("suffix");
+  const runningNumberPreview =
+    watchedCounter?.trim() === ""
+      ? "—"
+      : formatRunningNumber(
+          watchedPrefix ?? "",
+          Number(watchedCounter),
+          watchedSuffix
+        );
   
   // Update profile
   const onProfileSubmit = async (data: ProfileFormValues) => {
     setIsUpdatingProfile(true);
     try {
-      const response = await fetch(`/api/users/${user?.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: data.name,
-          email: data.email,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update profile');
-      }
+      const response = await apiRequest("PUT", "/api/profile", data);
+      const updatedUser = await response.json();
+      queryClient.setQueryData(["/api/user"], updatedUser);
 
       toast({
         title: "Profile updated",
@@ -210,56 +272,14 @@ export default function SettingsPage() {
     });
     passwordForm.reset();
   };
-  
-  // Save notification settings
-  const onSaveNotificationSettings = async () => {
-    setIsSavingNotifications(true);
-    try {
-      // Get form values from the notification settings
-      const documentExpiry = (document.getElementById('document-expiry') as HTMLInputElement)?.checked;
-      const assetAssignment = (document.getElementById('asset-assignment') as HTMLInputElement)?.checked;
-      const maintenanceAlerts = (document.getElementById('maintenance-alerts') as HTMLInputElement)?.checked;
-      const expiryDays = (document.getElementById('expiry-days') as HTMLInputElement)?.value;
-      const reminderFrequency = (document.getElementById('reminder-frequency') as HTMLInputElement)?.value;
-      
-      const settings = {
-        documentExpiry,
-        assetAssignment,
-        maintenanceAlerts,
-        expiryDays: parseInt(expiryDays) || 30,
-        reminderFrequency: parseInt(reminderFrequency) || 7,
-      };
-      
-      const response = await apiRequest('POST', '/api/notifications/settings', settings);
-      
-      if (response.ok) {
-        toast({
-          title: "Settings saved",
-          description: "Your notification settings have been saved successfully.",
-        });
-      } else {
-        throw new Error('Failed to save notification settings');
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to save notification settings. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSavingNotifications(false);
-    }
-  };
 
-  // Save system settings
   const onSaveSystemSettings = async () => {
     setIsSavingSystem(true);
     try {
-      // Get form values from the system settings
       const dateFormat = (document.getElementById('date-format') as HTMLSelectElement)?.value;
       const darkMode = (document.getElementById('dark-mode') as HTMLInputElement)?.checked;
       const exportFormat = (document.getElementById('export-format') as HTMLSelectElement)?.value;
-      
+
       const settings = {
         dateFormat: dateFormat || "MM/DD/YYYY",
         darkMode: darkMode || false,
@@ -267,9 +287,9 @@ export default function SettingsPage() {
         timezone: "UTC",
         language: "en",
       };
-      
+
       const response = await apiRequest('POST', '/api/system/settings', settings);
-      
+
       if (response.ok) {
         toast({
           title: "Settings saved",
@@ -291,6 +311,13 @@ export default function SettingsPage() {
 
   // Save email settings
   const onEmailSettingsSubmit = async (data: EmailSettingsFormValues) => {
+    if (!data.smtpPass?.trim() && !emailSettings?.hasPassword) {
+      emailSettingsForm.setError("smtpPass", {
+        message: "SMTP Password is required.",
+      });
+      return;
+    }
+
     setIsSavingEmailSettings(true);
     try {
       const response = await apiRequest('POST', '/api/email-settings', data);
@@ -312,6 +339,51 @@ export default function SettingsPage() {
       });
     } finally {
       setIsSavingEmailSettings(false);
+    }
+  };
+
+  const onRunningNumberSubmit = async (data: RunningNumberFormValues) => {
+    if (!effectiveTenantId) {
+      toast({
+        title: "Error",
+        description: "Tenant context is required to save running number settings.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSavingRunningNumber(true);
+    try {
+      const response = await apiRequest("PUT", "/api/running-numbers/employee", {
+        prefix: data.prefix,
+        nextCounter: Number(data.nextCounter),
+        suffix: data.suffix ?? "",
+        tenantId: effectiveTenantId,
+      });
+
+      if (response.ok) {
+        runningNumberForm.reset({
+          prefix: data.prefix,
+          nextCounter: data.nextCounter,
+          suffix: data.suffix ?? "",
+        });
+        toast({
+          title: "Running number saved",
+          description: "Employee ID running number configuration has been saved.",
+        });
+        queryClient.invalidateQueries({ queryKey: ["running-number", "employee"] });
+      } else {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.message || "Failed to save running number");
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save running number. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingRunningNumber(false);
     }
   };
 
@@ -338,12 +410,13 @@ export default function SettingsPage() {
           description: `Test email sent successfully to ${testEmail}. Please check your inbox.`,
         });
       } else {
-        throw new Error('Failed to send test email');
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.message || "Failed to send test email");
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to send test email. Please check your email configuration.",
+        description: error.message || "Failed to send test email. Please check your email configuration.",
         variant: "destructive",
       });
     } finally {
@@ -351,56 +424,41 @@ export default function SettingsPage() {
     }
   };
   
+  const settingsNavClass = () =>
+    cn(
+      "inline-flex items-center justify-center px-5 py-2.5 rounded-lg text-sm font-medium transition-colors",
+      "h-auto whitespace-nowrap shadow-none",
+      "border border-gray-200 bg-white text-gray-900",
+      "hover:bg-gray-50 hover:border-gray-300",
+      "data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary",
+      "data-[state=active]:hover:bg-primary/90 data-[state=active]:shadow-none"
+    );
+
   return (
      <Dashboard
         title={<span className="text-[32px] font-bold">Settings</span>}
-        description="Manage your organization's assets."
+        description="Manage company preferences and account settings."
       >
-      <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-        <div className="flex flex-col md:flex-row gap-6">
-          <div className="md:w-1/4">
-            <TabsList className="flex flex-col h-auto bg-transparent space-y-1 p-0">
-              <TabsTrigger
-                value="profile"
-                className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
-              >
-                Profile
-              </TabsTrigger>
-              <TabsTrigger
-                value="security"
-                className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
-              >
-                Security
-              </TabsTrigger>
-              <TabsTrigger
-                value="notifications"
-                className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
-              >
-                Notifications
-              </TabsTrigger>
-              <TabsTrigger
-                value="email-config"
-                className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
-              >
-                Email Configuration
-              </TabsTrigger>
-              <TabsTrigger
-                value="system"
-                className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
-              >
-                System
-              </TabsTrigger>
-              {user?.role === 'vendor' && (
-                <TabsTrigger
-                  value="vendor"
-                  className="justify-start px-4 py-2 rounded-md data-[state=active]:bg-primary-50 data-[state=active]:text-primary-700"
-                >
-                  Vendor Settings
-                </TabsTrigger>
-              )}
-            </TabsList>
-          </div>
-          <div className="md:w-3/4">
+      <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="flex flex-row flex-wrap h-auto w-full bg-transparent p-0 gap-2 justify-center items-center">
+          <TabsTrigger value="profile" className={settingsNavClass()}>
+            Profile
+          </TabsTrigger>
+          <TabsTrigger value="security" className={settingsNavClass()}>
+            Security
+          </TabsTrigger>
+          <TabsTrigger value="email-config" className={settingsNavClass()}>
+            Email Configuration
+          </TabsTrigger>
+          <TabsTrigger value="running-number" className={settingsNavClass()}>
+            Running Number System
+          </TabsTrigger>
+          <TabsTrigger value="system" className={settingsNavClass()}>
+            System
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="mt-6 w-full max-w-4xl mx-auto">
             <TabsContent value="profile" className="mt-0">
               <Card>
                 <CardHeader>
@@ -439,6 +497,29 @@ export default function SettingsPage() {
                               This is the email used for login and notifications.
                             </FormDescription>
                             <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={profileForm.control}
+                        name="sendReminderEmails"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={(checked) => field.onChange(checked === true)}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel>Send reminder notifications to this email</FormLabel>
+                              <FormDescription>
+                                When enabled, license and company document expiry reminders will be
+                                sent to this profile email. NRIC, passport, and visa reminders are
+                                always sent to each employee&apos;s registered email address.
+                              </FormDescription>
+                            </div>
                           </FormItem>
                         )}
                       />
@@ -547,105 +628,7 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
-            
-            <TabsContent value="notifications" className="mt-0">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Notifications</CardTitle>
-                  <CardDescription>
-                    Configure how you receive notifications.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-medium mb-4">Email Notifications</h3>
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="document-expiry" className="font-medium">Document Expiry</Label>
-                          <p className="text-sm text-gray-500">
-                            Receive alerts when documents are close to expiration
-                          </p>
-                        </div>
-                        <Switch id="document-expiry" defaultChecked />
-                      </div>
-                      
-                      <Separator />
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="asset-assignment" className="font-medium">Asset Assignments</Label>
-                          <p className="text-sm text-gray-500">
-                            Notifications when assets are assigned or returned
-                          </p>
-                        </div>
-                        <Switch id="asset-assignment" defaultChecked />
-                      </div>
-                      
-                      <Separator />
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="maintenance-alerts" className="font-medium">Maintenance Alerts</Label>
-                          <p className="text-sm text-gray-500">
-                            Receive alerts for maintenance schedules and issues
-                          </p>
-                        </div>
-                        <Switch id="maintenance-alerts" defaultChecked />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-lg font-medium mb-4">Notification Timing</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="expiry-days" className="font-medium">Document Expiry Alert Days</Label>
-                        <NumberInput 
-                          id="expiry-days"
-                          placeholder="30"
-                          defaultValue="30"
-                          className="mt-1"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Days before expiry to send first alert
-                        </p>
-                      </div>
-                      
-                      <div>
-                        <Label htmlFor="reminder-frequency" className="font-medium">Reminder Frequency</Label>
-                        <NumberInput 
-                          id="reminder-frequency"
-                          placeholder="7"
-                          defaultValue="7"
-                          className="mt-1"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Days between reminder notifications
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-6">
-                    <Button 
-                      onClick={onSaveNotificationSettings}
-                      disabled={isSavingNotifications}
-                    >
-                      {isSavingNotifications ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        "Save Notification Settings"
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
+
             <TabsContent value="email-config" className="mt-0">
               <Card>
                 <CardHeader>
@@ -751,7 +734,9 @@ export default function SettingsPage() {
                                   <Input type="password" placeholder="••••••••" {...field} />
                                 </FormControl>
                                 <FormDescription>
-                                  Your SMTP authentication password
+                                  {emailSettings?.hasPassword
+                                    ? "Leave blank to keep the saved password"
+                                    : "Your SMTP authentication password"}
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -840,7 +825,42 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
-            
+
+            <TabsContent value="running-number" className="mt-0">
+              {manageRunningNumber ? (
+                <div className="rounded-lg border border-gray-200 bg-white">
+                  <div className="border-b border-gray-200 px-6 py-5">
+                    <div className="flex items-center gap-2">
+                   
+                      <h2 className="text-lg font-semibold text-gray-900">Running Numbers</h2>
+                    </div>
+                    
+                  </div>
+                  <div className="p-6 pt-4">
+                    <RunningNumberSettingsCard
+                      moduleName="Employee"
+                      preview={runningNumberPreview}
+                      form={runningNumberForm}
+                      onSubmit={onRunningNumberSubmit}
+                      isLoading={runningNumberLoading}
+                      isSaving={isSavingRunningNumber}
+                      showSaveButton
+                      embedded
+                    />
+                  </div>
+                </div>
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Running Number System</CardTitle>
+                    <CardDescription>
+                      You do not have permission to manage running number settings.
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              )}
+            </TabsContent>
+
             <TabsContent value="system" className="mt-0">
               <Card>
                 <CardHeader>
@@ -865,9 +885,9 @@ export default function SettingsPage() {
                           <option value="YYYY-MM-DD">YYYY-MM-DD</option>
                         </select>
                       </div>
-                      
+
                       <Separator />
-                      
+
                       <div className="flex items-center justify-between">
                         <div>
                           <Label htmlFor="dark-mode" className="font-medium">Dark Mode</Label>
@@ -879,7 +899,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div>
                     <h3 className="text-lg font-medium mb-4">Data Export</h3>
                     <div className="space-y-4">
@@ -895,18 +915,15 @@ export default function SettingsPage() {
                           <option value="pdf">PDF</option>
                         </select>
                       </div>
-                      
+
                       <div className="pt-4">
                         <Button variant="outline">Export All Data</Button>
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="mt-6">
-                    <Button 
-                      onClick={onSaveSystemSettings}
-                      disabled={isSavingSystem}
-                    >
+                    <Button onClick={onSaveSystemSettings} disabled={isSavingSystem}>
                       {isSavingSystem ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -920,75 +937,6 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
-
-            {user?.role === 'vendor' && (
-              <TabsContent value="vendor" className="mt-0">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Vendor Settings</CardTitle>
-                    <CardDescription>
-                      Manage your products, prices, and customers.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="text-lg font-medium mb-4">Quick Actions</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <Button 
-                            variant="outline" 
-                            className="h-20 flex flex-col items-center justify-center"
-                            onClick={() => window.location.href = '/vendor-settings'}
-                          >
-                            <Plus className="h-6 w-6 mb-2" />
-                            Add Product
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            className="h-20 flex flex-col items-center justify-center"
-                            onClick={() => window.location.href = '/vendor-settings?tab=prices'}
-                          >
-                            <Receipt className="h-6 w-6 mb-2" />
-                            Set Prices
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            className="h-20 flex flex-col items-center justify-center"
-                            onClick={() => window.location.href = '/vendor-settings?tab=customers'}
-                          >
-                            <UserCheck className="h-6 w-6 mb-2" />
-                            Add Customers
-                          </Button>
-                        </div>
-                      </div>
-                      
-                      <Separator />
-                      
-                      <div>
-                        <h3 className="text-lg font-medium mb-4">Vendor Information</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <Label className="font-medium">Vendor Email</Label>
-                            <p className="text-sm text-gray-600 mt-1">{user?.email}</p>
-                          </div>
-                          <div>
-                            <Label className="font-medium">Role</Label>
-                            <p className="text-sm text-gray-600 mt-1 capitalize">{user?.role}</p>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-6">
-                        <Button onClick={() => window.location.href = '/vendor-settings'}>
-                          Go to Vendor Settings
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            )}
-          </div>
         </div>
       </Tabs>
     </Dashboard>

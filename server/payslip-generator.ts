@@ -2,7 +2,10 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import puppeteer from "puppeteer";
-import dayjs from "dayjs";
+import {
+  formatPayrollMonthLabel,
+  normalizePayPeriodDate,
+} from "./payroll-process-service";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +33,7 @@ export function getPayslipFileName(
   month: number,
   year: number
 ): string {
-  const monthName = dayjs().month(month - 1).format("MMMM");
+  const monthName = formatPayrollMonthLabel(year, month).split(" ")[0];
   return `${getEmployeeNamePart(employeeName)}_${employeeId}_${monthName}${year}.pdf`;
 }
 
@@ -45,7 +48,7 @@ export function getPayslipDownloadFileName(
       .trim()
       .replace(/[^a-zA-Z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "Employee";
-  const monthName = dayjs().month(month - 1).format("MMMM");
+  const monthName = formatPayrollMonthLabel(year, month).split(" ")[0];
   return `Payslip_${safeName}_${monthName}_${year}.pdf`;
 }
 
@@ -87,15 +90,30 @@ export interface PayslipData {
   otherDeductions: number;
 }
 
-function buildPayslipHtml(data: PayslipData): string {
-  const monthShort = dayjs()
-    .year(data.year)
-    .month(data.month - 1)
-    .format("MMM-YY");
+function formatPayslipMonthShort(month: number, year: number): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const safeMonth = month >= 1 && month <= 12 ? month : 1;
+  return `${months[safeMonth - 1]}-${String(year).slice(-2)}`;
+}
 
-  const periodStart = dayjs(data.payPeriodStart).format("DD.MM.YY");
-  const periodEnd = dayjs(data.payPeriodEnd).format("DD.MM.YY");
-  const periodRange = `${periodStart} - ${periodEnd}`;
+function formatPayslipShortDate(isoDate: string): string {
+  const normalized = normalizePayPeriodDate(isoDate);
+  const [yearStr, monthStr, dayStr] = normalized.split("-");
+  if (!yearStr || !monthStr || !dayStr) return normalized;
+  return `${dayStr}.${monthStr}.${yearStr.slice(-2)}`;
+}
+
+function formatWorkingDays(value: number | null | undefined): string {
+  if (value == null) return "";
+  const num = parseFloat(String(value));
+  return (Number.isFinite(num) ? num : 0).toFixed(2);
+}
+
+function buildPayslipHtml(data: PayslipData): string {
+  const payPeriodStart = normalizePayPeriodDate(data.payPeriodStart);
+  const payPeriodEnd = normalizePayPeriodDate(data.payPeriodEnd);
+  const payrollMonthShort = formatPayslipMonthShort(data.month, data.year);
+  const periodRange = `${formatPayslipShortDate(payPeriodStart)} - ${formatPayslipShortDate(payPeriodEnd)}`;
 
   const companyName = escapeHtml(data.companyName || "");
   const companyAddress = escapeHtml(data.companyAddress || "");
@@ -105,338 +123,444 @@ function buildPayslipHtml(data: PayslipData): string {
   const department = escapeHtml(data.department || "");
   const jobTitle = escapeHtml(data.jobTitle || "");
 
-  return `
-<!DOCTYPE html>
-<html>
+  return `<!DOCTYPE html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-
 <style>
-
-@page{
-  size:A4;
-  margin:10mm;
+:root {
+  --payslip-border: 3px solid #000;
 }
 
-body{
-  font-family:"Times New Roman", serif;
-  color:#000;
-  background:#fff;
+@page {
+  size: A4 portrait;
+  margin: 0;
 }
 
-.page{
-  width:720px;
-  margin:0 auto;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-.company-name{
-  text-align:center;
-  font-size:24px;
-  font-weight:bold;
-  color:#4d73c9;
-  margin-top:40px;
+body {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 14px;
+  color: #000;
+  background: #fff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
-.company-address{
-  text-align:center;
-  font-size:14px;
-  margin-top:8px;
-  margin-bottom:100px;
+.page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 25px;
+  background: #fff;
 }
 
-.payslip{
-  width:100%;
-  border-collapse:collapse;
-  border:3px solid #000;
-  table-layout:fixed;
+.company-name {
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  color: #3E67C5;
+  line-height: 1.25;
 }
 
-.payslip td{
-  border:1px solid #000;
-  padding:2px;
-  vertical-align:top;
+.company-address {
+  text-align: center;
+  font-size: 15px;
+  font-weight: normal;
+  color: #000;
+  line-height: 1.4;
+  margin-top: 4px;
+  margin-bottom: 60px;
 }
 
-.header td{
-  font-size:18px;
-  font-weight:bold;
-  border-bottom:3px solid #000;
+.payslip {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  border: var(--payslip-border);
 }
 
-.header td:nth-child(1){
-  width:25%;
-  padding-left:10px;
+.payslip td {
+  border: var(--payslip-border);
+  vertical-align: top;
+  font-size: 14px;
+  color: #000;
+  background: #fff;
 }
 
-.header td:nth-child(2){
-  width:35%;
-  text-align:center;
+.row-payslip-header td {
+  font-weight: 600;
+  font-size: 16px;
+  padding: 8px 10px;
+  vertical-align: middle;
+  height: 36px;
+  border-top: var(--payslip-border);
+  border-bottom: var(--payslip-border);
+  border-left: none;
+  border-right: none;
 }
 
-.header td:nth-child(3){
-  width:40%;
-  text-align:center;
+.row-payslip-header td:first-child {
+  border-left: var(--payslip-border);
+  text-align: left;
+  text-transform: uppercase;
+  padding-left: 10px;
 }
 
-.emp-section{
-  width:65%;
+.row-payslip-header td:nth-child(2) {
+  text-align: center;
 }
 
-.emp-table{
-  width:100%;
-  border-collapse:collapse;
+.row-payslip-header td:last-child {
+  border-right: var(--payslip-border);
+  text-align: center;
 }
 
-.emp-table td{
-  border:none;
-  padding:2px;
-  font-size:14px;
+.cell-employee {
+  padding: 0;
+  vertical-align: top;
 }
 
-.label{
-  width:160px;
-  font-weight:bold;
+.emp-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
 }
 
-.deduction-title{
-  font-size:14px;
-  height:25px;
+.emp-table td {
+  border: none;
+  padding: 3px 10px;
+  font-size: 14px;
+  vertical-align: middle;
+  text-align: left;
 }
 
-.payment-section{
-  height:240px;
+.emp-table td.label {
+  width: 130px;
+  border-right: var(--payslip-border);
+  white-space: nowrap;
+  font-weight: normal;
 }
 
-.payment-table{
-  width:100%;
-  border-collapse:collapse;
+.emp-table td.value {
+  font-weight: normal;
 }
 
-.payment-table td{
-  border:none;
-  padding:2px 0;
-  font-size:16px;
+.emp-table .value-semibold {
+  font-weight: 600;
 }
 
-.amount{
-  text-align:right;
+.emp-row-name td.label,
+.emp-row-ic td.label {
+  border-top: none;
+  border-bottom: none;
 }
 
-.deduction-section{
-  font-size:16px;
-  padding-top:60px !important;
+.emp-row-name td.value {
+  border-bottom: var(--payslip-border);
 }
 
-.gross-row td{
-  border-top:3px solid #000;
-  font-size:16px;
+.cell-deduction-title {
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: normal;
 }
 
-.net-row td{
-  border-top:1px solid #000;
-  font-size:16px;
+.cell-payment {
+  padding: 8px 10px 10px;
 }
 
-.signature-row td{
-  height:60px;
-  vertical-align:bottom;
-  font-weight:bold;
-  border-top:3px solid #000;
+.payslip td.cell-summary-gross {
+  padding: 8px 10px 2px;
+  border-bottom: none;
 }
 
-.employee-sign{
-  width:25%;
-  text-align:center;
+.payslip td.cell-monthly-gross {
+  padding: 2px 10px;
+  font-size: 14px;
+  font-weight: bold;
+  vertical-align: middle;
+  border-bottom: none;
 }
 
-.employee-name{
-  width:40%;
+.payslip td.cell-summary-left {
+  padding: 8px 10px 12px;
+  border-top: none;
 }
 
-.company-sign{
-  width:35%;
-  text-align:center;
+.payslip td.cell-summary-right-empty {
+  padding: 0;
+  vertical-align: top;
+  border-top: none;
 }
 
-.note{
-  text-align:center;
-  font-size:18px;
-  font-weight:bold;
-  margin-top:20px;
+.payment-table,
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
+.payment-table td,
+.summary-table td {
+  border: none;
+  padding: 2px 0;
+  font-size: 14px;
+  vertical-align: top;
+}
+
+.payment-table .label-cell,
+.summary-table .label-cell {
+  text-align: left;
+}
+
+.payment-table .amount-cell,
+.summary-table .amount-cell {
+  text-align: right;
+  width: 90px;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+
+.payment-title td {
+  padding-bottom: 16px;
+}
+
+.payment-spacer td {
+  height: 110px;
+  padding: 0;
+  border: none;
+}
+
+.cell-cpf {
+  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  vertical-align: top;
+}
+
+.cpf-block {
+  padding-top: 72px;
+}
+
+.cell-other-inline {
+  padding: 2px 10px;
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.summary-spacer td {
+  height: 18px;
+  padding: 0;
+  border: none;
+}
+
+.summary-net .label-cell,
+.summary-net .amount-cell {
+  font-weight: bold;
+}
+
+.row-signature td {
+  padding: 0;
+  height: 80px;
+  vertical-align: bottom;
+}
+
+.row-signature td:first-child {
+  font-size: 14px;
+  font-weight: normal;
+  text-align: right;
+  padding: 0 10px 8px;
+  vertical-align: bottom;
+}
+
+.signature-line-block {
+  display: block;
+  height: 80px;
+  padding: 0 0 8px;
+  box-sizing: border-box;
+}
+
+.signature-space {
+  height: 48px;
+}
+
+.signature-line {
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin: 0;
+  padding: 0;
+  background: #000;
+  border: none;
+}
+
+.signature-text {
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  line-height: 1.25;
+  margin-top: 6px;
+  padding: 0 10px;
+}
+
+.footer-note {
+  text-align: center;
+  font-size: 14px;
+  font-weight: bold;
+  margin-top: 18px;
+  color: #000;
+}
 </style>
-
 </head>
-
 <body>
-
 <div class="page">
 
-<div class="company-name">
-${companyName}
-</div>
-
-<div class="company-address">
-${companyAddress}
-</div>
+<div class="company-name">${companyName}</div>
+<div class="company-address">${companyAddress}</div>
 
 <table class="payslip">
-
-<tr class="header">
-<td>PAYSLIP</td>
-<td>${monthShort}</td>
-<td>${periodRange}</td>
+<colgroup>
+  <col style="width:30%">
+  <col style="width:30%">
+  <col style="width:40%">
+</colgroup>
+<tr class="row-payslip-header">
+  <td>PAYSLIP</td>
+  <td>${escapeHtml(payrollMonthShort)}</td>
+  <td>${escapeHtml(periodRange)}</td>
 </tr>
 
 <tr>
-
-<td colspan="2" class="emp-section">
-
-<table class="emp-table">
-
-<tr>
-<td class="label">Name :</td>
-<td><b>${employeeName}</b></td>
+  <td colspan="2" class="cell-employee">
+    <table class="emp-table">
+      <tr class="emp-row-name">
+        <td class="label">Name :</td>
+        <td class="value value-semibold">${employeeName}</td>
+      </tr>
+      <tr class="emp-row-ic">
+        <td class="label">IC NO :</td>
+        <td class="value value-semibold">${icNo}</td>
+      </tr>
+      <tr>
+        <td class="label">Employee Code :</td>
+        <td class="value">${employeeCode}</td>
+      </tr>
+      <tr>
+        <td class="label">Department :</td>
+        <td class="value">${department}</td>
+      </tr>
+      <tr>
+        <td class="label">Job Title :</td>
+        <td class="value">${jobTitle}</td>
+      </tr>
+    </table>
+  </td>
+  <td class="cell-deduction-title">Deduction</td>
 </tr>
 
 <tr>
-<td class="label">IC NO :</td>
-<td><b>${icNo}</b></td>
+  <td colspan="2" rowspan="2" class="cell-payment">
+    <table class="payment-table">
+      <tr class="payment-title">
+        <td colspan="2">Payment :</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Basic Rate</td>
+        <td class="amount-cell">${formatAmount(data.basicRate)}</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Working Days</td>
+        <td class="amount-cell">${formatWorkingDays(data.workingDays)}</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Basic Pay</td>
+        <td class="amount-cell">${formatAmount(data.basicPay)}</td>
+      </tr>
+      <tr class="payment-spacer">
+        <td colspan="2"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Overtime</td>
+        <td class="amount-cell">${formatAmount(data.overtime)}</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Allowance</td>
+        <td class="amount-cell">${formatAmount(data.allowance)}</td>
+      </tr>
+    </table>
+  </td>
+  <td class="cell-cpf">
+    <div class="cpf-block">
+      Employee Amount = SGD ${formatAmount(data.employeeCpf)}<br>
+      Employer Amount = SGD ${formatAmount(data.employerCpf)}
+    </div>
+  </td>
+</tr>
+
+<tr class="row-allowance-other">
+  <td class="cell-other-inline">Other : ${formatAmount(data.otherDeductions)}</td>
+</tr>
+
+<tr class="row-gross-monthly">
+  <td colspan="2" class="cell-summary-gross">
+    <table class="summary-table">
+      <tr>
+        <td class="label-cell">Gross pay</td>
+        <td class="amount-cell">${formatAmount(data.grossPay)}</td>
+      </tr>
+    </table>
+  </td>
+  <td class="cell-monthly-gross">Monthly Gross : SGD ${formatAmount(data.grossPay)}</td>
 </tr>
 
 <tr>
-<td class="label">Employee Code :</td>
-<td>${employeeCode}</td>
+  <td colspan="2" class="cell-summary-left">
+    <table class="summary-table">
+      <tr>
+        <td class="label-cell">Employee CPF</td>
+        <td class="amount-cell">${formatAmount(data.employeeCpf)}</td>
+      </tr>
+      <tr class="summary-spacer">
+        <td colspan="2"></td>
+      </tr>
+      <tr class="summary-net">
+        <td class="label-cell">Net Pay</td>
+        <td class="amount-cell">${formatAmount(data.netPay)}</td>
+      </tr>
+    </table>
+  </td>
+  <td class="cell-summary-right-empty"></td>
 </tr>
 
-<tr>
-<td class="label">Department</td>
-<td>${department}</td>
+<tr class="row-signature">
+  <td>Employee</td>
+  <td>
+    <div class="signature-line-block">
+      <div class="signature-space"></div>
+      <div class="signature-line"></div>
+      <div class="signature-text">${employeeName}</div>
+    </div>
+  </td>
+  <td>
+    <div class="signature-line-block">
+      <div class="signature-space"></div>
+      <div class="signature-line"></div>
+      <div class="signature-text">${companyName}</div>
+    </div>
+  </td>
 </tr>
-
-<tr>
-<td class="label">Job Title :</td>
-<td>${jobTitle}</td>
-</tr>
-
 </table>
 
-</td>
-
-<td class="deduction-title">
-Deduction
-</td>
-
-</tr>
-
-<tr>
-
-<td colspan="2" class="payment-section">
-
-<table class="payment-table">
-
-<tr>
-<td>Payment :</td>
-<td></td>
-</tr>
-
-<tr>
-<td colspan="2" style="height:20px"></td>
-</tr>
-
-<tr>
-<td>Basic Rate</td>
-<td class="amount">${formatAmount(data.basicRate)}</td>
-</tr>
-
-<tr>
-<td>Working Days</td>
-<td class="amount">${data.workingDays ?? ""}</td>
-</tr>
-
-<tr>
-<td>Basic Pay</td>
-<td class="amount">${formatAmount(data.basicPay)}</td>
-</tr>
-
-<tr>
-<td colspan="2" style="height:110px"></td>
-</tr>
-
-<tr>
-<td>Overtime</td>
-<td class="amount">${formatAmount(data.overtime)}</td>
-</tr>
-
-<tr>
-<td>Allowance</td>
-<td class="amount">${formatAmount(data.allowance)}</td>
-</tr>
-
-</table>
-
-</td>
-
-<td class="deduction-section">
-
-Employee Share = SGD ${formatAmount(data.employeeCpf)}
-
-<br><br>
-
-Employer Share = SGD ${formatAmount(data.employerCpf)}
-
-</td>
-
-</tr>
-
-<tr class="gross-row">
-<td>Gross pay</td>
-<td align="right">${formatAmount(data.grossPay)}</td>
-<td>Other : ${formatAmount(data.otherDeductions)}</td>
-</tr>
-
-<tr>
-<td>Employee CPF</td>
-<td align="right">${formatAmount(data.employeeCpf)}</td>
-<td>
-Monthly Gross : SGD ${formatAmount(data.basicPay)}
-</td>
-</tr>
-
-<tr class="net-row">
-<td>Net Pay</td>
-<td align="right">${formatAmount(data.netPay)}</td>
-<td></td>
-</tr>
-
-<tr class="signature-row">
-
-<td class="employee-sign">
-Employee
-</td>
-
-<td class="employee-name">
-${employeeName}
-</td>
-
-<td class="company-sign">
-${companyName}
-</td>
-
-</tr>
-
-</table>
-
-<div class="note">
-***Computer Generated Payslip, No Signature Required***
-</div>
+<div class="footer-note">***Computer Generated Payslip, No Signature Required***</div>
 
 </div>
-
 </body>
-</html>
-`;
+</html>`;
 }
 
 function isPdfBuffer(buffer: Buffer): boolean {
@@ -466,7 +590,7 @@ export async function generatePayslipPdf(data: PayslipData): Promise<Buffer> {
     const pdfBytes = await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: { top: "12mm", right: "12mm", bottom: "12mm", left: "12mm" },
+      margin: { top: "0", right: "0", bottom: "0", left: "0" },
     });
     const pdfBuffer = Buffer.from(pdfBytes);
     if (!isPdfBuffer(pdfBuffer)) {

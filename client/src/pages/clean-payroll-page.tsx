@@ -36,13 +36,18 @@ import { apiRequest } from "@/lib/queryClient";
 import { exportPayrollConfigsToExcel } from "@/lib/excel-utils";
 import {
   getCurrentPayPeriod,
+  derivePayrollMonthYear,
   getProcessedMonthsForEmployee,
   isPayrollProcessedForPeriod,
-  processPayrollForConfig,
+  hasProcessedPayrollForEmployee,
+  batchProcessPayrollForPeriod,
+  type BatchPayrollSummary,
 } from "@/lib/payroll-batch-utils";
+import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { TableRowActions } from "@/components/ui/table-row-actions";
 import { TablePagination, paginateItems } from "@/components/ui/table-pagination";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -186,6 +191,11 @@ export default function PayrollPage() {
   const [configPage, setConfigPage] = useState(1);
   const [selectedConfigIds, setSelectedConfigIds] = useState<number[]>([]);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchPayPeriodStart, setBatchPayPeriodStart] = useState(getCurrentPayPeriod().payPeriodStart);
+  const [batchPayPeriodEnd, setBatchPayPeriodEnd] = useState(getCurrentPayPeriod().payPeriodEnd);
+  const [batchSummary, setBatchSummary] = useState<BatchPayrollSummary | null>(null);
+  const [batchSummaryOpen, setBatchSummaryOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
   const [payslipConfig, setPayslipConfig] = useState<any>(null);
   const [selectedPayslipMonths, setSelectedPayslipMonths] = useState<number[]>([]);
@@ -373,7 +383,99 @@ export default function PayrollPage() {
   const isConfigProcessed = (config: any) =>
     isPayrollProcessedForPeriod(config.employeeId, payrollRecords, payPeriodStart, payPeriodEnd);
 
-  const processedCellClass = "opacity-50 text-muted-foreground font-normal select-none";
+  const processedRowClass = "bg-[#E3F2FD] border-l-4 border-[#90CAF9]";
+
+  const handleBatchProcess = () => {
+    const { payPeriodStart, payPeriodEnd } = getCurrentPayPeriod();
+    setBatchPayPeriodStart(payPeriodStart);
+    setBatchPayPeriodEnd(payPeriodEnd);
+    setBatchModalOpen(true);
+  };
+
+  const confirmBatchProcess = async () => {
+    if (!batchPayPeriodStart || !batchPayPeriodEnd) {
+      toast({
+        title: "Missing pay period",
+        description: "Please select both pay period start and end dates.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (batchPayPeriodEnd < batchPayPeriodStart) {
+      toast({
+        title: "Invalid pay period",
+        description: "Pay period end must be on or after pay period start.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const targetConfigs =
+      selectedConfigIds.length > 0
+        ? payrollConfigs.filter((c: any) => selectedConfigIds.includes(c.id))
+        : activeConfigs;
+
+    const configsToProcess = targetConfigs.filter((config: any) => config.isActive);
+
+    if (configsToProcess.length === 0) {
+      toast({
+        title: "No eligible employees",
+        description: "Select at least one active payroll configuration to process.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const { monthLabel } = derivePayrollMonthYear(batchPayPeriodStart);
+
+    setBatchModalOpen(false);
+    setIsBatchProcessing(true);
+
+    try {
+      const result = await batchProcessPayrollForPeriod(
+        batchPayPeriodStart,
+        batchPayPeriodEnd,
+        selectedConfigIds.length > 0 ? selectedConfigIds : undefined
+      );
+
+      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
+      setSelectedConfigIds([]);
+
+      if (result.summary) {
+        setBatchSummary(result.summary);
+        setBatchSummaryOpen(true);
+      }
+
+      if (result.alreadyProcessed && result.ok) {
+        toast({
+          title: "Payroll already processed",
+          description:
+            "Payroll for this month has already been processed. You can download the payslips.",
+        });
+      } else if (result.ok) {
+        toast({
+          title: "Batch payroll complete",
+          description: `Payroll for ${monthLabel} processed successfully. Payslips have been downloaded.`,
+        });
+      } else {
+        toast({
+          title: "Batch processing result",
+          description: result.message,
+          variant: result.summary?.processedNew || result.summary?.updated ? "default" : "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Batch processing failed",
+        description: error instanceof Error ? error.message : "Failed to batch process payroll",
+        variant: "destructive",
+      });
+    } finally {
+      setIsBatchProcessing(false);
+    }
+  };
 
   const toggleConfigSelection = (configId: number, checked: boolean) => {
     setSelectedConfigIds((prev) =>
@@ -469,7 +571,6 @@ export default function PayrollPage() {
             ? `Downloaded ${selectedPayslipMonths.length} payslip(s) as a ZIP file for ${payslipConfig.employeeName}.${missingHeader ? ` Missing: ${missingHeader}.` : ""}`
             : `Downloaded payslip for ${payslipConfig.employeeName}.${missingHeader ? ` Missing: ${missingHeader}.` : ""}`,
         });
-        setPayslipModalOpen(false);
       } else {
         toast({
           title: "Download failed",
@@ -560,61 +661,6 @@ export default function PayrollPage() {
       });
     } finally {
       setIsPayslipViewing(false);
-    }
-  };
-
-  const handleBatchProcess = async () => {
-    const targetConfigs =
-      selectedConfigIds.length > 0
-        ? payrollConfigs.filter((c: any) => selectedConfigIds.includes(c.id))
-        : activeConfigs;
-
-    const configsToProcess = targetConfigs.filter((config: any) => config.isActive);
-
-    if (configsToProcess.length === 0) {
-      toast({
-        title: "No eligible employees",
-        description: "Select at least one active payroll configuration to process.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsBatchProcessing(true);
-    let successCount = 0;
-    const failures: string[] = [];
-
-    for (const config of configsToProcess) {
-      const employee = employees?.find((emp: any) => emp.id === config.employeeId);
-      if (!employee) {
-        failures.push(`${config.employeeName || config.employeeId}: employee not found`);
-        continue;
-      }
-
-      try {
-        await processPayrollForConfig(config, employee, payPeriodStart, payPeriodEnd);
-        successCount++;
-      } catch (error: any) {
-        failures.push(`${config.employeeName || config.employeeId}: ${error?.message || "Failed"}`);
-      }
-    }
-
-    setIsBatchProcessing(false);
-    setSelectedConfigIds([]);
-    queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
-    queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
-
-    if (failures.length === 0) {
-      toast({
-        title: "Batch payroll processed",
-        description: `${successCount} employee(s) processed for ${payPeriodStart} to ${payPeriodEnd}.`,
-      });
-    } else {
-      toast({
-        title: "Batch payroll partially complete",
-        description: `${successCount} succeeded, ${failures.length} failed. ${failures.slice(0, 2).join("; ")}`,
-        variant: "destructive",
-      });
     }
   };
 
@@ -793,10 +839,14 @@ export default function PayrollPage() {
             <TableBody>
                 {paginatedPayrollConfigs.map((config: any) => {
                   const processed = isConfigProcessed(config);
+                  const canDownloadPayslip = hasProcessedPayrollForEmployee(
+                    config.employeeId,
+                    payrollRecords
+                  );
                   return (
                 <TableRow
                   key={config.id}
-                  className={processed ? "bg-muted/40" : undefined}
+                  className={processed ? processedRowClass : undefined}
                 >
                   <TableCell>
                     <Checkbox
@@ -808,38 +858,44 @@ export default function PayrollPage() {
                       aria-label={`Select ${config.employeeName}`}
                     />
                   </TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>
+                  <TableCell>
                     <div>
-                      <div className={processed ? "font-normal" : "font-medium"}>{config.employeeName}</div>
-                      <div className={`text-sm ${processed ? "text-muted-foreground" : "text-muted-foreground"}`}>
+                      <div className="font-medium">{config.employeeName}</div>
+                      <div className="text-sm text-muted-foreground">
                         ID: {config.employeeId}
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>{config.department}</TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>{config.designation || '-'}</TableCell>
-                  <TableCell className={processed ? `${processedCellClass} capitalize` : "capitalize"}>{(config.payrollPeriod || 'monthly').replace('_', ' ')}</TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>{formatCurrency(config.baseSalary)}</TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>{formatCurrency(parseFloat(config.baseSalary || 0) * 12)}</TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>
+                  <TableCell>{config.department}</TableCell>
+                  <TableCell>{config.designation || '-'}</TableCell>
+                  <TableCell className="capitalize">{(config.payrollPeriod || 'monthly').replace('_', ' ')}</TableCell>
+                  <TableCell>{formatCurrency(config.baseSalary)}</TableCell>
+                  <TableCell>{formatCurrency(parseFloat(config.baseSalary || 0) * 12)}</TableCell>
+                  <TableCell>
                     {config.nationality === 'foreigner'
                       ? '—'
                       : `${parseFloat(config.cpfRate || 0).toFixed(2)}%`}
                   </TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>{formatCurrency(config.cpfAmount || 0)}</TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>
+                  <TableCell>{formatCurrency(config.cpfAmount || 0)}</TableCell>
+                  <TableCell>
                     {config.nationality === 'foreigner'
                       ? '—'
                       : `${parseFloat(config.employerCpfRate || 0).toFixed(2)}%`}
                   </TableCell>
-                  <TableCell className={processed ? processedCellClass : undefined}>{formatCurrency(config.employerCpfAmount || 0)}</TableCell>
+                  <TableCell>{formatCurrency(config.employerCpfAmount || 0)}</TableCell>
                   <TableCell>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-teal-700 hover:text-teal-800 hover:bg-teal-50"
+                      className="h-8 w-8 text-teal-700 hover:text-teal-800 hover:bg-teal-50 disabled:opacity-40 disabled:pointer-events-none"
                       onClick={() => openPayslipModal(config)}
+                      disabled={!canDownloadPayslip || isBatchProcessing}
+                      title={
+                        canDownloadPayslip
+                          ? `Download payslip for ${config.employeeName}`
+                          : "Process payroll first to enable payslip download"
+                      }
                       aria-label={`Download payslip for ${config.employeeName}`}
                     >
                       <Download className="h-4 w-4" />
@@ -865,11 +921,7 @@ export default function PayrollPage() {
                           label: "Delete",
                           variant: "delete",
                           disabled: deleteMutation.status === "pending",
-                          onClick: () => {
-                            if (window.confirm("Are you sure you want to delete this payroll configuration?")) {
-                              deleteMutation.mutate(config.id);
-                            }
-                          },
+                          onClick: () => deleteMutation.mutate(config.id),
                         },
                       ]}
                     />
@@ -1476,6 +1528,92 @@ export default function PayrollPage() {
             >
               Delete AnyWay
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Process Pay Period Selection */}
+      <Dialog open={batchModalOpen} onOpenChange={setBatchModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Batch Process Payroll</DialogTitle>
+            <DialogDescription>
+              Select the pay period to process payroll for all active employees (or selected rows).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Pay Period Start *</Label>
+                <StringDatePicker
+                  value={batchPayPeriodStart}
+                  onChange={setBatchPayPeriodStart}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Pay Period End *</Label>
+                <StringDatePicker
+                  value={batchPayPeriodEnd}
+                  onChange={setBatchPayPeriodEnd}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmBatchProcess} disabled={isBatchProcessing}>
+              {isBatchProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Save & Process"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Processing Summary */}
+      <Dialog open={batchSummaryOpen} onOpenChange={setBatchSummaryOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Batch Processing Summary</DialogTitle>
+          </DialogHeader>
+          {batchSummary && (
+            <div className="space-y-2 text-sm">
+              <p>
+                <span className="font-medium">Total Employees:</span> {batchSummary.totalEmployees}
+              </p>
+              <p>
+                <span className="font-medium">Processed New:</span> {batchSummary.processedNew}
+              </p>
+              <p>
+                <span className="font-medium">Updated:</span> {batchSummary.updated}
+              </p>
+              <p>
+                <span className="font-medium">Skipped (Already Processed):</span>{" "}
+                {batchSummary.skipped}
+              </p>
+              {batchSummary.failures.length > 0 && (
+                <div className="pt-2">
+                  <p className="font-medium text-red-600">Failures:</p>
+                  <ul className="list-disc pl-5 text-red-600">
+                    {batchSummary.failures.map((failure, index) => (
+                      <li key={index}>
+                        {failure.employeeName}: {failure.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setBatchSummaryOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -75,7 +75,25 @@ app.use((req, res, next) => {
     }).catch(error => {
       console.warn("Document expiry monitoring not available:", error.message);
     });
-  }, 30000); // 30 seconds delay to allow database connection
+    import('./employee-document-reminder-service').then(({ initializeEmployeeDocumentReminderMonitoring }) => {
+      initializeEmployeeDocumentReminderMonitoring();
+      console.log("Employee document reminder monitoring initialized");
+    }).catch(error => {
+      console.warn("Employee document reminder monitoring not available:", error.message);
+    });
+    import('./document-reminder-notification-sync').then(({ initializeDocumentReminderNotificationSync }) => {
+      initializeDocumentReminderNotificationSync();
+      console.log("Document reminder notification sync initialized");
+    }).catch(error => {
+      console.warn("Document reminder notification sync not available:", error.message);
+    });
+    import('./scheduled-expiry-reminder-service').then(({ initializeScheduledExpiryReminders }) => {
+      initializeScheduledExpiryReminders();
+      console.log("Scheduled expiry reminder service initialized");
+    }).catch(error => {
+      console.warn("Scheduled expiry reminder service not available:", error.message);
+    });
+  }, 30000);
 
   // Register routes
   const server = await registerRoutes(app);

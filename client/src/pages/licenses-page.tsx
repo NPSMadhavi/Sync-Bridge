@@ -32,7 +32,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AlertTriangle, CalendarIcon, DownloadIcon, Edit, Plus, Trash2, Key } from "lucide-react";
+import { DownloadIcon, Edit, Eye, Plus, Trash2, Key } from "lucide-react";
+import {
+  EntityViewField,
+  EntityViewFieldGrid,
+  EntityViewSection,
+  EntityViewSheet,
+  formatViewDate,
+  formatViewValue,
+} from "@/components/ui/entity-view-sheet";
 import { License } from "@shared/schema";
 import { format, isAfter, isBefore, addDays } from "date-fns";
 import LicenseForm from "@/components/forms/LicenseForm";
@@ -43,7 +51,9 @@ export default function LicensesPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [selectedLicense, setSelectedLicense] = useState<License | null>(null);
+  const [viewingLicense, setViewingLicense] = useState<License | null>(null);
   const [activeTab, setActiveTab] = useState("all");
 
   // Fetch licenses
@@ -91,6 +101,11 @@ export default function LicensesPage() {
       });
     },
   });
+
+  const handleViewLicense = (license: License) => {
+    setViewingLicense(license);
+    setIsViewDialogOpen(true);
+  };
 
   // Handle license deletion
   const handleDelete = () => {
@@ -239,6 +254,12 @@ export default function LicensesPage() {
                         <TableRowActions
                           actions={[
                             {
+                              icon: Eye,
+                              label: "View",
+                              variant: "view",
+                              onClick: () => handleViewLicense(license),
+                            },
+                            {
                               icon: Edit,
                               label: "Edit",
                               variant: "edit",
@@ -267,6 +288,53 @@ export default function LicensesPage() {
           </CardContent>
         </Card>
       </Tabs>
+
+      {/* View License */}
+      <EntityViewSheet
+        open={isViewDialogOpen}
+        onOpenChange={setIsViewDialogOpen}
+        title="License Details"
+        description="View complete license information"
+        onClose={() => {
+          setIsViewDialogOpen(false);
+          setViewingLicense(null);
+        }}
+      >
+        {viewingLicense && (
+          <EntityViewSection title="License Information">
+            <EntityViewFieldGrid>
+              <EntityViewField label="Name" value={viewingLicense.name} />
+              <EntityViewField
+                label="Type"
+                value={viewingLicense.type.charAt(0).toUpperCase() + viewingLicense.type.slice(1)}
+              />
+              <EntityViewField label="License Key" value={viewingLicense.licenseKey} />
+              <EntityViewField label="Status" value={formatViewValue(viewingLicense.status)} />
+              <EntityViewField label="Purchase Date" value={formatViewDate(viewingLicense.purchaseDate)} />
+              <EntityViewField label="Expiry Date" value={formatViewDate(viewingLicense.expiryDate)} />
+              <EntityViewField
+                label="Asset"
+                value={viewingLicense.assetId != null ? `#${viewingLicense.assetId}` : "—"}
+              />
+              <EntityViewField
+                label="Seats"
+                value={viewingLicense.seats != null ? String(viewingLicense.seats) : "—"}
+              />
+              <EntityViewField label="Vendor" value={formatViewValue(viewingLicense.vendor)} />
+              <EntityViewField label="Cost" value={formatViewValue(viewingLicense.cost)} />
+              <EntityViewField
+                label="Renewal Cycle"
+                value={formatViewValue(viewingLicense.renewalCycle)}
+              />
+              <EntityViewField
+                label="Notes"
+                value={formatViewValue(viewingLicense.notes)}
+                fullWidth
+              />
+            </EntityViewFieldGrid>
+          </EntityViewSection>
+        )}
+      </EntityViewSheet>
 
       {/* Create License Modal */}
       {isCreateModalOpen && (

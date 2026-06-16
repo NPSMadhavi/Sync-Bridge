@@ -66,7 +66,7 @@ export default function Dashboard({ children, title, description }: DashboardLay
 
         <main className="flex-1 bg-background p-4 md:p-6 overflow-y-auto overflow-x-hidden">
           {(title || description) && (
-            <div className="mb-6">
+            <div className={description ? "mb-6" : "mb-3"}>
               {title && <h1 className="text-2xl font-bold text-foreground">{title}</h1>}
               {description && <p className="text-muted-foreground">{description}</p>}
             </div>

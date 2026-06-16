@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Dashboard from "@/components/layout/Dashboard";
 import { 
   Table, 
@@ -33,6 +33,7 @@ import {
   FileText,
   Download,
   Eye,
+  Edit,
   FileUp
 } from "lucide-react";
 import {
@@ -51,6 +52,12 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import {
+  getDocumentExpiryStatus,
+  getDaysUntilExpiry,
+  isDocumentExpired,
+  isDocumentExpiringSoon,
+} from "@shared/document-expiry";
 
 export default function DocumentsPage() {
   const { toast } = useToast();
@@ -60,6 +67,14 @@ export default function DocumentsPage() {
   const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(null);
   const [viewingDocument, setViewingDocument] = useState<CompanyDocument | null>(null);
   const [activeTab, setActiveTab] = useState<string>("all");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab === "expiring" || tab === "expired" || tab === "all") {
+      setActiveTab(tab);
+    }
+  }, []);
   
   // Fetch company documents
   const { data: documents = [], isLoading } = useQuery<CompanyDocument[]>({
@@ -78,6 +93,7 @@ export default function DocumentsPage() {
         description: "The document has been deleted successfully.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/company-documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDeleteDialogOpen(false);
     },
     onError: (error: Error) => {
@@ -92,6 +108,16 @@ export default function DocumentsPage() {
   const handleViewDocument = (doc: CompanyDocument) => {
     setViewingDocument(doc);
     setIsViewDialogOpen(true);
+  };
+
+  const handleEditDocument = (doc: CompanyDocument) => {
+    setSelectedDocumentId(doc.id);
+    setIsFormDialogOpen(true);
+  };
+
+  const handleUploadDocument = () => {
+    setSelectedDocumentId(null);
+    setIsFormDialogOpen(true);
   };
 
   const handleDownloadDocument = (doc: CompanyDocument) => {
@@ -120,34 +146,8 @@ export default function DocumentsPage() {
   // Filter documents based on active tab
   const filteredDocuments = documents.filter(doc => {
     if (activeTab === 'all') return true;
-    if (activeTab === 'expiring') {
-      // Documents expiring in the next 30 days
-      if (!doc.expiryDate) return false;
-      const expiryDate = new Date(doc.expiryDate);
-      const today = new Date();
-      
-      // Reset time to start of day for accurate comparison
-      expiryDate.setHours(0, 0, 0, 0);
-      today.setHours(0, 0, 0, 0);
-      
-      const thirtyDaysFromNow = new Date();
-      thirtyDaysFromNow.setDate(today.getDate() + 30);
-      thirtyDaysFromNow.setHours(0, 0, 0, 0);
-      
-      return expiryDate > today && expiryDate <= thirtyDaysFromNow;
-    }
-    if (activeTab === 'expired') {
-      // Already expired documents
-      if (!doc.expiryDate) return false;
-      const expiryDate = new Date(doc.expiryDate);
-      const today = new Date();
-      
-      // Reset time to start of day for accurate comparison
-      expiryDate.setHours(0, 0, 0, 0);
-      today.setHours(0, 0, 0, 0);
-      
-      return expiryDate <= today;
-    }
+    if (activeTab === 'expiring') return isDocumentExpiringSoon(doc.expiryDate);
+    if (activeTab === 'expired') return isDocumentExpired(doc.expiryDate);
     return true;
   });
   
@@ -159,26 +159,14 @@ export default function DocumentsPage() {
   };
   
   // Helper function for expiry status
-  const getExpiryStatus = (expiryDate: string | null) => {
-    if (!expiryDate) return { label: 'No Expiry', variant: 'secondary' as const };
-    
-    const expiry = new Date(expiryDate);
-    const today = new Date();
-    
-    // Reset time to start of day for accurate comparison
-    expiry.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    
-    if (expiry < today) {
-      return { label: '⚠️ EXPIRED', variant: 'destructive' as const };
+  const getExpiryStatus = (expiryDate: string | Date | null) => {
+    const status = getDocumentExpiryStatus(expiryDate);
+    if (status === "noExpiry") return { label: 'No Expiry', variant: 'secondary' as const };
+    if (status === "expired") return { label: '⚠️ EXPIRED', variant: 'destructive' as const };
+    if (status === "expiringSoon") {
+      const days = getDaysUntilExpiry(expiryDate) ?? 0;
+      return { label: `⚠️ EXPIRES IN ${days} DAYS`, variant: 'warning' as const };
     }
-    
-    const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    
-    if (daysUntilExpiry <= 30) {
-      return { label: `⚠️ EXPIRES IN ${daysUntilExpiry} DAYS`, variant: 'warning' as const };
-    }
-    
     return { label: 'Valid', variant: 'default' as const };
   };
   
@@ -195,7 +183,7 @@ export default function DocumentsPage() {
               <TabsTrigger value="expiring">Expiring Soon</TabsTrigger>
               <TabsTrigger value="expired">Expired</TabsTrigger>
             </TabsList>
-            <Button onClick={() => setIsFormDialogOpen(true)}>
+            <Button onClick={handleUploadDocument}>
               <Plus className="mr-2 h-4 w-4" /> Upload Company Document
             </Button>
           </div>
@@ -206,7 +194,7 @@ export default function DocumentsPage() {
                 <CardTitle>All Company Documents</CardTitle>
               </CardHeader>
               <CardContent>
-                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleDownloadDocument, handleDeleteDocument)}
+                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
               </CardContent>
             </Card>
           </TabsContent>
@@ -217,7 +205,7 @@ export default function DocumentsPage() {
                 <CardTitle>Documents Expiring Soon</CardTitle>
               </CardHeader>
               <CardContent>
-                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleDownloadDocument, handleDeleteDocument)}
+                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
               </CardContent>
             </Card>
           </TabsContent>
@@ -228,7 +216,7 @@ export default function DocumentsPage() {
                 <CardTitle>Expired Documents</CardTitle>
               </CardHeader>
               <CardContent>
-                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleDownloadDocument, handleDeleteDocument)}
+                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
               </CardContent>
             </Card>
           </TabsContent>
@@ -337,6 +325,7 @@ export default function DocumentsPage() {
     documents: any[],
     isLoading: boolean,
     onView: (doc: CompanyDocument) => void,
+    onEdit: (doc: CompanyDocument) => void,
     onDownload: (doc: CompanyDocument) => void,
     onDelete: (id: number) => void
   ) {
@@ -361,7 +350,7 @@ export default function DocumentsPage() {
                 : "Upload documents for employees."
             }
           </p>
-          <Button onClick={() => setIsFormDialogOpen(true)}>
+          <Button onClick={handleUploadDocument}>
             <Plus className="mr-2 h-4 w-4" /> Upload Document
           </Button>
         </div>
@@ -419,6 +408,12 @@ export default function DocumentsPage() {
                           label: "View",
                           variant: "view",
                           onClick: () => onView(doc),
+                        },
+                        {
+                          icon: Edit,
+                          label: "Edit",
+                          variant: "edit",
+                          onClick: () => onEdit(doc),
                         },
                         {
                           icon: Download,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertEmployeeSchema, insertDependentSchema, Employee } from "@shared/schema";
@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { getEffectiveTenantId } from "@/lib/tenant-context";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -128,6 +129,7 @@ interface EmployeeFormProps {
 export default function EmployeeForm({ employee, isOpen, onClose, embedded = false }: EmployeeFormProps) {
   const { toast } = useToast();
   const { user, tenantId } = useAuth();
+  const effectiveTenantId = getEffectiveTenantId(user, tenantId);
   const [isEditMode] = useState(!!employee);
   const isExpired = employee?.passportExpiry && isBefore(employee.passportExpiry, new Date());
   
@@ -172,18 +174,37 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
     name: "dependents",
   });
 
+  const { data: runningNumberConfig } = useQuery({
+    queryKey: ["running-number", "employee"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/running-numbers/employee");
+      return response.json();
+    },
+    enabled: !isEditMode,
+  });
+
+  const autoEmployeeId = !isEditMode && runningNumberConfig?.configured;
+
+  useEffect(() => {
+    if (autoEmployeeId && runningNumberConfig?.preview) {
+      form.setValue("employeeId", runningNumberConfig.preview);
+    }
+  }, [autoEmployeeId, runningNumberConfig?.preview, form]);
+
   // Create employee mutation
   const createMutation = useMutation({
     mutationFn: async (data: EmployeeFormData) => {
       // For super admin users, tenantId can be null (global access)
-      if (!(user?.role === 'super_admin' || user?.isSuperAdmin) && !tenantId) {
+      if (!(user?.role === 'super_admin' || user?.isSuperAdmin) && !effectiveTenantId) {
         throw new Error("Tenant ID is required");
       }
+
+      const payload = { ...data, tenantId: effectiveTenantId };
+      if (autoEmployeeId) {
+        delete (payload as Partial<EmployeeFormData>).employeeId;
+      }
       
-      const response = await apiRequest("POST", "/api/employees", {
-        ...data,
-        tenantId: tenantId || null
-      });
+      const response = await apiRequest("POST", "/api/employees", payload);
       return response.json();
     },
     onSuccess: () => {
@@ -192,6 +213,7 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
         description: "Employee created successfully!",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["running-number", "employee"] });
       form.reset();
       onClose?.();
     },
@@ -339,15 +361,19 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
                           name="employeeId"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Employee ID*</FormLabel>
+                              <FormLabel>Employee ID{autoEmployeeId ? "" : "*"}</FormLabel>
                               <FormControl>
                                 <Input
-                                  placeholder="e.g., EMP001"
+                                  placeholder={autoEmployeeId ? "Auto-generated" : "e.g., EMP001"}
                                   {...field}
+                                  disabled={autoEmployeeId}
+                                  readOnly={autoEmployeeId}
                                 />
                               </FormControl>
                               <FormDescription className="text-xs">
-                                Unique identifier for the employee
+                                {autoEmployeeId
+                                  ? "Automatically assigned from Running Number settings"
+                                  : "Unique identifier for the employee"}
                               </FormDescription>
                               <FormMessage />
                             </FormItem>

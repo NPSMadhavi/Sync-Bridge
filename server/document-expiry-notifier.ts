@@ -1,5 +1,6 @@
 import { storage } from './storage';
 import { sendEmail, generateDocumentExpiryEmailHTML, generateDocumentExpiryEmailText } from './email';
+import { getOptedInProfileReminderEmails, getReminderNotificationUsers } from './reminder-email-recipients';
 
 interface ExpiringDocument {
   id: number;
@@ -8,6 +9,7 @@ interface ExpiringDocument {
   employeeId?: number;
   employeeName?: string;
   employeeEmail?: string;
+  tenantId?: number;
   daysUntilExpiry: number;
 }
 
@@ -62,10 +64,13 @@ export class DocumentExpiryNotifier {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Check company documents
+    // Check company documents — skip those with configured reminders (handled by scheduled service)
     const companyDocuments = await storage.getCompanyDocuments();
     for (const doc of companyDocuments) {
       if (doc.expiryDate) {
+        const configuredReminders = await storage.getDocumentRemindersForDocument(doc.id);
+        if (configuredReminders.length > 0) continue;
+
         const expiryDate = new Date(doc.expiryDate);
         expiryDate.setHours(0, 0, 0, 0);
         const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -76,6 +81,7 @@ export class DocumentExpiryNotifier {
             id: doc.id,
             title: doc.title,
             expiryDate: doc.expiryDate,
+            tenantId: doc.tenantId ?? undefined,
             daysUntilExpiry
           });
         }
@@ -99,7 +105,8 @@ export class DocumentExpiryNotifier {
               expiryDate: doc.expiryDate,
               employeeId: employee.id,
               employeeName: employee.name,
-              employeeEmail: employee.email,
+              employeeEmail: employee.email ?? undefined,
+              tenantId: employee.tenantId ?? undefined,
               daysUntilExpiry
             });
           }
@@ -115,74 +122,56 @@ export class DocumentExpiryNotifier {
    */
   private async sendExpiryNotification(document: ExpiringDocument): Promise<void> {
     try {
-      // Determine recipients
-      const recipients = await this.getNotificationRecipients(document);
-      
-      if (recipients.length === 0) {
-        console.log(`⚠️ No email recipients found for document: ${document.title}`);
-        return;
-      }
+      const recipients = await getOptedInProfileReminderEmails(document.tenantId);
 
-      // Generate email content
-      const subject = this.generateEmailSubject(document);
-      const htmlContent = generateDocumentExpiryEmailHTML(
-        document.title,
-        document.expiryDate.toISOString(),
-        document.daysUntilExpiry,
-        document.employeeName
-      );
-      const textContent = generateDocumentExpiryEmailText(
-        document.title,
-        document.expiryDate.toISOString(),
-        document.daysUntilExpiry,
-        document.employeeName
-      );
+      if (recipients.length > 0) {
+        const subject = this.generateEmailSubject(document);
+        const htmlContent = generateDocumentExpiryEmailHTML(
+          document.title,
+          document.expiryDate.toISOString(),
+          document.daysUntilExpiry,
+          document.employeeName
+        );
+        const textContent = generateDocumentExpiryEmailText(
+          document.title,
+          document.expiryDate.toISOString(),
+          document.daysUntilExpiry,
+          document.employeeName
+        );
 
-      // Send email to each recipient
-      for (const recipient of recipients) {
-        const success = await sendEmail({
-          to: recipient,
-          subject,
-          html: htmlContent,
-          text: textContent
-        });
+        let smtpDeliveryFailed = false;
 
-        if (success) {
-          console.log(`📧 Expiry notification sent to ${recipient} for document: ${document.title}`);
-          
-          // Create internal notification record
-          await this.createInternalNotification(document, recipient);
-        } else {
-          console.error(`❌ Failed to send expiry notification to ${recipient} for document: ${document.title}`);
+        for (const recipient of recipients) {
+          if (smtpDeliveryFailed) {
+            break;
+          }
+
+          const success = await sendEmail({
+            to: recipient,
+            subject,
+            html: htmlContent,
+            text: textContent,
+          });
+
+          if (success) {
+            console.log(`📧 Expiry notification sent to ${recipient} for document: ${document.title}`);
+          } else {
+            smtpDeliveryFailed = true;
+            console.error(
+              `❌ Failed to send expiry notification for document "${document.title}" (SMTP not configured or authentication failed). Skipping remaining recipients.`
+            );
+          }
         }
+      } else {
+        console.log(
+          `ℹ️ No profile email opt-in for document "${document.title}"; in-app notification only`
+        );
       }
+
+      await this.createInternalNotification(document);
     } catch (error) {
       console.error(`❌ Error sending notification for document ${document.title}:`, error);
     }
-  }
-
-  /**
-   * Get list of email recipients for a document expiry notification
-   */
-  private async getNotificationRecipients(document: ExpiringDocument): Promise<string[]> {
-    const recipients: string[] = [];
-
-    // For employee documents, notify the employee
-    if (document.employeeEmail) {
-      recipients.push(document.employeeEmail);
-    }
-
-    // Always notify HR managers and administrators
-    const users = await storage.getUsers();
-    for (const user of users) {
-      if (user.role === 'hr_manager' || user.role === 'admin' || user.role === 'super_admin') {
-        if (user.email && !recipients.includes(user.email)) {
-          recipients.push(user.email);
-        }
-      }
-    }
-
-    return recipients;
   }
 
   /**
@@ -204,20 +193,29 @@ export class DocumentExpiryNotifier {
   /**
    * Create internal notification record for tracking
    */
-  private async createInternalNotification(document: ExpiringDocument, recipient: string): Promise<void> {
+  private async createInternalNotification(document: ExpiringDocument): Promise<void> {
     try {
       const message = document.daysUntilExpiry <= 0 
         ? `Document "${document.title}" has expired and requires immediate attention`
         : `Document "${document.title}" will expire in ${document.daysUntilExpiry} day${document.daysUntilExpiry !== 1 ? 's' : ''}`;
 
-      await storage.createNotification({
-        type: 'document_expiry' as const,
-        message,
-        seen: false,
-        targetUserId: 1, // Default to admin user
-        entityId: document.id,
-        entityType: 'document'
-      });
+      const entityType = `document_expiry:${document.id}:${document.daysUntilExpiry}`;
+      const users = await getReminderNotificationUsers(document.tenantId);
+
+      for (const user of users) {
+        const exists = await storage.hasNotificationForEntity(user.id, entityType);
+        if (exists) continue;
+
+        await storage.createNotification({
+          type: 'document_expiry' as const,
+          message,
+          seen: false,
+          targetUserId: user.id,
+          tenantId: document.tenantId ?? user.tenantId ?? null,
+          entityId: document.id,
+          entityType,
+        });
+      }
       
       console.log(`📝 Internal notification created for document: ${document.title}`);
     } catch (error) {

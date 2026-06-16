@@ -8,19 +8,32 @@ import { setupFileServing, uploadMiddleware, handleFileUpload, processEmployeeSc
 import { ZodError } from "zod";
 import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
 import { hashPassword } from "./auth";
-import { getTenantFromRequest } from "./middleware/tenant";
+import { getTenantFromRequest, resolveRequestTenantId } from "./middleware/tenant";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertDependentSchema, 
   insertEmployeeDocumentSchema, insertVendorSchema, insertCompanySchema, insertAssetAssignmentSchema,
   insertMaintenanceRecordSchema, insertLicenseSchema, insertCustomerSchema, 
-  insertInvoiceSchema, insertUserSchema
+  insertInvoiceSchema, insertUserSchema,
+  saveRunningNumberSchema, formatRunningNumber, RUNNING_NUMBER_MODULE_EMPLOYEE
 } from "@shared/schema";
 import companyDocumentsRouter from "./company-documents";
 import { createPayrollRouter } from "./payroll";
+import { registerEmailSettingsRoutes } from "./email-settings-routes";
+import {
+  isSuperAdminUser,
+  isAdminUser,
+  normalizePermissions,
+  createFullPermissions,
+  userCanSeeOtherData,
+} from "@shared/permissions";
+import { assertCanManageUser, requireModuleAccess, enforceApiModuleAccess } from "./permission-guard";
+import type { DocumentExpiryRecord } from "@shared/document-reminder-utils";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
   const { requireRole } = setupAuth(app);
+
+  app.use(enforceApiModuleAccess());
   
   // Set up file serving
   setupFileServing(app);
@@ -187,17 +200,29 @@ app.use(express.static('public'));
       console.log("Employee Create Request DOB Type:", typeof req.body?.dateOfBirth);
       console.log("Employee Create Request DOB instanceof Date:", req.body?.dateOfBirth instanceof Date);
       const user = req.user as any;
-      const tenant = await getTenantFromRequest(req);
       const bodyWithSavedScans = await processEmployeeScanFields(req.body);
-      const employeeData = insertEmployeeSchema.parse({
-        ...bodyWithSavedScans,
-        tenantId: tenant?.id ?? bodyWithSavedScans.tenantId ?? user?.tenantId ?? undefined,
-      });
+      const tenantId = await resolveRequestTenantId(req, user);
+      const runningConfig = tenantId
+        ? await storage.getRunningNumber(tenantId, RUNNING_NUMBER_MODULE_EMPLOYEE)
+        : undefined;
+
+      const employeeData = runningConfig
+        ? insertEmployeeSchema.omit({ employeeId: true }).parse({
+            ...bodyWithSavedScans,
+            tenantId,
+          })
+        : insertEmployeeSchema.parse({
+            ...bodyWithSavedScans,
+            tenantId,
+          });
       console.log("Employee Payload:", employeeData);
-      console.log("DOB Type:", typeof employeeData.dateOfBirth);
-      console.log("DOB Value:", employeeData.dateOfBirth);
-      console.log("DOB instanceof Date:", employeeData.dateOfBirth instanceof Date);
-      const employee = await storage.createEmployee(employeeData);
+      console.log("DOB Type:", typeof (employeeData as any).dateOfBirth);
+      console.log("DOB Value:", (employeeData as any).dateOfBirth);
+      console.log("DOB instanceof Date:", (employeeData as any).dateOfBirth instanceof Date);
+
+      const employee = runningConfig && tenantId
+        ? await storage.createEmployeeWithRunningNumber(tenantId, employeeData)
+        : await storage.createEmployee(employeeData as any);
       
       if (employee.companyId) {
         const company = await storage.getCompany(employee.companyId);
@@ -421,7 +446,20 @@ app.use(express.static('public'));
   // Asset routes
   app.get("/api/assets", async (req, res) => {
     try {
-      const assets = await storage.getAssets();
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const user = req.user as any;
+      let scopedTenantId: number | undefined;
+      if (user?.role === "super_admin" || user?.isSuperAdmin) {
+        const tenant = await getTenantFromRequest(req);
+        scopedTenantId = tenant?.id;
+      } else {
+        scopedTenantId = user?.tenantId ?? undefined;
+      }
+
+      const assets = await storage.getAssets(scopedTenantId);
       res.json(assets);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch assets" });
@@ -445,7 +483,11 @@ app.use(express.static('public'));
 
   app.post("/api/assets", requireRole(['admin', 'it_manager']), async (req, res) => {
     try {
-      const assetData = insertAssetSchema.parse(req.body);
+      const tenantId = await resolveRequestTenantId(req, req.user);
+      const assetData = insertAssetSchema.parse({
+        ...req.body,
+        tenantId: req.body.tenantId ?? tenantId ?? req.user!.tenantId ?? 1,
+      });
       const asset = await storage.createAsset(assetData);
       
       // Create audit log
@@ -931,6 +973,19 @@ app.use(express.static('public'));
     }
   });
 
+  app.put("/api/notifications/mark-all-seen", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      await storage.markAllNotificationsAsSeen(req.user!.id);
+      res.json({ message: "All notifications marked as read" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update notifications" });
+    }
+  });
+
   app.put("/api/notifications/:id/seen", async (req, res) => {
     try {
       if (!req.isAuthenticated()) {
@@ -988,8 +1043,9 @@ app.use(express.static('public'));
       if (!license) {
         return res.status(404).json({ message: "License not found" });
       }
-      
-      res.json(license);
+
+      const reminders = await storage.getLicenseRemindersForLicense(id);
+      res.json({ ...license, reminders });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch license" });
     }
@@ -998,13 +1054,20 @@ app.use(express.static('public'));
   app.post("/api/licenses", requireRole(['super_admin', 'admin', 'it_manager']), async (req, res) => {
     try {
       const user = req.user as any;
+      const { reminders, ...licenseBody } = req.body;
       const licenseData = insertLicenseSchema.parse({
-        ...req.body,
-        tenantId: req.body.tenantId || user?.tenantId || 1,
+        ...licenseBody,
+        tenantId: licenseBody.tenantId || user?.tenantId || 1,
       });
       const license = await storage.createLicense(licenseData);
+
+      if (Array.isArray(reminders) && reminders.length > 0) {
+        await storage.replaceLicenseReminders(
+          license.id,
+          reminders.map((r: { daysBefore: number }) => ({ daysBefore: Number(r.daysBefore) }))
+        );
+      }
       
-      // Create audit log
       await storage.createAuditLog({
         action: "create",
         entity: "license",
@@ -1012,30 +1075,9 @@ app.use(express.static('public'));
         userId: req.user!.id,
         timestamp: new Date()
       });
-      
-      // If the license is about to expire, create a notification for IT managers
-      if (license.expiryDate) {
-        const now = new Date();
-        const expiryDate = new Date(license.expiryDate);
-        const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (daysUntilExpiry <= 30) {
-          // Create notifications for admins and IT managers
-          const user = await storage.getUser(req.user!.id);
-          if (user && (user.role === 'admin' || user.role === 'it_manager')) {
-            await storage.createNotification({
-              type: 'license_expiry',
-              message: `License ${license.name} will expire in ${daysUntilExpiry} days`,
-              targetUserId: user.id,
-              seen: false,
-              entityId: license.id,
-              entityType: 'license'
-            });
-          }
-        }
-      }
-      
-      res.status(201).json(license);
+
+      const savedReminders = await storage.getLicenseRemindersForLicense(license.id);
+      res.status(201).json({ ...license, reminders: savedReminders });
     } catch (error) {
       if (error instanceof ZodError) return handleZodError(error, res);
       res.status(500).json({ message: "Failed to create license" });
@@ -1045,18 +1087,23 @@ app.use(express.static('public'));
   app.put("/api/licenses/:id", requireRole(['super_admin', 'admin', 'it_manager']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const licenseData = req.body;
+      const { reminders, ...licenseBody } = req.body;
       
-      // Ensure tenantId is preserved or set from user
       const existingLicense = await storage.getLicense(id);
       if (!existingLicense) {
         return res.status(404).json({ message: "License not found" });
       }
       const tenantId = existingLicense?.tenantId ?? (req.user as any)?.tenantId;
-      const updatedPayload = { ...licenseData, tenantId };
+      const updatedPayload = { ...licenseBody, tenantId };
       const updatedLicense = await storage.updateLicense(id, updatedPayload);
+
+      if (Array.isArray(reminders)) {
+        await storage.replaceLicenseReminders(
+          id,
+          reminders.map((r: { daysBefore: number }) => ({ daysBefore: Number(r.daysBefore) }))
+        );
+      }
       
-      // Create audit log
       await storage.createAuditLog({
         action: "update",
         entity: "license",
@@ -1064,8 +1111,9 @@ app.use(express.static('public'));
         userId: req.user!.id,
         timestamp: new Date()
       });
-      
-      res.json(updatedLicense);
+
+      const savedReminders = await storage.getLicenseRemindersForLicense(id);
+      res.json({ ...updatedLicense, reminders: savedReminders });
     } catch (error) {
       res.status(500).json({ message: "Failed to update license" });
     }
@@ -1362,7 +1410,7 @@ app.use(express.static('public'));
   });
 
   // User management routes
-  app.get("/api/users", async (req, res) => {
+  app.get("/api/users", requireModuleAccess("userManagement"), async (req, res) => {
     try {
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -1372,44 +1420,57 @@ app.use(express.static('public'));
       const users = await storage.getUsers();
       
       let filteredUsers = users;
-      if (currentUser.role === 'super_admin' || (currentUser as any).isSuperAdmin) {
-        filteredUsers = users;
-      } else if (currentUser.role === 'admin') {
-        filteredUsers = users.filter(u => u.role !== 'super_admin');
+      if (isSuperAdminUser(currentUser)) {
+        filteredUsers = users.filter((u) => !isSuperAdminUser(u) || u.id === currentUser.id);
+      } else if (isAdminUser(currentUser)) {
+        filteredUsers = users.filter((u) => !isSuperAdminUser(u));
       } else {
-        filteredUsers = users.filter(u => u.id === currentUser.id);
+        filteredUsers = users.filter((u) => u.id === currentUser.id);
       }
       
-      // Remove passwords from response
-      const safeUsers = filteredUsers.map(({ password, ...user }) => user);
+      const safeUsers = filteredUsers.map(({ password, ...user }) => ({
+        ...user,
+        permissions: normalizePermissions(user.permissions),
+      }));
       res.json(safeUsers);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch users" });
     }
   });
 
-  app.post("/api/users", async (req, res) => {
+  app.post("/api/users", requireModuleAccess("userManagement"), async (req, res) => {
     try {
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: "Not authenticated" });
       }
-      
-      // Only admin and super_admin can create users
-      if (!["admin", "super_admin"].includes(req.user!.role)) {
-        return res.status(403).json({ message: "Access denied" });
+
+      const currentUser = req.user!;
+
+      if (req.body.role === "super_admin" && !isSuperAdminUser(currentUser)) {
+        return res.status(403).json({ message: "Cannot create super admin accounts" });
       }
       
+      const { permissions, ...body } = req.body;
+      const normalizedPermissions =
+        body.role === "admin"
+          ? createFullPermissions()
+          : permissions !== undefined
+            ? normalizePermissions(permissions)
+            : undefined;
+
       const userData = insertUserSchema.parse({
-        ...req.body,
-        tenantId: req.user!.tenantId || 1
+        ...body,
+        tenantId: req.user!.tenantId || 1,
+        permissions: normalizedPermissions,
       });
       
-      // Password will be hashed in storage.createUser
       const user = await storage.createUser(userData, userData.tenantId || 1);
       
-      // Remove password from response
       const { password, ...safeUser } = user;
-      res.status(201).json(safeUser);
+      res.status(201).json({
+        ...safeUser,
+        permissions: normalizePermissions(user.permissions),
+      });
     } catch (error) {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: "Invalid user data", errors: error.errors });
@@ -1418,21 +1479,36 @@ app.use(express.static('public'));
     }
   });
 
-  app.put("/api/users/:id", async (req, res) => {
+  app.put("/api/users/:id", requireModuleAccess("userManagement"), async (req, res) => {
     try {
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: "Not authenticated" });
       }
       
-      // Only admin and super_admin can update users
-      if (!["admin", "super_admin"].includes(req.user!.role)) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      
       const id = parseInt(req.params.id);
-      const userData = insertUserSchema.partial().parse(req.body);
-      
-      // Password will be hashed in storage.updateUser if provided
+      const existingUser = await storage.getUser(id);
+      if (!existingUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (!assertCanManageUser(req, res, existingUser)) return;
+
+      if (req.body.role === "super_admin" && !isSuperAdminUser(req.user!)) {
+        return res.status(403).json({ message: "Cannot assign super admin role" });
+      }
+
+      const { permissions, ...body } = req.body;
+      const role = body.role ?? existingUser.role;
+      const normalizedPermissions =
+        role === "admin"
+          ? createFullPermissions()
+          : permissions !== undefined
+            ? normalizePermissions(permissions)
+            : undefined;
+
+      const userData = insertUserSchema.partial().parse({
+        ...body,
+        ...(normalizedPermissions !== undefined ? { permissions: normalizedPermissions } : {}),
+      });
       
       const user = await storage.updateUser(id, userData);
       
@@ -1440,9 +1516,11 @@ app.use(express.static('public'));
         return res.status(404).json({ message: "User not found" });
       }
       
-      // Remove password from response
       const { password, ...safeUser } = user;
-      res.json(safeUser);
+      res.json({
+        ...safeUser,
+        permissions: normalizePermissions(user.permissions),
+      });
     } catch (error) {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: "Invalid user data", errors: error.errors });
@@ -1451,23 +1529,23 @@ app.use(express.static('public'));
     }
   });
 
-  app.delete("/api/users/:id", async (req, res) => {
+  app.delete("/api/users/:id", requireModuleAccess("userManagement"), async (req, res) => {
     try {
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: "Not authenticated" });
       }
       
-      // Only admin and super_admin can delete users
-      if (!["admin", "super_admin"].includes(req.user!.role)) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      
       const id = parseInt(req.params.id);
       
-      // Prevent users from deleting themselves
       if (id === req.user!.id) {
         return res.status(400).json({ message: "Cannot delete your own account" });
       }
+
+      const existingUser = await storage.getUser(id);
+      if (!existingUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (!assertCanManageUser(req, res, existingUser)) return;
       
       await storage.deleteUser(id);
       res.status(204).send();
@@ -1476,16 +1554,36 @@ app.use(express.static('public'));
     }
   });
 
-  // Dashboard statistics
-  app.get("/api/dashboard", async (req, res) => {
+  // Dashboard statistics — tenant scope matches /api/company-documents (super admin without tenant sees all)
+  app.get("/api/dashboard", requireModuleAccess("dashboard"), async (req, res) => {
     try {
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: "Not authenticated" });
       }
-      
-      const stats = await storage.getDashboardStats();
+
+      const user = req.user as any;
+
+      if (!userCanSeeOtherData(user)) {
+        return res.status(403).json({ message: "Dashboard statistics access denied" });
+      }
+
+      const tenant = await getTenantFromRequest(req);
+
+      let scopedTenantId: number | undefined;
+      if (user?.role === "super_admin" || user?.isSuperAdmin) {
+        scopedTenantId = tenant?.id;
+      } else {
+        const tenantId = tenant?.id ?? user?.tenantId;
+        if (!tenantId) {
+          return res.status(400).json({ message: "Tenant required" });
+        }
+        scopedTenantId = tenantId;
+      }
+
+      const stats = await storage.getDashboardStats(scopedTenantId);
       res.json(stats);
     } catch (error) {
+      console.error("Dashboard stats error:", error);
       res.status(500).json({ message: "Failed to fetch dashboard statistics" });
     }
   });
@@ -1626,6 +1724,200 @@ app.use(express.static('public'));
     }
   });
 
+  app.get("/api/document-reminders/expiring", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const status = String(req.query.status || req.query.type || "expiring");
+      const user = req.user as any;
+      const tenant = await getTenantFromRequest(req);
+      let scopedTenantId: number | undefined;
+      if (user?.role === "super_admin" || user?.isSuperAdmin) {
+        scopedTenantId = tenant?.id;
+      } else {
+        scopedTenantId = tenant?.id ?? user?.tenantId;
+      }
+
+      if (status === "expired") {
+        const records = await storage.getDocumentExpiryRecords("expired", scopedTenantId);
+        return res.json(records);
+      }
+      if (status === "expiring" || status === "all") {
+        const records = await storage.getDocumentExpiryRecords("expiring", scopedTenantId);
+        return res.json(records);
+      }
+
+      const records = await storage.getExpiringDocumentRecords(status, scopedTenantId);
+      res.json(records);
+    } catch (error) {
+      console.error("GET /api/document-reminders/expiring error:", error);
+      res.status(500).json({ message: "Failed to fetch expiring records" });
+    }
+  });
+
+  app.post("/api/document-reminders/send", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { recordKeys, mode, records: clientRecords } = req.body as {
+        recordKeys?: string[];
+        mode?: "expiring" | "expired";
+        records?: DocumentExpiryRecord[];
+      };
+
+      if (!Array.isArray(recordKeys) || recordKeys.length === 0) {
+        return res.status(400).json({ message: "Select at least one record to send a reminder." });
+      }
+
+      const user = req.user as any;
+      const tenant = await getTenantFromRequest(req);
+      const scopedTenantId =
+        user?.role === "super_admin" || user?.isSuperAdmin
+          ? tenant?.id
+          : tenant?.id ?? user?.tenantId;
+
+      const listMode = mode === "expired" ? "expired" : "expiring";
+      let allRecords = await storage.getDocumentExpiryRecords(listMode, scopedTenantId);
+
+      if (allRecords.length === 0 || !recordKeys.every((key) => allRecords.some((r) => r.recordKey === key))) {
+        const globalRecords = await storage.getDocumentExpiryRecords(listMode, undefined);
+        const merged = new Map<string, DocumentExpiryRecord>();
+        for (const record of [...allRecords, ...globalRecords]) {
+          merged.set(record.recordKey, record);
+        }
+        allRecords = Array.from(merged.values());
+      }
+
+      let selected = allRecords.filter((record) => recordKeys.includes(record.recordKey));
+
+      if (selected.length === 0 && Array.isArray(clientRecords)) {
+        selected = clientRecords.filter((record) => recordKeys.includes(record.recordKey));
+      } else if (Array.isArray(clientRecords) && clientRecords.length > 0) {
+        const clientByKey = new Map(clientRecords.map((record) => [record.recordKey, record]));
+        selected = selected.map((record) => {
+          const client = clientByKey.get(record.recordKey);
+          if (!client) return record;
+          return {
+            ...record,
+            employeeDbId: record.employeeDbId ?? client.employeeDbId ?? null,
+            email: record.email ?? client.email,
+            employeeName: record.employeeName || client.employeeName,
+            reminderType: record.reminderType || client.reminderType,
+            expiryDate: record.expiryDate || client.expiryDate,
+            dependentId: record.dependentId ?? client.dependentId ?? null,
+            dependentName: record.dependentName ?? client.dependentName ?? null,
+            entityId: record.entityId ?? client.entityId ?? null,
+          };
+        });
+      }
+
+      if (selected.length === 0) {
+        return res.status(400).json({ message: "No valid records found for the selected items." });
+      }
+
+      const { sendExpiryRecordReminders } = await import("./expiry-record-reminder-sender");
+      const results = await sendExpiryRecordReminders(selected, user.id, scopedTenantId);
+      const sent = results.filter((r) => r.success).length;
+      const failed = results.filter((r) => !r.success);
+      const notificationOnly = results.filter((r) => r.success && r.notificationOnly).length;
+      const emailsSent = results.filter((r) => r.success && r.recipients?.length).length;
+
+      if (sent === 0) {
+        return res.status(400).json({
+          message: failed[0]?.error || "Failed to send reminder.",
+          results,
+        });
+      }
+
+      const failedMessages = failed
+        .map((r) => r.error)
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(" ");
+
+      let message: string;
+      if (notificationOnly > 0 && emailsSent === 0) {
+        message =
+          notificationOnly === 1
+            ? "In-app reminder notification created. Email reminders are disabled in your profile settings."
+            : `In-app reminder notifications created for ${notificationOnly} records. Email reminders are disabled in your profile settings.`;
+      } else if (notificationOnly > 0 && emailsSent > 0) {
+        message = `${emailsSent} reminder email${emailsSent === 1 ? "" : "s"} sent and ${notificationOnly} in-app notification${notificationOnly === 1 ? "" : "s"} created.${failedMessages ? ` ${failedMessages}` : ""}`;
+      } else if (failed.length > 0) {
+        message = `${sent} reminder${sent === 1 ? "" : "s"} sent. ${failed.length} failed.${failedMessages ? ` ${failedMessages}` : ""}`;
+      } else {
+        message =
+          sent === 1
+            ? "Reminder email sent successfully."
+            : `Reminder emails sent successfully for ${sent} records.`;
+      }
+
+      res.json({
+        message,
+        sent,
+        failed: failed.length,
+        notificationOnly,
+        emailsSent,
+        results,
+      });
+    } catch (error) {
+      console.error("POST /api/document-reminders/send error:", error);
+      res.status(500).json({ message: "Failed to send reminder emails." });
+    }
+  });
+
+  app.post("/api/document-reminders/schedule", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const { addDays, startOfDay } = await import("@shared/document-reminder-utils");
+      const {
+        employeeId,
+        dependentId,
+        entityId,
+        documentType,
+        action,
+        startDate,
+        endDate,
+        expiryDate,
+      } = req.body;
+      const today = startOfDay(new Date());
+      const reminderDate =
+        action === "snooze_week" ? addDays(today, 7) : addDays(today, 1);
+      const status = action === "snooze_week" ? "snoozed" : "pending";
+      const reminderKind = action === "snooze_week" ? "snooze_week" : "daily_close";
+      const user = req.user as any;
+      const tenant = await getTenantFromRequest(req);
+
+      await storage.scheduleDocumentReminder({
+        tenantId: tenant?.id ?? user?.tenantId ?? null,
+        employeeId: employeeId != null && employeeId !== "" ? Number(employeeId) : null,
+        dependentId: dependentId != null ? Number(dependentId) : null,
+        entityId: entityId != null ? Number(entityId) : null,
+        documentType: String(documentType),
+        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        reminderDate,
+        status,
+        reminderKind,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+      });
+
+      res.json({ message: "Reminder scheduled" });
+      const { DocumentReminderNotificationSync } = await import("./document-reminder-notification-sync");
+      DocumentReminderNotificationSync.getInstance()
+        .syncForTenant(tenant?.id ?? user?.tenantId)
+        .catch(() => undefined);
+    } catch (error) {
+      console.error("POST /api/document-reminders/schedule error:", error);
+      res.status(500).json({ message: "Failed to schedule reminder" });
+    }
+  });
+
   app.post('/api/notifications/check-expiring', async (req, res) => {
     try {
       if (!req.isAuthenticated()) {
@@ -1674,6 +1966,69 @@ app.use(express.static('public'));
     } catch (error: any) {
       console.error("Payroll calculation error:", error);
       res.status(500).json({ error: "Failed to calculate payroll", details: error.message });
+    }
+  });
+
+  app.get("/api/running-numbers/employee", requireRole(['admin', 'hr_manager', 'super_admin']), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const tenantId = await resolveRequestTenantId(req, user);
+      if (!tenantId) {
+        return res.status(400).json({ message: "Tenant context is required" });
+      }
+
+      const config = await storage.getRunningNumber(tenantId, RUNNING_NUMBER_MODULE_EMPLOYEE);
+      if (!config) {
+        return res.json({ configured: false });
+      }
+
+      res.json({
+        configured: true,
+        moduleName: config.moduleName,
+        prefix: config.prefix,
+        nextCounter: config.nextCounter,
+        suffix: config.suffix ?? "",
+        preview: formatRunningNumber(config.prefix, config.nextCounter, config.suffix),
+      });
+    } catch (error) {
+      console.error("GET /api/running-numbers/employee error:", error);
+      res.status(500).json({ message: "Failed to fetch running number configuration" });
+    }
+  });
+
+  registerEmailSettingsRoutes(app, requireRole);
+
+  app.put("/api/running-numbers/employee", requireRole(['admin', 'hr_manager', 'super_admin']), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const tenantId = await resolveRequestTenantId(req, user);
+      if (!tenantId) {
+        return res.status(400).json({ message: "Tenant context is required" });
+      }
+
+      const data = saveRunningNumberSchema.parse(req.body);
+      const saved = await storage.upsertRunningNumber(
+        tenantId,
+        RUNNING_NUMBER_MODULE_EMPLOYEE,
+        data
+      );
+
+      res.json({
+        moduleName: saved.moduleName,
+        prefix: saved.prefix,
+        nextCounter: saved.nextCounter,
+        suffix: saved.suffix ?? "",
+        preview: formatRunningNumber(saved.prefix, saved.nextCounter, saved.suffix),
+      });
+    } catch (error) {
+      console.error("PUT /api/running-numbers/employee error:", error);
+      if (error instanceof ZodError) {
+        return res.status(400).json({
+          message: "Validation error",
+          errors: error.errors,
+        });
+      }
+      res.status(500).json({ message: "Failed to save running number configuration" });
     }
   });
 

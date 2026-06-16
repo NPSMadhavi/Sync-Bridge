@@ -1,87 +1,337 @@
-import nodemailer from 'nodemailer';
+import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
+import { storage } from "./storage";
+import type { EmailSettings } from "@shared/schema";
 
-// Email configuration - you can customize these according to your email server
-const emailConfig = {
-  host: process.env.SMTP_HOST || 'localhost',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  from: process.env.EMAIL_FROM || 'noreply@syncbridge.com',
-  // Additional options for better compatibility
-  tls: {
-    rejectUnauthorized: false // Allow self-signed certificates
-  },
-  // For Outlook/Office 365 compatibility
-  requireTLS: true,
-  ignoreTLS: false
-};
-
-// Create transporter
-let transporter: nodemailer.Transporter | null = null;
-
-if (emailConfig.auth.user && emailConfig.auth.pass) {
-  transporter = nodemailer.createTransport(emailConfig);
-} else {
-  console.warn("SMTP credentials not configured. Email functionality will be disabled.");
-}
-
-interface EmailParams {
+export interface EmailParams {
   to: string;
   subject: string;
   text?: string;
   html?: string;
   from?: string;
+  tenantId?: number;
 }
 
-export async function sendEmail(params: EmailParams): Promise<boolean> {
-  if (!transporter) {
-    // SMTP not configured – simulate a successful send so invoice status is updated
-    console.log("=== SIMULATED EMAIL (SMTP not configured) ===");
-    console.log("To:", params.to);
-    console.log("Subject:", params.subject);
-    console.log("To enable real email, set SMTP_HOST, SMTP_USER, SMTP_PASS environment variables");
-    console.log("==============================================");
-    return true;
+interface ResolvedEmailConfig {
+  host: string;
+  port: number;
+  smtpSecure: string;
+  user: string;
+  pass: string;
+  from: string;
+  source: "database" | "environment";
+}
+
+let cachedConfigKey: string | null = null;
+let cachedTransporter: nodemailer.Transporter | null = null;
+let verifiedConfigKey: string | null = null;
+
+type NodemailerSmtpError = {
+  code?: string;
+  command?: string;
+  message?: string;
+  response?: string;
+  responseCode?: number;
+};
+
+function maskSecret(value: string | undefined): string {
+  if (!value) return "(empty)";
+  if (value.length <= 4) return "****";
+  return `${value.slice(0, 2)}***${value.slice(-2)} (len=${value.length})`;
+}
+
+function describeResolvedConfig(config: ResolvedEmailConfig) {
+  return {
+    source: config.source,
+    host: config.host,
+    port: config.port,
+    encryption: config.smtpSecure,
+    user: config.user,
+    from: config.from,
+    password: maskSecret(config.pass),
+  };
+}
+
+function formatSmtpError(error: unknown): NodemailerSmtpError {
+  const emailError = error as NodemailerSmtpError;
+  return {
+    code: emailError.code,
+    command: emailError.command,
+    message: emailError.message,
+    response: emailError.response,
+    responseCode: emailError.responseCode,
+  };
+}
+
+function logSmtpError(context: string, config: ResolvedEmailConfig, error: unknown): void {
+  const details = formatSmtpError(error);
+  console.error(`[SMTP] ${context}`, {
+    config: describeResolvedConfig(config),
+    error: details,
+  });
+}
+
+function buildTransportOptions(config: ResolvedEmailConfig): SMTPTransport.Options {
+  const port = Number(config.port) || 587;
+  const encryption = config.smtpSecure || "STARTTLS";
+
+  let secure = false;
+  let requireTLS = false;
+
+  if (encryption === "SSL/TLS") {
+    secure = true;
+  } else if (encryption === "STARTTLS") {
+    secure = false;
+    requireTLS = true;
+  }
+
+  return {
+    host: config.host.trim(),
+    port,
+    secure,
+    requireTLS,
+    auth: {
+      user: config.user.trim(),
+      pass: config.pass,
+    },
+    tls: {
+      rejectUnauthorized: false,
+      minVersion: "TLSv1.2",
+    },
+    connectionTimeout: 30000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
+  };
+}
+
+function fromDbSettings(settings: EmailSettings): ResolvedEmailConfig {
+  return {
+    host: settings.smtpHost,
+    port: settings.smtpPort,
+    smtpSecure: settings.smtpSecure,
+    user: settings.smtpUser,
+    pass: settings.smtpPass,
+    from: settings.emailFrom,
+    source: "database",
+  };
+}
+
+function fromEnvironment(): ResolvedEmailConfig | null {
+  const user = (process.env.SMTP_USER || process.env.EMAIL_USER)?.trim();
+  const pass = (process.env.SMTP_PASS || process.env.EMAIL_PASS)?.trim();
+  const host = (process.env.SMTP_HOST || process.env.EMAIL_HOST)?.trim();
+
+  if (!user || !pass || !host) {
+    return null;
+  }
+
+  const secureRaw = process.env.SMTP_SECURE ?? process.env.EMAIL_SECURE;
+  const secureEnv = secureRaw === "true";
+  const portRaw = process.env.SMTP_PORT || process.env.EMAIL_PORT || "587";
+
+  return {
+    host,
+    port: parseInt(portRaw, 10),
+    smtpSecure: secureEnv ? "SSL/TLS" : "STARTTLS",
+    user,
+    pass,
+    from: process.env.EMAIL_FROM?.trim() || user,
+    source: "environment",
+  };
+}
+
+async function resolveEmailConfig(tenantId?: number): Promise<ResolvedEmailConfig | null> {
+  if (tenantId) {
+    const tenantSettings = await storage.getEmailSettings(tenantId);
+    if (
+      tenantSettings &&
+      tenantSettings.isActive !== false &&
+      tenantSettings.smtpHost &&
+      tenantSettings.smtpUser &&
+      tenantSettings.smtpPass
+    ) {
+      return fromDbSettings(tenantSettings);
+    }
+  }
+
+  const activeSettings = await storage.getAnyActiveEmailSettings();
+  if (
+    activeSettings &&
+    activeSettings.smtpHost &&
+    activeSettings.smtpUser &&
+    activeSettings.smtpPass
+  ) {
+    return fromDbSettings(activeSettings);
+  }
+
+  return fromEnvironment();
+}
+
+async function getTransporter(tenantId?: number): Promise<{
+  transporter: nodemailer.Transporter;
+  config: ResolvedEmailConfig;
+} | null> {
+  const config = await resolveEmailConfig(tenantId);
+  if (!config) {
+    return null;
+  }
+
+  const configKey = JSON.stringify({
+    host: config.host,
+    port: config.port,
+    smtpSecure: config.smtpSecure,
+    user: config.user,
+    from: config.from,
+    source: config.source,
+  });
+
+  if (!cachedTransporter || cachedConfigKey !== configKey) {
+    cachedTransporter = nodemailer.createTransport(buildTransportOptions(config));
+    cachedConfigKey = configKey;
+    verifiedConfigKey = null;
+    console.info("[SMTP] Transporter created from", describeResolvedConfig(config));
+  }
+
+  return { transporter: cachedTransporter, config };
+}
+
+async function ensureSmtpConnectionVerified(
+  transporter: nodemailer.Transporter,
+  config: ResolvedEmailConfig,
+  configKey: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (verifiedConfigKey === configKey) {
+    return { ok: true };
   }
 
   try {
-    // Verify SMTP connection first
     await transporter.verify();
-    console.log("SMTP connection verified successfully");
+    verifiedConfigKey = configKey;
+    console.info("[SMTP] Connection verified", describeResolvedConfig(config));
+    return { ok: true };
+  } catch (error) {
+    logSmtpError("Connection verification failed", config, error);
+    const details = formatSmtpError(error);
+    const message =
+      details.code === "EAUTH"
+        ? `SMTP authentication failed (${details.responseCode ?? ""} ${details.response ?? details.message ?? "invalid credentials"}).`
+        : details.message || "SMTP connection verification failed.";
+    return { ok: false, error: message.trim() };
+  }
+}
 
-    const mailOptions = {
-      from: params.from || emailConfig.from,
-      to: params.to,
+export type SmtpVerifyResult = {
+  configured: boolean;
+  verified: boolean;
+  config?: ReturnType<typeof describeResolvedConfig>;
+  error?: string;
+  details?: NodemailerSmtpError;
+};
+
+export async function verifySmtpConnection(tenantId?: number): Promise<SmtpVerifyResult> {
+  const config = await resolveEmailConfig(tenantId);
+  if (!config) {
+    return {
+      configured: false,
+      verified: false,
+      error:
+        "SMTP is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS in server/.env " +
+        "or save settings under Settings → Email Configuration.",
+    };
+  }
+
+  const resolved = await getTransporter(tenantId);
+  if (!resolved) {
+    return { configured: false, verified: false, error: "Failed to create SMTP transporter." };
+  }
+
+  const configKey = cachedConfigKey!;
+  const verification = await ensureSmtpConnectionVerified(resolved.transporter, config, configKey);
+  if (!verification.ok) {
+    return {
+      configured: true,
+      verified: false,
+      config: describeResolvedConfig(config),
+      error: verification.error,
+    };
+  }
+
+  return {
+    configured: true,
+    verified: true,
+    config: describeResolvedConfig(config),
+  };
+}
+
+export function invalidateEmailTransporterCache(): void {
+  cachedConfigKey = null;
+  cachedTransporter = null;
+  verifiedConfigKey = null;
+}
+
+export async function isEmailConfigured(tenantId?: number): Promise<boolean> {
+  const config = await resolveEmailConfig(tenantId);
+  return config != null;
+}
+
+export type SendEmailResult = {
+  success: boolean;
+  error?: string;
+};
+
+export async function sendEmailDetailed(params: EmailParams): Promise<SendEmailResult> {
+  const recipient = params.to?.trim();
+  if (!recipient || !recipient.includes("@")) {
+    return { success: false, error: "Recipient email address is required." };
+  }
+
+  const resolved = await getTransporter(params.tenantId);
+
+  if (!resolved) {
+    const message =
+      "SMTP is not configured. Save email settings under Settings → Email Configuration, " +
+      "or set SMTP_HOST, SMTP_USER, and SMTP_PASS in server/.env.";
+    console.warn(message);
+    return { success: false, error: message };
+  }
+
+  const { transporter, config } = resolved;
+  const configKey = cachedConfigKey!;
+
+  const verification = await ensureSmtpConnectionVerified(transporter, config, configKey);
+  if (!verification.ok) {
+    return { success: false, error: verification.error };
+  }
+
+  try {
+    await transporter.sendMail({
+      from: params.from || config.from,
+      to: recipient,
       subject: params.subject,
       text: params.text,
       html: params.html,
-    };
-
-    await transporter.sendMail(mailOptions);
-    console.log("Email sent successfully to:", params.to);
-    return true;
+    });
+    return { success: true };
   } catch (error) {
-    console.error('Email sending error:', error);
-    
-    // Provide more specific error information
-    const emailError = error as any;
-    if (emailError.code === 'EAUTH') {
-      console.error('Authentication failed. Please check your SMTP credentials.');
-      console.error('For Outlook/Office 365, you may need to:');
-      console.error('1. Enable 2-Factor Authentication');
-      console.error('2. Generate an App Password');
-      console.error('3. Use the App Password instead of your regular password');
-    } else if (emailError.code === 'ECONNECTION') {
-      console.error('Connection failed. Please check your SMTP host and port.');
+    logSmtpError(`Failed to send email to ${recipient}`, config, error);
+    const details = formatSmtpError(error);
+
+    const message =
+      details.code === "EAUTH"
+        ? `SMTP authentication failed (${details.responseCode ?? ""} ${details.response ?? details.message ?? "invalid credentials"}).`
+        : details.message || "Failed to deliver email.";
+
+    if (details.code === "EAUTH") {
+      verifiedConfigKey = null;
     }
-    
-    // Simulate success so invoice status is still updated even if SMTP fails
-    console.log("Email delivery simulated (SMTP error) – invoice status will be updated.");
-    return true;
+
+    return { success: false, error: message.trim() };
   }
+}
+
+export async function sendEmail(params: EmailParams): Promise<boolean> {
+  const result = await sendEmailDetailed(params);
+  return result.success;
 }
 
 export function generateVerificationEmailHTML(verificationUrl: string, userName: string): string {
@@ -231,11 +481,16 @@ The SyncBridge Team
   `.trim();
 }
 
-export function generateDocumentExpiryEmailHTML(documentTitle: string, expiryDate: string, daysUntilExpiry: number, employeeName?: string): string {
+export function generateDocumentExpiryEmailHTML(
+  documentTitle: string,
+  expiryDate: string,
+  daysUntilExpiry: number,
+  employeeName?: string
+): string {
   const isExpired = daysUntilExpiry <= 0;
-  const urgencyColor = isExpired ? '#dc2626' : daysUntilExpiry <= 7 ? '#ea580c' : '#d97706';
-  const statusText = isExpired ? 'EXPIRED' : `${daysUntilExpiry} days until expiry`;
-  
+  const urgencyColor = isExpired ? "#dc2626" : daysUntilExpiry <= 7 ? "#ea580c" : "#d97706";
+  const statusText = isExpired ? "EXPIRED" : `${daysUntilExpiry} days until expiry`;
+
   return `
 <!DOCTYPE html>
 <html>
@@ -252,7 +507,7 @@ export function generateDocumentExpiryEmailHTML(documentTitle: string, expiryDat
     
     <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px;">
         <div style="background: ${urgencyColor}; color: white; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 25px;">
-            <h2 style="margin: 0; font-size: 20px;">${isExpired ? '⚠️ DOCUMENT EXPIRED' : '⏰ DOCUMENT EXPIRING SOON'}</h2>
+            <h2 style="margin: 0; font-size: 20px;">${isExpired ? "⚠️ DOCUMENT EXPIRED" : "⏰ DOCUMENT EXPIRING SOON"}</h2>
             <p style="margin: 8px 0 0 0; font-size: 16px; font-weight: bold;">${statusText}</p>
         </div>
         
@@ -263,18 +518,22 @@ export function generateDocumentExpiryEmailHTML(documentTitle: string, expiryDat
                     <td style="padding: 8px 0; font-weight: bold; color: #6b7280;">Document:</td>
                     <td style="padding: 8px 0; color: #111827;">${documentTitle}</td>
                 </tr>
-                ${employeeName ? `
+                ${
+                  employeeName
+                    ? `
                 <tr>
                     <td style="padding: 8px 0; font-weight: bold; color: #6b7280;">Employee:</td>
                     <td style="padding: 8px 0; color: #111827;">${employeeName}</td>
                 </tr>
-                ` : ''}
+                `
+                    : ""
+                }
                 <tr>
                     <td style="padding: 8px 0; font-weight: bold; color: #6b7280;">Expiry Date:</td>
-                    <td style="padding: 8px 0; color: #111827;">${new Date(expiryDate).toLocaleDateString('en-SG', { 
-                      year: 'numeric', 
-                      month: 'long', 
-                      day: 'numeric' 
+                    <td style="padding: 8px 0; color: #111827;">${new Date(expiryDate).toLocaleDateString("en-SG", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
                     })}</td>
                 </tr>
             </table>
@@ -283,9 +542,10 @@ export function generateDocumentExpiryEmailHTML(documentTitle: string, expiryDat
         <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px; margin-bottom: 25px;">
             <h4 style="margin: 0 0 10px 0; color: #1e40af;">📢 Required Action</h4>
             <p style="margin: 0; color: #1e3a8a;">
-                ${isExpired 
-                  ? 'This document has expired and requires immediate attention. Please renew or update the document as soon as possible to maintain compliance.'
-                  : 'Please take action to renew or update this document before it expires to avoid any compliance issues.'
+                ${
+                  isExpired
+                    ? "This document has expired and requires immediate attention. Please renew or update the document as soon as possible to maintain compliance."
+                    : "Please take action to renew or update this document before it expires to avoid any compliance issues."
                 }
             </p>
         </div>
@@ -305,29 +565,35 @@ export function generateDocumentExpiryEmailHTML(documentTitle: string, expiryDat
 </html>`;
 }
 
-export function generateDocumentExpiryEmailText(documentTitle: string, expiryDate: string, daysUntilExpiry: number, employeeName?: string): string {
+export function generateDocumentExpiryEmailText(
+  documentTitle: string,
+  expiryDate: string,
+  daysUntilExpiry: number,
+  employeeName?: string
+): string {
   const isExpired = daysUntilExpiry <= 0;
-  const statusText = isExpired ? 'EXPIRED' : `${daysUntilExpiry} days until expiry`;
-  
+  const statusText = isExpired ? "EXPIRED" : `${daysUntilExpiry} days until expiry`;
+
   return `
 DOCUMENT EXPIRY ALERT - SyncBridge Enterprise Platform
 
-${isExpired ? 'DOCUMENT EXPIRED' : 'DOCUMENT EXPIRING SOON'}
+${isExpired ? "DOCUMENT EXPIRED" : "DOCUMENT EXPIRING SOON"}
 Status: ${statusText}
 
 Document Details:
 - Document: ${documentTitle}
-${employeeName ? `- Employee: ${employeeName}` : ''}
-- Expiry Date: ${new Date(expiryDate).toLocaleDateString('en-SG', { 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
+${employeeName ? `- Employee: ${employeeName}` : ""}
+- Expiry Date: ${new Date(expiryDate).toLocaleDateString("en-SG", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   })}
 
 Required Action:
-${isExpired 
-  ? 'This document has expired and requires immediate attention. Please renew or update the document as soon as possible to maintain compliance.'
-  : 'Please take action to renew or update this document before it expires to avoid any compliance issues.'
+${
+  isExpired
+    ? "This document has expired and requires immediate attention. Please renew or update the document as soon as possible to maintain compliance."
+    : "Please take action to renew or update this document before it expires to avoid any compliance issues."
 }
 
 Please log in to your SyncBridge dashboard to manage this document.
@@ -336,4 +602,89 @@ Please log in to your SyncBridge dashboard to manage this document.
 This is an automated notification from SyncBridge Enterprise Platform
 Please do not reply to this email
 `;
+}
+
+export function generatePassportVisaReminderEmailHTML(params: {
+  employeeName: string;
+  dependentName?: string;
+  documentType: string;
+  expiryDate: Date;
+  daysRemaining: number;
+}): string {
+  const expiryFormatted = params.expiryDate.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const dependentLine = params.dependentName
+    ? `<tr><td style="padding:8px 0;font-weight:bold;color:#6b7280;">Dependent:</td><td style="padding:8px 0;">${params.dependentName}</td></tr>`
+    : "";
+
+  return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">
+<p>Hello ${params.employeeName},</p>
+<p>This is a reminder that the following document is approaching its expiry date.</p>
+<table style="width:100%;margin:16px 0;">
+<tr><td style="padding:8px 0;font-weight:bold;color:#6b7280;">Document Type:</td><td style="padding:8px 0;">${params.documentType}</td></tr>
+${dependentLine}
+<tr><td style="padding:8px 0;font-weight:bold;color:#6b7280;">Expiry Date:</td><td style="padding:8px 0;">${expiryFormatted}</td></tr>
+<tr><td style="padding:8px 0;font-weight:bold;color:#6b7280;">Days Remaining:</td><td style="padding:8px 0;">${params.daysRemaining}</td></tr>
+</table>
+<p>Please renew the document before it expires.</p>
+<p>Thank you.</p>
+</body></html>`;
+}
+
+export function generatePassportVisaReminderEmailText(params: {
+  employeeName: string;
+  dependentName?: string;
+  documentType: string;
+  expiryDate: Date;
+  daysRemaining: number;
+}): string {
+  const expiryFormatted = params.expiryDate.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  return `Hello ${params.employeeName},
+
+This is a reminder that the following document is approaching its expiry date.
+
+Document Type: ${params.documentType}
+${params.dependentName ? `Dependent: ${params.dependentName}\n` : ""}Expiry Date: ${expiryFormatted}
+Days Remaining: ${params.daysRemaining}
+
+Please renew the document before it expires.
+
+Thank you.`;
+}
+
+export function generateLicenseExpiryEmailHTML(
+  licenseName: string,
+  expiryDate: string,
+  daysUntilExpiry: number
+): string {
+  return generateDocumentExpiryEmailHTML(licenseName, expiryDate, daysUntilExpiry).replace(
+    "Document Expiry Alert",
+    "License Expiry Alert"
+  ).replace(
+    "DOCUMENT EXPIRED",
+    "LICENSE EXPIRED"
+  ).replace(
+    "DOCUMENT EXPIRING SOON",
+    "LICENSE EXPIRING SOON"
+  ).replace(
+    ">Document:</td>",
+    ">License:</td>"
+  );
+}
+
+export function generateLicenseExpiryEmailText(
+  licenseName: string,
+  expiryDate: string,
+  daysUntilExpiry: number
+): string {
+  return generateDocumentExpiryEmailText(licenseName, expiryDate, daysUntilExpiry)
+    .replace(/DOCUMENT/g, "LICENSE")
+    .replace("- Document:", "- License:");
 }
