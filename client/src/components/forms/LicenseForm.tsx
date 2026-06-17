@@ -97,6 +97,24 @@ const licenseFormSchema = insertLicenseSchema.extend({
 
 type LicenseFormValues = z.infer<typeof licenseFormSchema>;
 
+function buildLicensePayload(values: LicenseFormValues) {
+  return {
+    name: values.name,
+    licenseKey: values.licenseKey,
+    type: values.type,
+    assetId: values.assetId ?? null,
+    purchaseDate: values.purchaseDate ? values.purchaseDate.toISOString() : null,
+    expiryDate: values.expiryDate ? values.expiryDate.toISOString() : null,
+    cost: values.cost || null,
+    seats: values.seats ?? null,
+    notes: values.notes || null,
+    vendor: values.vendor || null,
+    renewalCycle: values.renewalCycle || "none",
+    status: values.status || "active",
+    reminders: values.reminders ?? [],
+  };
+}
+
 interface LicenseFormProps {
   isOpen: boolean;
   onClose: () => void;
@@ -189,7 +207,7 @@ export default function LicenseForm({
   // Create license mutation
   const createMutation = useMutation({
     mutationFn: async (values: LicenseFormValues) => {
-      const res = await apiRequest("POST", "/api/licenses", values);
+      const res = await apiRequest("POST", "/api/licenses", buildLicensePayload(values));
       return await res.json();
     },
     onSuccess: () => {
@@ -215,7 +233,7 @@ export default function LicenseForm({
       const res = await apiRequest(
         "PUT",
         `/api/licenses/${license?.id}`,
-        values
+        buildLicensePayload(values)
       );
       return await res.json();
     },

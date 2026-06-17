@@ -994,8 +994,8 @@ export const insertNotificationSchema = createInsertSchema(notifications)
   .omit({ id: true, createdAt: true });
 
 export const insertLicenseSchema = createInsertSchema(licenses, {
-  purchaseDate: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
-  expiryDate: z.string().datetime().nullable().transform(str => str ? new Date(str).toISOString() : null),
+  purchaseDate: z.string().datetime().nullable().optional().transform(str => str ? new Date(str) : null),
+  expiryDate: z.string().datetime().nullable().optional().transform(str => str ? new Date(str) : null),
 }).omit({ id: true, createdAt: true });
 
 export const insertAuditLogSchema = createInsertSchema(auditLogs)

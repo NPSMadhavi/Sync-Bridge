@@ -1105,8 +1105,11 @@ app.use(express.static('public'));
         return res.status(404).json({ message: "License not found" });
       }
       const tenantId = existingLicense?.tenantId ?? (req.user as any)?.tenantId;
-      const updatedPayload = { ...licenseBody, tenantId };
-      const updatedLicense = await storage.updateLicense(id, updatedPayload);
+      const licenseData = insertLicenseSchema.partial().parse({
+        ...licenseBody,
+        tenantId,
+      });
+      const updatedLicense = await storage.updateLicense(id, licenseData);
 
       if (Array.isArray(reminders)) {
         await storage.replaceLicenseReminders(
@@ -1126,6 +1129,7 @@ app.use(express.static('public'));
       const savedReminders = await storage.getLicenseRemindersForLicense(id);
       res.json({ ...updatedLicense, reminders: savedReminders });
     } catch (error) {
+      if (error instanceof ZodError) return handleZodError(error, res);
       res.status(500).json({ message: "Failed to update license" });
     }
   });
