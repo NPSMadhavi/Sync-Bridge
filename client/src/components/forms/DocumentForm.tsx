@@ -347,7 +347,7 @@ export default function DocumentForm({ documentId, employeeId, onSuccess }: Docu
                 Uploading...
               </>
             ) : (
-              "Upload Document"
+              "Upload"
             )}
           </Button>
         </div>

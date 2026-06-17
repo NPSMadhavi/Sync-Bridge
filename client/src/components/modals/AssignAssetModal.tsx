@@ -46,12 +46,14 @@ export default function AssignAssetModal({ open, onClose }: AssignAssetModalProp
       const res = await apiRequest("POST", "/api/asset-assignments", data);
       return await res.json();
     },
-    onSuccess: () => {
-      // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/asset-assignments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/assets"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/asset-assignments"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] }),
+        queryClient.refetchQueries({ queryKey: ["/api/dashboard"] }),
+      ]);
+
       toast({
         title: "Asset assigned successfully",
         description: "The asset has been assigned to the employee.",

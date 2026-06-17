@@ -45,6 +45,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 
 // Asset types for dropdown
 const assetTypes = [
@@ -260,9 +261,8 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
   return (
     <TooltipProvider>
       <Form {...form}>
-        <div onKeyDown={handleKeyDown}>
-          {/* Form Content */}
-          <div className="py-6">
+        <div onKeyDown={handleKeyDown} className="h-full flex flex-col">
+          <div className="flex-1 overflow-y-auto px-6 py-6 min-h-0">
               {/* Responsive grid layout container */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
@@ -709,16 +709,14 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
               </Card>
 
             </div>
-
-            </div>
+          </div>
           </div>
 
-          {/* Footer Buttons */}
-          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t mt-2">
+          <FormSheetFooter>
             <Button
               type="button"
               variant="outline"
-              className="w-full sm:w-auto min-w-[120px]"
+              className={formSheetCancelClass}
               onClick={() => {
                 form.reset();
                 if (onSuccess) onSuccess();
@@ -728,16 +726,16 @@ export default function AssetForm({ assetId, onSuccess }: AssetFormProps) {
             </Button>
             <Button
               type="button"
+              className={formSheetSubmitClass}
               disabled={createAssetMutation.isPending || updateAssetMutation.isPending}
-              className="w-full sm:w-auto min-w-[140px]"
               onClick={form.handleSubmit(onSubmit)}
             >
               {(createAssetMutation.isPending || updateAssetMutation.isPending) && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              {isEditMode ? "Update Asset" : "Create Asset"}
+              {isEditMode ? "Update " : "Create"}
             </Button>
-          </div>
+          </FormSheetFooter>
         </div>
       </Form>
     </TooltipProvider>

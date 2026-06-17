@@ -112,9 +112,9 @@ export default function ExpiringDocuments({ documents, className }: ExpiringDocu
         
         {documents.length > 0 && (
           <div className="mt-4 text-center">
-            <Link href="/documents?tab=expiring">
+            <Link href="/expiring-items">
               <Button variant="link" className="text-sm font-medium">
-                View all expiring documents
+                View all expiring items
               </Button>
             </Link>
           </div>

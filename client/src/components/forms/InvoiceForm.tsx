@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import { SimpleDatePicker } from "@/components/ui/simple-date-picker";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -194,7 +195,8 @@ export default function InvoiceForm({ invoice, onSuccess, onCancel }: InvoiceFor
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="h-full flex flex-col">
+        <div className="flex-1 overflow-y-auto space-y-6 min-h-0 px-6 py-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
@@ -458,10 +460,12 @@ export default function InvoiceForm({ invoice, onSuccess, onCancel }: InvoiceFor
           )}
         />
 
-        <div className="flex justify-end space-x-2">
+        </div>
+        <FormSheetFooter>
           <Button
             type="button"
             variant="outline"
+            className={formSheetCancelClass}
             onClick={onCancel}
             disabled={mutation.isPending}
           >
@@ -469,6 +473,7 @@ export default function InvoiceForm({ invoice, onSuccess, onCancel }: InvoiceFor
           </Button>
           <Button
             type="submit"
+            className={formSheetSubmitClass}
             disabled={mutation.isPending}
           >
             {mutation.isPending && (
@@ -476,7 +481,7 @@ export default function InvoiceForm({ invoice, onSuccess, onCancel }: InvoiceFor
             )}
             {invoice ? "Update Invoice" : "Create Invoice"}
           </Button>
-        </div>
+        </FormSheetFooter>
       </form>
     </Form>
   );

@@ -203,14 +203,16 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
                         type="button"
                         onClick={() => handleNotificationClick(notification)}
                         className={cn(
-                          "w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-muted/50 transition-colors",
-                          !notification.seen && "bg-amber-50/80 dark:bg-amber-950/20"
+                          "w-full text-left px-4 py-3 border-b last:border-b-0 transition-colors",
+                          notification.seen
+                            ? "hover:bg-muted/50"
+                            : "bg-primary/10 hover:bg-primary/15 dark:bg-primary/15 dark:hover:bg-primary/20"
                         )}
                       >
                         <div className="flex items-start justify-between gap-2 mb-1">
-                          <p className="text-sm font-medium leading-snug">{notification.message}</p>
+                          <p className="text-sm font-medium leading-snug text-foreground">{notification.message}</p>
                           {!notification.seen && (
-                            <span className="shrink-0 h-2 w-2 rounded-full bg-red-500 mt-1.5" />
+                            <span className="shrink-0 h-2 w-2 rounded-full bg-primary mt-1.5" />
                           )}
                         </div>
                         <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground mt-2">

@@ -348,6 +348,9 @@ app.use(express.static('public'));
   app.delete("/api/employees/:id", requireRole(['admin', 'hr']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ message: "Invalid employee id" });
+      }
       await storage.deleteEmployee(id);
       
       // Create audit log
@@ -361,7 +364,11 @@ app.use(express.static('public'));
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete employee" });
+      console.error("Failed to delete employee:", error);
+      res.status(500).json({
+        message: "Failed to delete employee",
+        detail: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 
@@ -564,22 +571,26 @@ app.use(express.static('public'));
 
   app.post("/api/asset-assignments", requireRole(['admin', 'it_manager']), async (req, res) => {
     try {
+      const tenantId = await resolveRequestTenantId(req, req.user);
+
+      // Verify asset exists and is available
+      const assetId = Number(req.body.assetId);
+      const asset = await storage.getAsset(assetId);
+      if (!asset) {
+        return res.status(404).json({ message: "Asset not found" });
+      }
+
+      if (asset.status !== 'available') {
+        return res.status(400).json({ message: "Asset is not available for assignment" });
+      }
+
       const assignmentInput = {
         ...req.body,
+        tenantId: req.body.tenantId ?? asset.tenantId ?? tenantId ?? req.user!.tenantId ?? undefined,
         dateAssigned: req.body.dateAssigned ? new Date(req.body.dateAssigned) : new Date(),
         dateReturned: req.body.dateReturned ? new Date(req.body.dateReturned) : undefined,
       };
       const assignmentData = insertAssetAssignmentSchema.parse(assignmentInput);
-      
-      // Verify asset exists and is available
-      const asset = await storage.getAsset(assignmentData.assetId);
-      if (!asset) {
-        return res.status(404).json({ message: "Asset not found" });
-      }
-      
-      if (asset.status !== 'available') {
-        return res.status(400).json({ message: "Asset is not available for assignment" });
-      }
       
       // Create assignment
       const assignment = await storage.createAssetAssignment(assignmentData);
@@ -1421,7 +1432,7 @@ app.use(express.static('public'));
       
       let filteredUsers = users;
       if (isSuperAdminUser(currentUser)) {
-        filteredUsers = users.filter((u) => !isSuperAdminUser(u) || u.id === currentUser.id);
+        filteredUsers = users.filter((u) => !isSuperAdminUser(u));
       } else if (isAdminUser(currentUser)) {
         filteredUsers = users.filter((u) => !isSuperAdminUser(u));
       } else {

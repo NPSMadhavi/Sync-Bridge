@@ -10,6 +10,15 @@ import { calculateSingaporePayroll } from "./singapore-payroll-calculator";
 
 export type PayrollProcessAction = "created" | "updated" | "skipped";
 
+export function parseForceOverwriteFlag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "true" || normalized === "1" || normalized === "yes";
+  }
+  return false;
+}
+
 export interface PayrollProcessResult {
   action: PayrollProcessAction;
   record?: typeof payrollRecords.$inferSelect;
@@ -92,6 +101,19 @@ export function getBatchZipNameFromPeriod(payPeriodStart: string) {
 
 function normalizeJson(value: unknown) {
   return JSON.stringify(value ?? {});
+}
+
+function normalizePayrollComponentMap(value: unknown): string {
+  const obj = (value && typeof value === "object" && !Array.isArray(value) ? value : {}) as Record<
+    string,
+    unknown
+  >;
+  const entries = Object.entries(obj)
+    .map(([key, val]) => [key, Number(val) || 0] as const)
+    .filter(([, num]) => num !== 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  return JSON.stringify(Object.fromEntries(entries));
 }
 
 export function formatLocalDate(year: number, month: number, day: number): string {
@@ -178,11 +200,11 @@ export function hasPayrollConfigChanged(
     return true;
   }
 
-  if (normalizeJson(record.allowances) !== normalizeJson(config.allowances)) {
+  if (normalizePayrollComponentMap(record.allowances) !== normalizePayrollComponentMap(config.allowances)) {
     return true;
   }
 
-  if (normalizeJson(record.deductions) !== normalizeJson(config.deductions)) {
+  if (normalizePayrollComponentMap(record.deductions) !== normalizePayrollComponentMap(config.deductions)) {
     return true;
   }
 
@@ -280,6 +302,7 @@ export async function upsertPayrollRecord(
     overtimeHours?: number;
     allowReprocess?: boolean;
     forceUpdate?: boolean;
+    requireForceForReprocess?: boolean;
   } = {}
 ): Promise<PayrollProcessResult> {
   const existing = await findPayrollRecordForPeriod(
@@ -303,25 +326,37 @@ export async function upsertPayrollRecord(
     return { action: "created", record };
   }
 
+  const forceUpdate = parseForceOverwriteFlag(options.forceUpdate);
   const configChanged = hasPayrollConfigChanged(
     config,
     existing,
     options.overtimeHours ?? 0
   );
-  if (!configChanged && !options.forceUpdate) {
-    return {
-      action: "skipped",
-      record: existing,
-      reason: "already_processed",
-    };
-  }
 
-  if (!options.allowReprocess && !configChanged) {
-    return {
-      action: "skipped",
-      record: existing,
-      reason: "already_processed",
-    };
+  if (!forceUpdate) {
+    if (!configChanged) {
+      return {
+        action: "skipped",
+        record: existing,
+        reason: "already_processed",
+      };
+    }
+
+    if (options.requireForceForReprocess) {
+      return {
+        action: "skipped",
+        record: existing,
+        reason: "data_changed",
+      };
+    }
+
+    if (!options.allowReprocess) {
+      return {
+        action: "skipped",
+        record: existing,
+        reason: "already_processed",
+      };
+    }
   }
 
   const { createdBy, ...updateFields } = payload;

@@ -79,6 +79,9 @@ export type DocumentExpiryRecord = {
   dependentId?: number | null;
   dependentName?: string | null;
   documentType: string;
+  documentNumber?: string;
+  /** Human-readable title (company doc title, license name, or document type label). */
+  documentTitle?: string;
   reminderType: string;
   expiryDate: string;
   daysRemaining?: number;
@@ -86,3 +89,63 @@ export type DocumentExpiryRecord = {
   entityId?: number | null;
   email?: string;
 };
+
+export function formatEmployeeDocumentTypeEnum(type: string): string {
+  return type
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function expiryRecordItemType(record: DocumentExpiryRecord): "Document" | "License" {
+  return record.reminderType === "license" ? "License" : "Document";
+}
+
+export function expiryRecordDisplayTitle(record: DocumentExpiryRecord): string {
+  if (record.documentTitle?.trim()) {
+    return record.documentTitle.trim();
+  }
+  if (record.reminderType === "license") {
+    return record.employeeName || "—";
+  }
+  if (record.reminderType === "company_document") {
+    const title = record.documentNumber?.trim();
+    if (title && title !== "—") return title;
+    return record.employeeName || "—";
+  }
+  return record.documentType || record.documentNumber || "—";
+}
+
+/** Value shown under the "Document Number" column (heading stays fixed). */
+export function expiryRecordDocumentNumberDisplay(record: DocumentExpiryRecord): string {
+  const type = record.documentType;
+  if (type === "Passport" || type === "Visa" || type === "NRIC") {
+    const num = record.documentNumber?.trim();
+    return num && num !== "—" ? num : "—";
+  }
+  if (type === "License" || type === "Other Document") {
+    return record.documentTitle?.trim() || "—";
+  }
+  const num = record.documentNumber?.trim();
+  if (num && num !== "—") return num;
+  return record.documentTitle?.trim() || "—";
+}
+
+export function expiryRecordEmployeeDisplayName(record: DocumentExpiryRecord): string {
+  if (record.reminderType === "license" || record.reminderType === "company_document") {
+    return "—";
+  }
+  if (record.dependentName) {
+    return `${record.employeeName} (${record.dependentName})`;
+  }
+  return record.employeeName || "—";
+}
+
+export function documentExpiryStatus(
+  record: Pick<DocumentExpiryRecord, "daysRemaining" | "daysExpired">
+): "Expiring Soon" | "Expired" {
+  if (record.daysExpired != null && record.daysExpired > 0) {
+    return "Expired";
+  }
+  return "Expiring Soon";
+}

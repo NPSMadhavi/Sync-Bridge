@@ -5,6 +5,13 @@ import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Form,
   FormControl,
   FormField,
@@ -26,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { processIndividualPayrollForConfig, getCurrentPayPeriod } from "@/lib/payroll-batch-utils";
+import { processIndividualPayrollForConfig, getCurrentPayPeriod, findPayrollRecordForPeriod, hasPayrollDataChanged, derivePayrollMonthYear } from "@/lib/payroll-batch-utils";
 import { insertPayrollRecordSchema } from "@shared/schema";
 import { Calculator, CheckCircle, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -34,6 +41,7 @@ import {
   calculateAgeFromDob,
   mapEmployeeResidency,
 } from "@shared/singapore-payroll";
+import { FormSheetFooter, formSheetCancelClass, formSheetBlueSubmitClass } from "@/components/ui/form-sheet-footer";
 
 const processPayrollSchema = z.object({
   employeeId: z.coerce.number().min(1, "Please select an employee"),
@@ -50,25 +58,21 @@ interface ProcessPayrollFormProps {
   onCancel: () => void;
 }
 
+type ProcessedDialogMode = "overwrite" | "no-changes" | null;
+
 export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayrollFormProps) {
   const { toast } = useToast();
   const [isCalculating, setIsCalculating] = useState(false);
   const [payrollCalculation, setPayrollCalculation] = useState<any>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+  const [processedDialogOpen, setProcessedDialogOpen] = useState(false);
+  const [processedDialogMode, setProcessedDialogMode] = useState<ProcessedDialogMode>(null);
+  const [pendingFormData, setPendingFormData] = useState<ProcessPayrollFormData | null>(null);
 
   // Get user and tenant context
   const { user, isLoading: userLoading, error: userError } = useAuth();
   const tenantId = user?.tenantId;
 
-  // Show loading or error state for user context
-  if (userLoading) {
-    return <div>Loading user...</div>;
-  }
-  if (userError || !user) {
-    return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
-  }
-
-  // Only enable queries if user is available (allow super admins without tenantId)
   const {
     data: payrollConfigs = [],
     isLoading: configsLoading,
@@ -89,12 +93,11 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
     enabled: !!user && (!!tenantId || user.isSuperAdmin || user.role === 'super_admin'),
   });
 
-  // Debug logging
-  console.log('ProcessPayrollForm - Payroll Configs:', payrollConfigs);
-  console.log('ProcessPayrollForm - Employees:', employees);
-  console.log('ProcessPayrollForm - Configs Loading:', configsLoading);
-  console.log('ProcessPayrollForm - Employees Loading:', employeesLoading);
-  console.log('ProcessPayrollForm - Tenant ID:', tenantId);
+  const { data: payrollRecords = [] } = useQuery<any[]>({
+    queryKey: ["/api/payroll/records", tenantId],
+    queryFn: () => apiRequest("GET", `/api/payroll/records`).then(res => res.json()),
+    enabled: !!user && (!!tenantId || user.isSuperAdmin || user.role === 'super_admin'),
+  });
 
   const form = useForm<ProcessPayrollFormData>({
     resolver: zodResolver(processPayrollSchema),
@@ -104,8 +107,50 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
     },
   });
 
+  const watchedEmployeeId = form.watch("employeeId");
+  const watchedOvertimeHours = form.watch("overtimeHours");
+  const dialogPayPeriodStart = pendingFormData?.payPeriodStart ?? form.watch("payPeriodStart");
+  const dialogMonthLabel = derivePayrollMonthYear(dialogPayPeriodStart).monthLabel;
+
+  const openProcessedDialog = (data: ProcessPayrollFormData, dataChanged: boolean) => {
+    setPendingFormData(data);
+    setProcessedDialogMode(dataChanged ? "overwrite" : "no-changes");
+    setProcessedDialogOpen(true);
+  };
+
+  const closeProcessedDialog = () => {
+    setProcessedDialogOpen(false);
+    setProcessedDialogMode(null);
+    setPendingFormData(null);
+  };
+
+  const resolvePayrollChangeStatus = (data: ProcessPayrollFormData) => {
+    const payrollConfig = payrollConfigs.find(
+      (config: any) => config.employeeId === data.employeeId && config.isActive
+    );
+    const existingRecord = findPayrollRecordForPeriod(
+      data.employeeId,
+      payrollRecords,
+      data.payPeriodStart,
+      data.payPeriodEnd
+    );
+
+    if (!existingRecord) {
+      return { alreadyProcessed: false, dataChanged: false };
+    }
+
+    return {
+      alreadyProcessed: true,
+      dataChanged: hasPayrollDataChanged(
+        payrollConfig,
+        existingRecord,
+        Number(data.overtimeHours) || 0
+      ),
+    };
+  };
+
   const processPayrollMutation = useMutation({
-    mutationFn: async (data: ProcessPayrollFormData) => {
+    mutationFn: async (data: ProcessPayrollFormData & { forceOverwrite?: boolean }) => {
       if (!payrollCalculation) {
         throw new Error("Please calculate payroll first");
       }
@@ -118,8 +163,16 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
         data.payPeriodStart,
         data.payPeriodEnd,
         Number(data.overtimeHours) || 0,
-        data.notes || ""
+        data.notes || "",
+        { forceOverwrite: data.forceOverwrite === true }
       );
+
+      if ("alreadyProcessed" in result && result.alreadyProcessed) {
+        return {
+          alreadyProcessed: true as const,
+          dataChanged: result.dataChanged === true,
+        };
+      }
 
       if (!result.ok) {
         throw new Error(result.message || "Failed to process payroll");
@@ -127,12 +180,31 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
 
       return result;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
+      if (result && "alreadyProcessed" in result && result.alreadyProcessed) {
+        if (variables.forceOverwrite) {
+          toast({
+            title: "Overwrite failed",
+            description: "Could not regenerate the payslip. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const formData = pendingFormData ?? variables;
+        openProcessedDialog(formData, result.dataChanged === true);
+        return;
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
+      closeProcessedDialog();
+      const wasUpdated = "action" in result && result.action === "updated";
       toast({
-        title: result.action === "updated" ? "Payroll Updated" : "Payroll Processed Successfully",
-        description: "Payroll saved and payslip downloaded automatically.",
+        title: wasUpdated ? "Payroll Updated Successfully" : "Payroll Processed Successfully",
+        description: wasUpdated
+          ? "The payslip has been regenerated and downloaded successfully."
+          : "Payroll saved and payslip downloaded automatically.",
       });
       onSuccess();
     },
@@ -225,9 +297,6 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
     }).format(amount);
   };
 
-  const watchedEmployeeId = form.watch("employeeId");
-  const watchedOvertimeHours = form.watch("overtimeHours");
-
   useEffect(() => {
     if (!watchedEmployeeId) {
       setPayrollCalculation(null);
@@ -241,9 +310,35 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
   }, [watchedEmployeeId, watchedOvertimeHours, employees, payrollConfigs]);
 
   const onSubmit = (data: ProcessPayrollFormData) => {
-    console.log('Submitting process payroll form:', data);
+    const { alreadyProcessed, dataChanged } = resolvePayrollChangeStatus(data);
+
+    if (alreadyProcessed) {
+      openProcessedDialog(data, dataChanged);
+      return;
+    }
+
     processPayrollMutation.mutate(data);
   };
+
+  const handleConfirmOverwrite = () => {
+    const formData = pendingFormData ?? form.getValues();
+    if (!formData?.employeeId) {
+      toast({
+        title: "Error",
+        description: "Form data is unavailable. Please close the dialog and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    processPayrollMutation.mutate({ ...formData, forceOverwrite: true });
+  };
+
+  if (userLoading) {
+    return <div>Loading user...</div>;
+  }
+  if (userError || !user) {
+    return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
+  }
 
   // Show loading states
   if (employeesLoading || configsLoading) {
@@ -263,20 +358,13 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold">Process Monthly Payroll</h2>
-          <p className="text-muted-foreground">
-            Calculate and process employee payroll with Singapore CPF compliance
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <>
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-6 py-6">
         <div className="lg:col-span-2">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="space-y-6">
               {/* Employee Selection */}
               <Card>
                 <CardHeader>
@@ -408,26 +496,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
                   />
                 </CardContent>
               </Card>
-
-              <div className="flex justify-end gap-4">
-              <div className="flex gap-2">
-      
-        </div>
-                <Button 
-                  type="submit" 
-                  disabled={processPayrollMutation.isPending || !payrollCalculation}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {processPayrollMutation.isPending 
-                    ? "Processing..." 
-                    : "Process Payroll"
-                  }
-                </Button>
-                <Button type="button" variant="outline" onClick={onCancel}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
+            </div>
           </Form>
         </div>
 
@@ -562,6 +631,71 @@ export default function ProcessPayrollForm({ onSuccess, onCancel }: ProcessPayro
           </Card>
         </div>
       </div>
+      </div>
+
+      <FormSheetFooter>
+        <Button type="button" variant="outline" className={formSheetCancelClass} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          className={formSheetBlueSubmitClass}
+          disabled={processPayrollMutation.isPending || !payrollCalculation}
+          onClick={form.handleSubmit(onSubmit)}
+        >
+          {processPayrollMutation.isPending ? "Processing..." : "Process Payroll"}
+        </Button>
+      </FormSheetFooter>
     </div>
+
+      <Dialog
+        open={processedDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeProcessedDialog();
+          else setProcessedDialogOpen(true);
+        }}
+      >
+        <DialogContent className="max-w-md bg-white border border-gray-200">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900">Payroll Already Processed</DialogTitle>
+            <div className="space-y-2 pt-2 text-sm text-gray-600">
+              <p>
+                Payroll for{" "}
+                <span className="font-semibold text-gray-900">{dialogMonthLabel}</span> has already
+                been processed.
+              </p>
+              {processedDialogMode === "overwrite" ? (
+                <>
+                  <p>The payroll values have been modified.</p>
+                  <p>Do you want to overwrite the existing payslip and regenerate it?</p>
+                </>
+              ) : (
+                <p>There are no changes to process.</p>
+              )}
+            </div>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            {processedDialogMode === "overwrite" ? (
+              <>
+                <Button type="button" variant="outline" onClick={closeProcessedDialog}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleConfirmOverwrite}
+                  disabled={processPayrollMutation.isPending}
+                >
+                  {processPayrollMutation.isPending ? "Processing..." : "Yes, Proceed"}
+                </Button>
+              </>
+            ) : (
+              <Button type="button" variant="outline" onClick={closeProcessedDialog}>
+                Cancel
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

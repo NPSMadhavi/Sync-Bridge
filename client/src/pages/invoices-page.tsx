@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Edit, Eye, Mail, Download, DollarSign, Clock, CheckCircle, XCircle, X, Palette, Trash2 } from "lucide-react";
+import { Plus, Search, Edit, Eye, Mail, Download, DollarSign, Clock, CheckCircle, XCircle, Palette, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,9 @@ import type { Invoice, Customer } from "@shared/schema";
 import InvoiceForm from "@/components/forms/InvoiceForm";
 import Dashboard from "@/components/layout/Dashboard";
 import { getQueryFn } from "@/lib/queryClient";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import React, { useEffect } from "react";
 
 // Format currency helper
@@ -169,7 +171,8 @@ function CustomizeInvoiceDesignForm({ invoiceId, onClose }: { invoiceId: number,
   if (error) return <div className="py-8 text-center text-red-600">{error}</div>;
 
   return (
-    <form onSubmit={handleSave} className="max-w-xl mx-auto space-y-6">
+    <form onSubmit={handleSave} className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto space-y-6 min-h-0 max-w-xl mx-auto w-full">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium mb-1">Primary Color</label>
@@ -207,10 +210,6 @@ function CustomizeInvoiceDesignForm({ invoiceId, onClose }: { invoiceId: number,
           {templateOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
         </select>
       </div>
-      <div className="flex gap-2 justify-end">
-        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
-      </div>
       {/* Live Preview */}
       <div className="mt-8">
         <div className="text-lg font-semibold mb-2 text-center">Live Preview</div>
@@ -228,6 +227,11 @@ function CustomizeInvoiceDesignForm({ invoiceId, onClose }: { invoiceId: number,
           {design.footerNote && <div style={{ marginTop: 12, color: design.primaryColor }}>{design.footerNote}</div>}
         </div>
       </div>
+      </div>
+      <FormSheetFooter>
+        <Button type="button" variant="outline" className={formSheetCancelClass} onClick={onClose}>Cancel</Button>
+        <Button type="submit" className={formSheetSubmitClass} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+      </FormSheetFooter>
     </form>
   );
 }
@@ -566,18 +570,12 @@ export default function InvoicesPage() {
       {/* Invoice Form Sheet */}
       {showForm && (
         <Sheet open={showForm} onOpenChange={setShowForm}>
-          <SheetContent side="right" style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }} className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-card">
-            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
-              <SheetHeader className="flex-row flex-1 justify-between items-center">
-                <SheetTitle>
-                  {editingInvoice ? "Edit Invoice" : "Create New Invoice"}
-                </SheetTitle>
-              </SheetHeader>
-              <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <SheetContent side="right" hideClose style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }} className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col overflow-hidden bg-card">
+            <FormSheetHeader
+              title={editingInvoice ? "Edit Invoice" : "Create New Invoice"}
+              onClose={() => setShowForm(false)}
+            />
+            <div className="flex-1 min-h-0">
               <InvoiceForm
                 invoice={editingInvoice}
                 onSuccess={handleFormSuccess}
@@ -591,21 +589,15 @@ export default function InvoicesPage() {
       {/* Customize Design Drawer */}
       {typeof customizeDesignInvoiceId === 'number' && !isNaN(customizeDesignInvoiceId) && (
         <Sheet open={!!customizeDesignInvoiceId} onOpenChange={open => { if (!open) setCustomizeDesignInvoiceId(null); }}>
-          <SheetContent side="right" style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }} className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-card">
-            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
-              <SheetHeader className="flex-row flex-1 justify-between items-center">
-                <SheetTitle>
-                  {(() => {
-                    const inv = invoices.find(i => i.id === customizeDesignInvoiceId);
-                    return inv ? `Customize Invoice Design – INV-${inv.invoiceNumber}` : 'Customize Invoice Design';
-                  })()}
-                </SheetTitle>
-              </SheetHeader>
-              <Button variant="ghost" size="sm" onClick={() => setCustomizeDesignInvoiceId(null)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <SheetContent side="right" hideClose style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }} className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col overflow-hidden bg-card">
+            <FormSheetHeader
+              title={(() => {
+                const inv = invoices.find(i => i.id === customizeDesignInvoiceId);
+                return inv ? `Customize Invoice Design – INV-${inv.invoiceNumber}` : 'Customize Invoice Design';
+              })()}
+              onClose={() => setCustomizeDesignInvoiceId(null)}
+            />
+            <div className="flex-1 min-h-0 px-6">
               <CustomizeInvoiceDesignForm invoiceId={customizeDesignInvoiceId} onClose={() => setCustomizeDesignInvoiceId(null)} />
             </div>
           </SheetContent>

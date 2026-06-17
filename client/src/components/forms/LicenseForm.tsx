@@ -9,9 +9,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import {
   Form,
   FormControl,
@@ -255,27 +255,30 @@ export default function LicenseForm({
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent 
         side="right"
+        hideClose
         className="w-full max-w-[1200px] p-0 overflow-hidden sm:max-w-[900px] md:max-w-[1000px] lg:max-w-[1200px]"
         onKeyDown={handleKeyDown}
       >
         <TooltipProvider>
           <Form {...form}>
             <div className="h-full flex flex-col">
-              {/* Header */}
-              <SheetHeader className="flex-shrink-0 px-6 py-4 border-b bg-background">
-                <SheetTitle className="flex items-center gap-2 text-xl">
-                  <Shield className="h-5 w-5 text-primary" />
-                  {isEditMode ? "Edit License" : "Create New License"}
-                  {isExpired && (
-                    <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded-full">
-                      Expired
-                    </span>
-                  )}
-                </SheetTitle>
-              </SheetHeader>
+              <FormSheetHeader
+                title={
+                  <>
+                    {isEditMode ? "Edit License" : "Create New License"}
+                    {isExpired && (
+                      <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded-full ml-2">
+                        Expired
+                      </span>
+                    )}
+                  </>
+                }
+                onClose={onClose}
+                icon={<Shield className="h-5 w-5 text-primary" />}
+              />
 
               {/* Form Content - Scrollable Area */}
-              <div className="flex-1 overflow-y-auto px-8 py-6 pb-24">
+              <div className="flex-1 overflow-y-auto px-8 py-6 min-h-0">
                 {/* Responsive grid layout container */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto">
                 
@@ -865,34 +868,31 @@ export default function LicenseForm({
               </div>
 
               {/* Sticky Footer with Actions - Outside scrollable area */}
-              <div className="flex-shrink-0 bg-background border-t px-8 py-4">
-                <form onSubmit={form.handleSubmit(onSubmit)}>
-                  <div className="flex flex-col sm:flex-row justify-end gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full sm:w-auto min-w-[120px]"
-                      onClick={() => {
-                        form.reset();
-                        onClose();
-                      }}
-                      disabled={createMutation.isPending || updateMutation.isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button 
-                      type="submit" 
-                      disabled={createMutation.isPending || updateMutation.isPending}
-                      className="w-full sm:w-auto min-w-[140px]"
-                    >
-                      {(createMutation.isPending || updateMutation.isPending) && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      {isEditMode ? "Update License" : "Create License"}
-                    </Button>
-                  </div>
-                </form>
-              </div>
+              <FormSheetFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={formSheetCancelClass}
+                  onClick={() => {
+                    form.reset();
+                    onClose();
+                  }}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className={formSheetSubmitClass}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  onClick={form.handleSubmit(onSubmit)}
+                >
+                  {(createMutation.isPending || updateMutation.isPending) && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  {isEditMode ? "Update " : "Create "}
+                </Button>
+              </FormSheetFooter>
             </div>
           </Form>
         </TooltipProvider>

@@ -5,7 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Search, Edit, Trash2, Mail, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -43,6 +52,8 @@ interface UserFormData {
 export default function UserManagementPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [deleteErrorDialogOpen, setDeleteErrorDialogOpen] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState<UserFormData>({
@@ -133,11 +144,8 @@ export default function UserManagementPage() {
       });
     },
     onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete user",
-        variant: "destructive",
-      });
+      setDeleteErrorMessage(error.message || "Failed to delete user");
+      setDeleteErrorDialogOpen(true);
     }
   });
 
@@ -304,34 +312,28 @@ export default function UserManagementPage() {
       <Sheet open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <SheetContent 
           side="right" 
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
         >
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                Add New User
-              </SheetTitle>
-              <p className="text-sm text-gray-600 mt-2">
-                Add a new user to your organization
-              </p>
-            </SheetHeader>
-          </div>
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
-            <form onSubmit={handleSubmit} className="space-y-4">
+          <FormSheetHeader
+            title="Add New User"
+            description="Add a new user to your organization"
+            onClose={() => setIsAddDialogOpen(false)}
+          />
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
               {renderUserFormFields(true)}
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={addUserMutation.isPending}>
-                  {addUserMutation.isPending ? 'Adding...' : 'Add User'}
-                </Button>
-              </div>
-            </form>
-          </div>
+            </div>
+            <FormSheetFooter>
+              <Button type="button" variant="outline" className={formSheetCancelClass} onClick={() => setIsAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className={formSheetSubmitClass} disabled={addUserMutation.isPending}>
+                {addUserMutation.isPending ? 'Adding...' : 'Add User'}
+              </Button>
+            </FormSheetFooter>
+          </form>
         </SheetContent>
       </Sheet>
 
@@ -421,36 +423,42 @@ export default function UserManagementPage() {
       <Sheet open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <SheetContent 
           side="right" 
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
         >
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                Edit User
-              </SheetTitle>
-              <p className="text-sm text-gray-600 mt-2">
-                Update user information
-              </p>
-            </SheetHeader>
-          </div>
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {renderUserFormFields(false)}
-            <div className="flex justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+          <FormSheetHeader
+            title="Edit User"
+            description="Update user information"
+            onClose={() => setIsEditDialogOpen(false)}
+          />
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {renderUserFormFields(false)}
+            </div>
+            <FormSheetFooter>
+              <Button type="button" variant="outline" className={formSheetCancelClass} onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={updateUserMutation.isPending}>
+              <Button type="submit" className={formSheetSubmitClass} disabled={updateUserMutation.isPending}>
                 {updateUserMutation.isPending ? 'Updating...' : 'Update User'}
               </Button>
-            </div>
+            </FormSheetFooter>
           </form>
-          </div>
         </SheetContent>
       </Sheet>
+
+      <Dialog open={deleteErrorDialogOpen} onOpenChange={setDeleteErrorDialogOpen}>
+        <DialogContent className="max-w-md">
+  
+          <p className="text-sm text-muted-foreground">{deleteErrorMessage}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteErrorDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dashboard>
   );
 } 

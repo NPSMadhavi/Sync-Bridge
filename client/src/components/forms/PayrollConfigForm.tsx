@@ -34,6 +34,7 @@ import {
 } from "@shared/singapore-payroll";
 import { usePayrollCalculationPreview } from "@/hooks/use-payroll-calculation-preview";
 import PayrollCalculationPreviewPanel from "@/components/payroll/PayrollCalculationPreviewPanel";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 
 const payrollConfigFormSchema = z.object({
   employeeId: z.coerce.number().min(1, "Please select an employee"),
@@ -70,6 +71,19 @@ const payrollConfigFormSchema = z.object({
 
 type PayrollConfigFormData = z.infer<typeof payrollConfigFormSchema>;
 
+function toOptionalFormNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const num = typeof value === "number" ? value : parseFloat(String(value));
+  if (!Number.isFinite(num) || num === 0) return undefined;
+  return num;
+}
+
+function toRequiredFormNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const num = typeof value === "number" ? value : parseFloat(String(value));
+  return Number.isFinite(num) ? num : undefined;
+}
+
 function mapEditDataToForm(editData: any): Partial<PayrollConfigFormData> {
   const allowances = editData?.allowances && typeof editData.allowances === "object" ? editData.allowances : {};
   const deductions = editData?.deductions && typeof editData.deductions === "object" ? editData.deductions : {};
@@ -80,23 +94,23 @@ function mapEditDataToForm(editData: any): Partial<PayrollConfigFormData> {
 
   return {
     employeeId: editData?.employeeId ?? 0,
-    baseSalary: parseFloat(editData?.baseSalary) || ("" as any),
+    baseSalary: toRequiredFormNumber(editData?.baseSalary) as any,
     payrollPeriod: editData?.payrollPeriod || "monthly",
-    noOfWorkingDays: editData?.noOfWorkingDays ?? ("" as any),
-    hourlyRate: editData?.hourlyRate != null ? parseFloat(editData.hourlyRate) : undefined,
-    overtimeRate: editData?.overtimeRate != null ? parseFloat(editData.overtimeRate) : undefined,
+    noOfWorkingDays: toRequiredFormNumber(editData?.noOfWorkingDays) as any,
+    hourlyRate: toOptionalFormNumber(editData?.hourlyRate),
+    overtimeRate: toOptionalFormNumber(editData?.overtimeRate),
     citizenshipStatus: residencyType,
     prStatus: editData?.prStatus || "",
-    age: editData?.dateOfBirth ? calculateAgeFromDob(editData.dateOfBirth) : ("" as any),
+    age: editData?.dateOfBirth ? calculateAgeFromDob(editData.dateOfBirth) : (undefined as any),
     dateOfBirth: editData?.dateOfBirth ? String(editData.dateOfBirth).split("T")[0] : "",
-    allowanceTransport: allowances.transport ?? ("" as any),
-    allowanceMeal: allowances.meal ?? ("" as any),
-    allowancePhone: allowances.phone ?? ("" as any),
-    allowanceOthers: allowances.others ?? ("" as any),
-    deductionMedical: deductions.medical ?? ("" as any),
-    deductionAdvance: deductions.advance ?? ("" as any),
-    deductionOthers: deductions.others ?? ("" as any),
-    taxRate: editData?.taxRate != null ? parseFloat(editData.taxRate) : ("" as any),
+    allowanceTransport: toOptionalFormNumber(allowances.transport),
+    allowanceMeal: toOptionalFormNumber(allowances.meal),
+    allowancePhone: toOptionalFormNumber(allowances.phone),
+    allowanceOthers: toOptionalFormNumber(allowances.others),
+    deductionMedical: toOptionalFormNumber(deductions.medical),
+    deductionAdvance: toOptionalFormNumber(deductions.advance),
+    deductionOthers: toOptionalFormNumber(deductions.others),
+    taxRate: toOptionalFormNumber(editData?.taxRate),
     isActive: editData?.isActive ?? true,
     effectiveFrom: editData?.effectiveFrom
       ? String(editData.effectiveFrom).split("T")[0]
@@ -352,18 +366,12 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
   if (employees.length === 0) return <div className="text-yellow-600">No employees found. Please add employees first.</div>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">{isEditMode ? "Edit Payroll Configuration" : "Create Payroll Configuration"}</h2>
-        <p className="text-muted-foreground">
-          Select an employee — CPF is calculated automatically from Employee Master data.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-6 py-6">
         <div className="lg:col-span-2">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit((d) => saveMutation.mutate(d))} className="space-y-6">
+            <div className="space-y-6">
               <Card>
                 <CardHeader><CardTitle>Employee Selection</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
@@ -440,10 +448,16 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                             <Input
                               type="number"
                               step="0.01"
+                              placeholder="Enter monthly salary"
                               {...field}
+                              value={field.value ?? ""}
                               readOnly={!!selectedEmployee?.salary}
                               className={selectedEmployee?.salary ? "bg-muted cursor-not-allowed" : ""}
-                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === "" ? undefined : parseFloat(e.target.value)
+                                )
+                              }
                             />
                           </FormControl>
                           <FormMessage />
@@ -492,7 +506,12 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                               step={1}
                               placeholder="e.g. 26"
                               {...field}
-                              onChange={(e) => field.onChange(parseInt(e.target.value, 10) || "")}
+                              value={field.value ?? ""}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === "" ? undefined : parseInt(e.target.value, 10)
+                                )
+                              }
                             />
                           </FormControl>
                           <FormMessage />
@@ -577,7 +596,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Age</FormLabel>
-                        <Input type="number" {...field} readOnly className="bg-muted" />
+                        <Input type="number" {...field} value={field.value ?? ""} readOnly className="bg-muted" />
                         <FormMessage />
                       </FormItem>
                     )}
@@ -609,9 +628,17 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                           <FormItem>
                             <FormLabel>{label}</FormLabel>
                             <FormControl>
-                              <Input type="number" step="0.01" placeholder="0.00"
-                                {...field} value={field.value ?? ""}
-                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Enter amount"
+                                {...field}
+                                value={field.value ?? ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value === "" ? undefined : parseFloat(e.target.value)
+                                  )
+                                }
                               />
                             </FormControl>
                             <FormMessage />
@@ -638,9 +665,17 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                           <FormItem>
                             <FormLabel>{label}</FormLabel>
                             <FormControl>
-                              <Input type="number" step="0.01" placeholder="0.00"
-                                {...field} value={field.value ?? ""}
-                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Enter amount"
+                                {...field}
+                                value={field.value ?? ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value === "" ? undefined : parseFloat(e.target.value)
+                                  )
+                                }
                               />
                             </FormControl>
                             <FormMessage />
@@ -730,16 +765,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                   />
                 </CardContent>
               </Card>
-
-              <div className="flex justify-end gap-4">
-                <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-                <Button type="submit" disabled={saveMutation.isPending || !calculation || isCalculating}>
-                  {saveMutation.isPending
-                    ? isEditMode ? "Updating..." : "Creating..."
-                    : isEditMode ? "Update Payroll Configuration" : "Create Payroll Configuration"}
-                </Button>
-              </div>
-            </form>
+            </div>
           </Form>
         </div>
 
@@ -753,6 +779,23 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
           />
         </div>
       </div>
+      </div>
+
+      <FormSheetFooter>
+        <Button type="button" variant="outline" className={formSheetCancelClass} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          className={formSheetSubmitClass}
+          disabled={saveMutation.isPending || !calculation || isCalculating}
+          onClick={form.handleSubmit((d) => saveMutation.mutate(d))}
+        >
+          {saveMutation.isPending
+            ? isEditMode ? "Updating..." : "Creating..."
+            : isEditMode ? "Update" : "Create "}
+        </Button>
+      </FormSheetFooter>
     </div>
   );
 }

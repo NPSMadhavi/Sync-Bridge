@@ -184,7 +184,7 @@ export default function DocumentsPage() {
               <TabsTrigger value="expired">Expired</TabsTrigger>
             </TabsList>
             <Button onClick={handleUploadDocument}>
-              <Plus className="mr-2 h-4 w-4" /> Upload Company Document
+              <Plus className="mr-2 h-4 w-4" /> Add Document
             </Button>
           </div>
           
@@ -418,7 +418,7 @@ export default function DocumentsPage() {
                         {
                           icon: Download,
                           label: "Download",
-                          variant: "default",
+                          variant: "download",
                           onClick: () => onDownload(doc),
                         },
                         {

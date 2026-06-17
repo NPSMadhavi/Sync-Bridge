@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Dashboard from "@/components/layout/Dashboard";
 import DashboardExpiringTable from "@/components/dashboard/DashboardExpiringTable";
 import DocumentOverviewChart from "@/components/dashboard/DocumentOverviewChart";
@@ -36,10 +36,11 @@ function StatCard({
   onDocumentClick?: (mode: "expiring" | "expired") => void;
 }) {
   const cardClasses = cn(
-    "group h-full border-2 border-transparent transition-all duration-200 cursor-pointer",
-    "hover:border-primary hover:bg-primary/[0.06] hover:shadow-md",
-    "active:border-primary active:bg-primary/10 active:shadow-sm active:scale-[0.99]",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+    "h-full border-2 border-transparent transition-all duration-200 cursor-pointer",
+    "group-hover:border-primary group-hover:bg-primary group-hover:shadow-md",
+    "group-active:border-primary group-active:bg-primary group-active:shadow-sm group-active:scale-[0.99]",
+    "group-focus-visible:outline-none group-focus-visible:ring-2 group-focus-visible:ring-primary group-focus-visible:ring-offset-2",
+    "group-focus-visible:border-primary group-focus-visible:bg-primary"
   );
 
   const inner = (
@@ -47,18 +48,24 @@ function StatCard({
       <CardContent className="p-6">
         <div
           className={cn(
-            "w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r transition-transform duration-200",
+            "w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r transition-all duration-200",
             "group-hover:scale-105 group-active:scale-100",
+            "group-hover:bg-white/20 group-hover:bg-none group-active:bg-white/20 group-active:bg-none",
+            "group-focus-visible:bg-white/20 group-focus-visible:bg-none",
             card.gradient
           )}
         >
           {card.icon}
         </div>
-        <h3 className="text-sm font-medium text-gray-600 mb-2 group-hover:text-primary/80 transition-colors">
+        <h3 className="text-sm font-medium text-gray-600 mb-2 transition-colors group-hover:text-white group-active:text-white group-focus-visible:text-white">
           {card.title}
         </h3>
-        <p className="text-3xl font-bold text-gray-900">{card.count}</p>
-        <p className="text-xs text-muted-foreground mt-1">{card.subtitle}</p>
+        <p className="text-3xl font-bold text-gray-900 transition-colors group-hover:text-white group-active:text-white group-focus-visible:text-white">
+          {card.count}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1 transition-colors group-hover:text-white/85 group-active:text-white/85 group-focus-visible:text-white/85">
+          {card.subtitle}
+        </p>
       </CardContent>
     </Card>
   );
@@ -66,7 +73,7 @@ function StatCard({
   if (card.documentMode && onDocumentClick) {
     return (
       <div
-        className="h-full rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        className="group h-full rounded-xl outline-none"
         onClick={() => onDocumentClick(card.documentMode!)}
         role="button"
         tabIndex={0}
@@ -79,13 +86,13 @@ function StatCard({
 
   if (card.href) {
     return (
-      <Link href={card.href} className="block h-full rounded-xl outline-none">
+      <Link href={card.href} className="group block h-full rounded-xl outline-none">
         {inner}
       </Link>
     );
   }
 
-  return inner;
+  return <div className="group h-full">{inner}</div>;
 }
 
 export default function HomePage() {
@@ -101,7 +108,7 @@ export default function HomePage() {
     (Boolean(tenantId) || user.role === "super_admin" || user.isSuperAdmin);
 
   const { data: dashboardData, isLoading, error } = useQuery({
-    queryKey: ["/api/dashboard"],
+    queryKey: ["/api/dashboard", tenantId],
     queryFn: getQueryFn({ on401: "throw" }),
     staleTime: 0,
     refetchOnMount: true,
@@ -115,9 +122,19 @@ export default function HomePage() {
       const res = await apiRequest("GET", "/api/document-reminders/expiring?status=expiring");
       return res.json();
     },
-    enabled: canLoadDashboardStats && canView("documents"),
-    staleTime: 60_000,
+    enabled: Boolean(canLoadDashboardStats && (canView("documents") || canView("licenses"))),
+    staleTime: 0,
+    refetchOnMount: true,
   });
+
+  const visibleExpiringRecords = useMemo(
+    () =>
+      expiringRecords.filter((record) => {
+        if (record.reminderType === "license") return canView("licenses");
+        return canView("documents");
+      }),
+    [expiringRecords, canView]
+  );
 
   const handleDocumentCardClick = async (mode: "expiring" | "expired") => {
     try {
@@ -272,16 +289,18 @@ export default function HomePage() {
             </Card>
           )}
 
-          {(canView("documents") || canView("assets")) && (
+          {(canView("documents") || canView("licenses") || canView("assets")) && (
             <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-4 min-h-[480px]">
               <div
                 className={cn(
                   "xl:col-span-7 grid gap-4 min-h-0 h-full",
-                  canView("documents") && canView("assets") ? "grid-rows-2" : "grid-rows-1"
+                  (canView("documents") || canView("licenses")) && canView("assets")
+                    ? "grid-rows-2"
+                    : "grid-rows-1"
                 )}
               >
-                {canView("documents") && (
-                  <DashboardExpiringTable records={expiringRecords} />
+                {(canView("documents") || canView("licenses")) && (
+                  <DashboardExpiringTable records={visibleExpiringRecords} />
                 )}
                 {canView("assets") && (
                   <DashboardRecentAssignments assignments={recentAssignments} />

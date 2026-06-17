@@ -93,16 +93,74 @@ export function isPayrollProcessedForPeriod(
   payPeriodStart: string,
   payPeriodEnd: string
 ) {
-  const start = toDateOnly(payPeriodStart);
-  const year = parseInt(start.slice(0, 4), 10);
-  const month = parseInt(start.slice(5, 7), 10);
-  if (!year || !month) return false;
-
-  return records.some(
-    (record) =>
-      record.employeeId === employeeDbId &&
-      payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, month)
+  return Boolean(
+    findPayrollRecordForPeriod(employeeDbId, records, payPeriodStart, payPeriodEnd)
   );
+}
+
+function normalizePayrollComponentMap(value: unknown): string {
+  const obj = (value && typeof value === "object" && !Array.isArray(value) ? value : {}) as Record<
+    string,
+    unknown
+  >;
+  const entries = Object.entries(obj)
+    .map(([key, val]) => [key, Number(val) || 0] as const)
+    .filter(([, num]) => num !== 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  return JSON.stringify(Object.fromEntries(entries));
+}
+
+export function findPayrollRecordForPeriod(
+  employeeDbId: number,
+  records: any[],
+  payPeriodStart: string,
+  payPeriodEnd: string
+) {
+  const start = toDateOnly(payPeriodStart);
+  const { year, month } = derivePayrollMonthYear(start);
+
+  return records
+    .filter((record) => record.employeeId === employeeDbId)
+    .filter(
+      (record) =>
+        (record.payrollYear === year && record.payrollMonth === month) ||
+        payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, month)
+    )
+    .sort((a, b) => {
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    })[0];
+}
+
+export function hasPayrollDataChanged(
+  config: any,
+  record: any,
+  requestedOvertimeHours = 0
+) {
+  if (!config || !record) return false;
+
+  if (
+    record.payrollConfigId != null &&
+    Number(record.payrollConfigId) !== Number(config.id)
+  ) {
+    return true;
+  }
+  if (Number(record.baseSalary) !== Number(config.baseSalary)) return true;
+  if (normalizePayrollComponentMap(record.allowances) !== normalizePayrollComponentMap(config.allowances)) {
+    return true;
+  }
+  if (normalizePayrollComponentMap(record.deductions) !== normalizePayrollComponentMap(config.deductions)) {
+    return true;
+  }
+  if (Number(requestedOvertimeHours) !== Number(record.overtimeHours ?? 0)) return true;
+
+  if (config.updatedAt && record.updatedAt) {
+    return new Date(config.updatedAt).getTime() > new Date(record.updatedAt).getTime();
+  }
+
+  return false;
 }
 
 export function areAllConfigsProcessedForPeriod(
@@ -115,6 +173,58 @@ export function areAllConfigsProcessedForPeriod(
   return configs.every((config) =>
     isPayrollProcessedForPeriod(config.employeeId, records, payPeriodStart, payPeriodEnd)
   );
+}
+
+export type BatchPayrollScenario = "pending" | "values-changed" | "no-changes";
+
+export interface BatchPayrollStatus {
+  scenario: BatchPayrollScenario;
+  pendingCount: number;
+  changedCount: number;
+  unchangedCount: number;
+  pendingConfigIds: number[];
+  changedConfigIds: number[];
+}
+
+export function resolveBatchPayrollStatus(
+  configs: { id: number; employeeId: number; isActive?: boolean }[],
+  records: any[],
+  payPeriodStart: string,
+  payPeriodEnd: string
+): BatchPayrollStatus {
+  const activeConfigs = configs.filter((config) => config.isActive !== false);
+  const pendingConfigIds: number[] = [];
+  const changedConfigIds: number[] = [];
+
+  for (const config of activeConfigs) {
+    const existing = findPayrollRecordForPeriod(
+      config.employeeId,
+      records,
+      payPeriodStart,
+      payPeriodEnd
+    );
+    if (!existing) {
+      pendingConfigIds.push(config.id);
+    } else if (hasPayrollDataChanged(config, existing, 0)) {
+      changedConfigIds.push(config.id);
+    }
+  }
+
+  const scenario: BatchPayrollScenario =
+    pendingConfigIds.length > 0
+      ? "pending"
+      : changedConfigIds.length > 0
+        ? "values-changed"
+        : "no-changes";
+
+  return {
+    scenario,
+    pendingCount: pendingConfigIds.length,
+    changedCount: changedConfigIds.length,
+    unchangedCount: activeConfigs.length - pendingConfigIds.length - changedConfigIds.length,
+    pendingConfigIds,
+    changedConfigIds,
+  };
 }
 
 export function hasProcessedPayrollForEmployee(employeeDbId: number, records: any[]): boolean {
@@ -210,7 +320,8 @@ export async function processIndividualPayrollForConfig(
   payPeriodStart: string,
   payPeriodEnd: string,
   overtimeHours = 0,
-  notes = ""
+  notes = "",
+  options?: { forceOverwrite?: boolean }
 ) {
   const res = await fetch("/api/payroll/process/individual", {
     method: "POST",
@@ -222,8 +333,28 @@ export async function processIndividualPayrollForConfig(
       payPeriodEnd,
       overtimeHours,
       notes,
+      forceOverwrite: options?.forceOverwrite === true,
     }),
   });
+
+  if (res.status === 409) {
+    const data = await res.json().catch(() => ({}));
+    if (options?.forceOverwrite === true) {
+      return {
+        ok: false as const,
+        message:
+          data.message ||
+          "Payroll could not be overwritten. Please try again or contact support.",
+      };
+    }
+    return {
+      ok: false as const,
+      alreadyProcessed: true as const,
+      dataChanged: data.dataChanged === true,
+      message: data.message || "Payroll for this period has already been processed.",
+      action: data.action as string | undefined,
+    };
+  }
 
   const month = parseInt(payPeriodStart.slice(5, 7), 10);
   const year = parseInt(payPeriodStart.slice(0, 4), 10);
@@ -236,7 +367,8 @@ export async function processIndividualPayrollForConfig(
 export async function batchProcessPayrollForPeriod(
   payPeriodStart: string,
   payPeriodEnd: string,
-  payrollConfigIds?: number[]
+  payrollConfigIds?: number[],
+  options?: { forceOverwrite?: boolean; processScope?: "pending" | "changed" }
 ) {
   const res = await fetch("/api/payroll/process/batch", {
     method: "POST",
@@ -246,12 +378,42 @@ export async function batchProcessPayrollForPeriod(
       payPeriodStart,
       payPeriodEnd,
       payrollConfigIds,
+      forceOverwrite: options?.forceOverwrite === true,
+      processScope: options?.processScope,
     }),
   });
 
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
     const data = await res.json();
+    if (data.scenario === "no-changes" || data.needsNoChangesNotice) {
+      return {
+        ok: false as const,
+        alreadyProcessed: true as const,
+        scenario: "no-changes" as const,
+        message: data.message as string,
+        summary: data.summary as BatchPayrollSummary | undefined,
+      };
+    }
+    if (data.needsOverwriteConfirmation || data.scenario === "values-changed") {
+      return {
+        ok: false as const,
+        alreadyProcessed: true as const,
+        needsOverwriteConfirmation: true as const,
+        scenario: "values-changed" as const,
+        message: data.message as string,
+        summary: data.summary as BatchPayrollSummary | undefined,
+      };
+    }
+    if (data.scenario === "pending" || data.needsPendingConfirmation) {
+      return {
+        ok: false as const,
+        scenario: "pending" as const,
+        needsPendingConfirmation: true as const,
+        message: data.message as string,
+        summary: data.summary as BatchPayrollSummary | undefined,
+      };
+    }
     return {
       ok: false as const,
       message: data.message || "Processing failed",

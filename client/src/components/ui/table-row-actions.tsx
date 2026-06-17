@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 
-export type TableActionVariant = "edit" | "view" | "delete" | "default";
+export type TableActionVariant = "edit" | "view" | "delete" | "download" | "default";
 
 export interface TableAction {
   icon: LucideIcon;
@@ -16,6 +16,8 @@ const variantClasses: Record<TableActionVariant, string> = {
   edit: "hover:bg-teal-50 hover:text-teal-700",
   view: "hover:bg-blue-50 hover:text-blue-700",
   delete: "hover:bg-red-50 hover:text-red-700",
+  download:
+    "hover:bg-transparent hover:text-foreground focus-visible:bg-transparent active:bg-transparent active:text-foreground",
   default: "",
 };
 

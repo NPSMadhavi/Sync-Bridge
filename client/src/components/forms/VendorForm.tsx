@@ -18,10 +18,10 @@ import { Switch } from "@/components/ui/switch";
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
-import { Loader2, Store, X } from "lucide-react";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
+import { Loader2, Store } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { insertVendorSchema, type Vendor, type InsertVendor } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -156,26 +156,16 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }} className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-white">
-        {/* Sticky Header */}
-        <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
-          <SheetHeader className="flex-row flex-1 justify-between items-center">
-            <SheetTitle className="flex items-center gap-2">
-              <Store className="h-5 w-5" />
-              {isEditMode ? "Edit Vendor" : "Add New Vendor"}
-            </SheetTitle>
-          </SheetHeader>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 pb-24">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 mt-6">
-              {/* Basic Information */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Basic Information</h3>
+      <SheetContent hideClose style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }} className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col overflow-hidden bg-white">
+        <Form {...form}>
+          <div className="h-full flex flex-col">
+            <FormSheetHeader
+              title={isEditMode ? "Edit Vendor" : "Add New Vendor"}
+              onClose={onClose}
+              icon={<Store className="h-5 w-5" />}
+            />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-6 py-6 sm:px-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -251,7 +241,7 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                     control={form.control}
                     name="isActive"
                     render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 md:col-span-2">
                         <div className="space-y-0.5">
                           <FormLabel className="text-base">Active Vendor</FormLabel>
                           <div className="text-sm text-muted-foreground">
@@ -267,27 +257,21 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                       </FormItem>
                     )}
                   />
-                </div>
-              </div>
 
-              {/* Address Information */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Address Information</h3>
                 <FormField
                   control={form.control}
                   name="address"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="md:col-span-2">
                       <FormLabel>Address</FormLabel>
                       <FormControl>
-                        <Input placeholder="123 Business St" {...field} />
+                        <Textarea placeholder="123 Business St" className="resize-none" rows={3} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
                     name="city"
@@ -329,7 +313,6 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                       </FormItem>
                     )}
                   />
-                </div>
 
                 <FormField
                   control={form.control}
@@ -344,12 +327,7 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                     </FormItem>
                   )}
                 />
-              </div>
 
-              {/* Business Information */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Business Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="taxId"
@@ -405,13 +383,12 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                       </FormItem>
                     )}
                   />
-                </div>
 
                 <FormField
                   control={form.control}
                   name="assetTypesSupplied"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="md:col-span-2">
                       <FormLabel>Asset Types Supplied</FormLabel>
                       <FormControl>
                         <Textarea
@@ -432,12 +409,13 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                   control={form.control}
                   name="notes"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="md:col-span-2">
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
                         <Textarea
                           placeholder="Additional notes about this vendor..."
                           className="resize-none"
+                          rows={3}
                           {...field}
                         />
                       </FormControl>
@@ -446,12 +424,12 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                   )}
                 />
               </div>
-
-              {/* Form Actions */}
-              <div className="flex justify-end space-x-4 pt-6 border-t">
+              </div>
+              <FormSheetFooter>
                 <Button
                   type="button"
                   variant="outline"
+                  className={formSheetCancelClass}
                   onClick={onClose}
                   disabled={mutation.isPending}
                 >
@@ -459,6 +437,7 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                 </Button>
                 <Button
                   type="submit"
+                  className={formSheetSubmitClass}
                   disabled={mutation.isPending}
                 >
                   {mutation.isPending ? (
@@ -467,13 +446,13 @@ export default function VendorForm({ vendor, isOpen, onClose }: VendorFormProps)
                       {isEditMode ? "Updating..." : "Creating..."}
                     </>
                   ) : (
-                    <>{isEditMode ? "Update Vendor" : "Create Vendor"}</>
+                    <>{isEditMode ? "Update " : "Create "}</>
                   )}
                 </Button>
-              </div>
+              </FormSheetFooter>
             </form>
-          </Form>
-        </div>
+          </div>
+        </Form>
       </SheetContent>
     </Sheet>
   );

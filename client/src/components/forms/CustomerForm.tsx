@@ -16,10 +16,10 @@ import { Switch } from "@/components/ui/switch";
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
-import { Loader2, UserCheck, X } from "lucide-react";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
+import { Loader2, UserCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { insertCustomerSchema, type Customer, type InsertCustomer } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -90,24 +90,17 @@ export default function CustomerForm({ customer, onSuccess, isOpen, onClose }: C
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent className="!w-screen !max-w-none fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-white">
-        {/* Sticky Header */}
-        <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
-          <SheetHeader className="flex flex-row items-center justify-between w-full">
-            <SheetTitle className="flex items-center gap-2 text-2xl font-bold">
-              <UserCheck className="h-5 w-5" />
-              {customer ? "Edit Customer" : "Add New Customer"}
-            </SheetTitle>
-          </SheetHeader>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 pb-24">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 mt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <SheetContent hideClose className="!w-screen !max-w-none fixed top-0 right-0 h-screen z-50 p-0 flex flex-col overflow-hidden bg-white">
+        <Form {...form}>
+          <div className="h-full flex flex-col">
+            <FormSheetHeader
+              title={customer ? "Edit Customer" : "Add New Customer"}
+              onClose={onClose}
+              icon={<UserCheck className="h-5 w-5" />}
+            />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-6 py-6 sm:px-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="name"
@@ -291,12 +284,12 @@ export default function CustomerForm({ customer, onSuccess, isOpen, onClose }: C
                   )}
                 />
               </div>
-
-              {/* Form Actions */}
-              <div className="flex justify-end space-x-4 pt-6 border-t">
+              </div>
+              <FormSheetFooter>
                 <Button
                   type="button"
                   variant="outline"
+                  className={formSheetCancelClass}
                   onClick={onClose}
                   disabled={mutation.isPending}
                 >
@@ -304,6 +297,7 @@ export default function CustomerForm({ customer, onSuccess, isOpen, onClose }: C
                 </Button>
                 <Button
                   type="submit"
+                  className={formSheetSubmitClass}
                   disabled={mutation.isPending}
                 >
                   {mutation.isPending ? (
@@ -312,13 +306,13 @@ export default function CustomerForm({ customer, onSuccess, isOpen, onClose }: C
                       {customer ? "Updating..." : "Creating..."}
                     </>
                   ) : (
-                    <>{customer ? "Update Customer" : "Create Customer"}</>
+                    <>{customer ? "Update " : "Create "}</>
                   )}
                 </Button>
-              </div>
+              </FormSheetFooter>
             </form>
-          </Form>
-        </div>
+          </div>
+        </Form>
       </SheetContent>
     </Sheet>
   );

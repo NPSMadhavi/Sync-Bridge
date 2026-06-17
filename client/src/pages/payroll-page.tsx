@@ -15,9 +15,8 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
 import {
   Plus,
   Users,
@@ -516,17 +515,15 @@ export default function PayrollPage() {
       <Sheet open={configFormOpen} onOpenChange={(open) => { if (!open) { setConfigFormOpen(false); setSelectedConfig(null); } }}>
         <SheetContent
           side="right"
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "55vw", maxWidth: "none", minWidth: "320px" }}
         >
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                {selectedConfig ? "Edit Payroll Config" : "Add Payroll Config"}
-              </SheetTitle>
-            </SheetHeader>
-          </div>
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <FormSheetHeader
+            title={selectedConfig ? "Edit Payroll Config" : "Add Payroll Config"}
+            onClose={() => { setConfigFormOpen(false); setSelectedConfig(null); }}
+          />
+          <div className="flex-1 min-h-0">
             {configFormOpen && (
               <PayrollConfigForm
                 onSuccess={() => { setConfigFormOpen(false); setSelectedConfig(null); }}
@@ -542,17 +539,15 @@ export default function PayrollPage() {
       <Sheet open={recordFormOpen} onOpenChange={(open) => { if (!open) { setRecordFormOpen(false); setSelectedRecord(null); } }}>
         <SheetContent
           side="right"
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "55vw", maxWidth: "none", minWidth: "320px" }}
         >
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                Process Payroll
-              </SheetTitle>
-            </SheetHeader>
-          </div>
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <FormSheetHeader
+            title="Process Payroll"
+            onClose={() => { setRecordFormOpen(false); setSelectedRecord(null); }}
+          />
+          <div className="flex-1 min-h-0">
             {recordFormOpen && (
               <ProcessPayrollForm
                 onSuccess={() => { setRecordFormOpen(false); setSelectedRecord(null); }}
@@ -566,16 +561,14 @@ export default function PayrollPage() {
       <Sheet open={detailOpen} onOpenChange={(open) => !open && closeDetails()}>
         <SheetContent
           side="right"
+          hideClose
           className="p-0 flex flex-col"
           style={{ width: "42vw", maxWidth: "none", minWidth: "320px" }}
         >
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                {detailMode === "record" ? "Payroll Record Details" : "Payroll Configuration Details"}
-              </SheetTitle>
-            </SheetHeader>
-          </div>
+          <FormSheetHeader
+            title={detailMode === "record" ? "Payroll Record Details" : "Payroll Configuration Details"}
+            onClose={closeDetails}
+          />
 
           <div className="flex-1 overflow-y-auto px-6 py-6">
             {detailMode === "record" && selectedRecord && (

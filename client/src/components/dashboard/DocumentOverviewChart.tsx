@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils";
-import { MoreHorizontal } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
-import { Button } from "@/components/ui/button";
+import { PieChart as PieChartIcon } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 export interface DocumentOverviewData {
   valid: number;
@@ -53,27 +52,40 @@ export default function DocumentOverviewChart({
         className
       )}
     >
-      <div className="px-5 py-4 flex items-center justify-between border-b border-gray-100 shrink-0">
-        <h3 className="text-[15px] font-semibold text-gray-900">Document Overview</h3>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
+      <div className="px-5 py-3 flex items-center gap-2.5 border-b border-gray-100 shrink-0">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+          <PieChartIcon className="h-4 w-4" />
+        </span>
+        <h3 className="text-[16px] font-semibold text-gray-900">Document Overview</h3>
       </div>
 
-      <div className="flex-1 flex flex-col min-h-0 px-5 py-5">
-        <div className="flex-1 flex flex-col items-center justify-center min-h-[200px]">
-          <div className="relative w-full max-w-[260px] flex-1 min-h-[180px] max-h-[320px] mx-auto aspect-square">
+      <div className="flex-1 flex flex-col items-stretch min-h-0 px-5 py-5 gap-4">
+        <div className="flex items-center justify-center shrink-0 min-h-[220px]">
+          <div className="relative w-full max-w-[280px] aspect-square mx-auto">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
+                <Tooltip
+                  formatter={(value: number, name: string) => [
+                    `${value} (${pct(value)}%)`,
+                    name,
+                  ]}
+                  contentStyle={{
+                    borderRadius: "8px",
+                    border: "1px solid #e5e7eb",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                    fontSize: "13px",
+                  }}
+                />
                 <Pie
                   data={displayData}
                   cx="50%"
                   cy="50%"
-                  innerRadius="60%"
-                  outerRadius="85%"
-                  paddingAngle={chartData.length > 1 ? 3 : 0}
+                  innerRadius="58%"
+                  outerRadius="92%"
+                  paddingAngle={chartData.length > 1 ? 4 : 0}
                   dataKey="value"
-                  strokeWidth={0}
+                  stroke="#fff"
+                  strokeWidth={3}
                 >
                   {displayData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
@@ -82,31 +94,35 @@ export default function DocumentOverviewChart({
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[32px] font-bold text-gray-900 leading-none">{total}</span>
-              <span className="text-xs text-gray-500 mt-1.5">Total Documents</span>
+              <span className="text-[40px] font-bold text-gray-900 leading-none tracking-tight">
+                {total}
+              </span>
+              <span className="text-sm text-gray-500 mt-2 font-medium">Total Documents</span>
             </div>
           </div>
         </div>
 
-        <div className="w-full mt-2 shrink-0 divide-y divide-gray-100 border-t border-gray-100">
-          {legendItems.map((item) => (
-            <div
-              key={item.label}
-              className="flex items-center justify-between gap-3 py-3 first:pt-4 last:pb-1"
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span
-                  className="h-2.5 w-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span className="text-sm text-gray-700">{item.label}</span>
+        <div className="border-t border-gray-100 pt-4 shrink-0">
+          <div className="flex flex-col divide-y divide-gray-100">
+            {legendItems.map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className="h-3 w-3 rounded-full shrink-0 ring-2 ring-white shadow-sm"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="text-sm font-medium text-gray-700 truncate">{item.label}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-base font-bold text-gray-900 tabular-nums">{item.count}</span>
+                  <span className="block text-xs text-gray-500 tabular-nums">{pct(item.count)}%</span>
+                </div>
               </div>
-              <span className="text-sm font-semibold text-gray-900 shrink-0 tabular-nums">
-                {item.count}{" "}
-                <span className="font-normal text-gray-500">({pct(item.count)}%)</span>
-              </span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>

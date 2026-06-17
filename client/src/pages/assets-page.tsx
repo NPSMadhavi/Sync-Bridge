@@ -15,12 +15,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Asset } from "@shared/schema";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
 import AssetForm from "@/components/forms/AssetForm";
 import { TableRowActions } from "@/components/ui/table-row-actions";
 import {
@@ -272,25 +268,15 @@ export default function AssetsPage() {
       <Sheet open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
         <SheetContent 
           side="right" 
+          hideClose
           style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }}
-          className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-white"
+          className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col overflow-hidden bg-white"
         >
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
-            <SheetHeader>
-              <SheetTitle className="text-xl font-semibold">
-                {selectedAssetId ? "Edit Asset" : "Add New Asset"}
-              </SheetTitle>
-            </SheetHeader>
-            <Button variant="ghost" size="sm" onClick={() => setIsFormDialogOpen(false)}>
-              <span className="sr-only">Close</span>
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </Button>
-          </div>
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <FormSheetHeader
+            title={selectedAssetId ? "Edit Asset" : "Add New Asset"}
+            onClose={() => setIsFormDialogOpen(false)}
+          />
+          <div className="flex-1 min-h-0">
             <AssetForm
               key={selectedAssetId ?? "new"}
               assetId={selectedAssetId || undefined}

@@ -34,8 +34,8 @@ export function assertCanManageUser(
 ): boolean {
   const currentUser = req.user as PermissionUser;
 
-  if (isSuperAdminUser(targetUser) && !isSuperAdminUser(currentUser)) {
-    res.status(403).json({ message: "Cannot modify super admin accounts" });
+  if (isSuperAdminUser(targetUser)) {
+    res.status(403).json({ message: "Super admin accounts cannot be managed from User Management" });
     return false;
   }
 

@@ -7,8 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Edit, Trash2, Eye, X, Mail, Phone, MapPin, Globe } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Eye, Mail, Phone, MapPin, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -283,14 +286,171 @@ export default function VendorsPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    addVendorMutation.mutate(formData);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedVendor) {
       updateVendorMutation.mutate({ id: selectedVendor.id.toString(), data: formData });
-    } else {
-      addVendorMutation.mutate(formData);
     }
   };
+
+  const closeAddSheet = () => {
+    setIsAddModalOpen(false);
+    resetForm();
+  };
+
+  const closeEditSheet = () => {
+    setIsEditModalOpen(false);
+    setSelectedVendor(null);
+    resetForm();
+  };
+
+  const renderVendorFormFields = (idPrefix: string) => (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor={`${idPrefix}name`}>Vendor Name</Label>
+          <Input
+            id={`${idPrefix}name`}
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}contact`}>Contact Person</Label>
+          <Input
+            id={`${idPrefix}contact`}
+            value={formData.contact}
+            onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}email`}>Email</Label>
+          <Input
+            id={`${idPrefix}email`}
+            type="email"
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}phone`}>Phone</Label>
+          <Input
+            id={`${idPrefix}phone`}
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}website`}>Website</Label>
+          <Input
+            id={`${idPrefix}website`}
+            type="url"
+            value={formData.website}
+            onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+            placeholder="https://example.com"
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}taxId`}>Tax ID</Label>
+          <Input
+            id={`${idPrefix}taxId`}
+            value={formData.taxId}
+            onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <Label htmlFor={`${idPrefix}address`}>Address</Label>
+          <Textarea
+            id={`${idPrefix}address`}
+            value={formData.address}
+            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+            rows={3}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}city`}>City</Label>
+          <Input
+            id={`${idPrefix}city`}
+            value={formData.city}
+            onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}state`}>State</Label>
+          <Input
+            id={`${idPrefix}state`}
+            value={formData.state}
+            onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}zipCode`}>Zip Code</Label>
+          <Input
+            id={`${idPrefix}zipCode`}
+            value={formData.zipCode}
+            onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}country`}>Country</Label>
+          <Input
+            id={`${idPrefix}country`}
+            value={formData.country}
+            onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}registrationNumber`}>Registration Number</Label>
+          <Input
+            id={`${idPrefix}registrationNumber`}
+            value={formData.registrationNumber}
+            onChange={(e) => setFormData({ ...formData, registrationNumber: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}paymentTerms`}>Payment Terms</Label>
+          <Input
+            id={`${idPrefix}paymentTerms`}
+            value={formData.paymentTerms}
+            onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}assetTypesSupplied`}>Asset Types Supplied</Label>
+          <Input
+            id={`${idPrefix}assetTypesSupplied`}
+            value={formData.assetTypesSupplied}
+            onChange={(e) => setFormData({ ...formData, assetTypesSupplied: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}creditLimit`}>Credit Limit</Label>
+          <Input
+            id={`${idPrefix}creditLimit`}
+            value={formData.creditLimit}
+            onChange={(e) => setFormData({ ...formData, creditLimit: e.target.value })}
+          />
+        </div>
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}notes`}>Notes</Label>
+        <Textarea
+          id={`${idPrefix}notes`}
+          value={formData.notes}
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          rows={3}
+        />
+      </div>
+    </>
+  );
 
   const filteredVendors = vendors.filter((vendor: Vendor) =>
     vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -316,6 +476,7 @@ export default function VendorsPage() {
           </div>
           <Button onClick={() => {
             resetForm();
+            setSelectedVendor(null);
             setIsAddModalOpen(true);
           }}>
             <Plus className="mr-2 h-4 w-4" />
@@ -407,349 +568,63 @@ export default function VendorsPage() {
         </CardContent>
       </Card>
 
-      {/* Add Vendor Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-end z-50">
-          <div className="bg-white h-full w-full max-w-md shadow-xl overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="text-xl font-bold">Add New Vendor</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsAddModalOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+      {/* Add Vendor Sheet */}
+      <Sheet open={isAddModalOpen} onOpenChange={(open) => !open && closeAddSheet()}>
+        <SheetContent
+          side="right"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
+          style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          <FormSheetHeader
+            title="Add New Vendor"
+            description="Add a new vendor to your organization"
+            onClose={closeAddSheet}
+          />
+          <form onSubmit={handleAddSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {renderVendorFormFields("")}
             </div>
-            
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <Label htmlFor="name">Vendor Name</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="contact">Contact Person</Label>
-                  <Input
-                    id="contact"
-                    value={formData.contact}
-                    onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input
-                    id="phone"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="address">Address</Label>
-                  <Textarea
-                    id="address"
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    rows={3}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="website">Website</Label>
-                  <Input
-                    id="website"
-                    type="url"
-                    value={formData.website}
-                    onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                    placeholder="https://example.com"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="city">City</Label>
-                  <Input
-                    id="city"
-                    value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="state">State</Label>
-                  <Input
-                    id="state"
-                    value={formData.state}
-                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="zipCode">Zip Code</Label>
-                  <Input
-                    id="zipCode"
-                    value={formData.zipCode}
-                    onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    value={formData.country}
-                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="taxId">Tax ID</Label>
-                  <Input
-                    id="taxId"
-                    value={formData.taxId}
-                    onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="registrationNumber">Registration Number</Label>
-                  <Input
-                    id="registrationNumber"
-                    value={formData.registrationNumber}
-                    onChange={(e) => setFormData({ ...formData, registrationNumber: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="assetTypesSupplied">Asset Types Supplied</Label>
-                  <Input
-                    id="assetTypesSupplied"
-                    value={formData.assetTypesSupplied}
-                    onChange={(e) => setFormData({ ...formData, assetTypesSupplied: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="paymentTerms">Payment Terms</Label>
-                  <Input
-                    id="paymentTerms"
-                    value={formData.paymentTerms}
-                    onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="creditLimit">Credit Limit</Label>
-                  <Input
-                    id="creditLimit"
-                    value={formData.creditLimit}
-                    onChange={(e) => setFormData({ ...formData, creditLimit: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    rows={3}
-                  />
-                </div>
-              </div>
-              <div className="flex space-x-2 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={addVendorMutation.isPending} className="flex-1">
-                  {addVendorMutation.isPending ? 'Adding...' : 'Add Vendor'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            <FormSheetFooter>
+              <Button type="button" variant="outline" className={formSheetCancelClass} onClick={closeAddSheet}>
+                Cancel
+              </Button>
+              <Button type="submit" className={formSheetSubmitClass} disabled={addVendorMutation.isPending}>
+                {addVendorMutation.isPending ? "Adding..." : "Create"}
+              </Button>
+            </FormSheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
 
-      {/* Edit Vendor Modal */}
-      {isEditModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-end z-50">
-          <div className="bg-white h-full w-full max-w-md shadow-xl overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="text-xl font-bold">Edit Vendor</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsEditModalOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+      {/* Edit Vendor Sheet */}
+      <Sheet open={isEditModalOpen} onOpenChange={(open) => !open && closeEditSheet()}>
+        <SheetContent
+          side="right"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
+          style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
+        >
+          <FormSheetHeader
+            title="Edit Vendor"
+            description="Update vendor information"
+            onClose={closeEditSheet}
+          />
+          <form onSubmit={handleEditSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {renderVendorFormFields("edit_")}
             </div>
-            
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <Label htmlFor="edit_name">Vendor Name</Label>
-                  <Input
-                    id="edit_name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_contact">Contact Person</Label>
-                  <Input
-                    id="edit_contact"
-                    value={formData.contact}
-                    onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_email">Email</Label>
-                  <Input
-                    id="edit_email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_phone">Phone</Label>
-                  <Input
-                    id="edit_phone"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_address">Address</Label>
-                  <Textarea
-                    id="edit_address"
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    rows={3}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_website">Website</Label>
-                  <Input
-                    id="edit_website"
-                    type="url"
-                    value={formData.website}
-                    onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                    placeholder="https://example.com"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_city">City</Label>
-                  <Input
-                    id="edit_city"
-                    value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_state">State</Label>
-                  <Input
-                    id="edit_state"
-                    value={formData.state}
-                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_zipCode">Zip Code</Label>
-                  <Input
-                    id="edit_zipCode"
-                    value={formData.zipCode}
-                    onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_country">Country</Label>
-                  <Input
-                    id="edit_country"
-                    value={formData.country}
-                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_taxId">Tax ID</Label>
-                  <Input
-                    id="edit_taxId"
-                    value={formData.taxId}
-                    onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_registrationNumber">Registration Number</Label>
-                  <Input
-                    id="edit_registrationNumber"
-                    value={formData.registrationNumber}
-                    onChange={(e) => setFormData({ ...formData, registrationNumber: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_assetTypesSupplied">Asset Types Supplied</Label>
-                  <Input
-                    id="edit_assetTypesSupplied"
-                    value={formData.assetTypesSupplied}
-                    onChange={(e) => setFormData({ ...formData, assetTypesSupplied: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_paymentTerms">Payment Terms</Label>
-                  <Input
-                    id="edit_paymentTerms"
-                    value={formData.paymentTerms}
-                    onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_creditLimit">Credit Limit</Label>
-                  <Input
-                    id="edit_creditLimit"
-                    value={formData.creditLimit}
-                    onChange={(e) => setFormData({ ...formData, creditLimit: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit_notes">Notes</Label>
-                  <Textarea
-                    id="edit_notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    rows={3}
-                  />
-                </div>
-              </div>
-              <div className="flex space-x-2 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={updateVendorMutation.isPending} className="flex-1">
-                  {updateVendorMutation.isPending ? 'Updating...' : 'Update Vendor'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            <FormSheetFooter>
+              <Button type="button" variant="outline" className={formSheetCancelClass} onClick={closeEditSheet}>
+                Cancel
+              </Button>
+              <Button type="submit" className={formSheetSubmitClass} disabled={updateVendorMutation.isPending}>
+                {updateVendorMutation.isPending ? "Updating..." : "Update"}
+              </Button>
+            </FormSheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
 
       {selectedVendor && (
         <EntityViewSheet

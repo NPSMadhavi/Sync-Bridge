@@ -6,7 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Search, Edit, Trash2, Eye, Mail, Phone, MapPin, Globe, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -360,24 +362,18 @@ export default function CustomersPage() {
       <Sheet open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <SheetContent 
           side="right" 
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
         >
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                Add New Customer
-              </SheetTitle>
-              <p className="text-sm text-gray-600 mt-2">
-                Add a new customer to your organization
-              </p>
-            </SheetHeader>
-          </div>
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+          <FormSheetHeader
+            title="Add New Customer"
+            description="Add a new customer to your organization"
+            onClose={() => setIsAddDialogOpen(false)}
+          />
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Name</Label>
                   <Input
@@ -488,16 +484,16 @@ export default function CustomersPage() {
                   rows={3}
                 />
               </div>
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={addCustomerMutation.isPending}>
-                  {addCustomerMutation.isPending ? 'Adding...' : 'Add Customer'}
-                </Button>
-              </div>
-            </form>
-          </div>
+            </div>
+            <FormSheetFooter>
+              <Button type="button" variant="outline" className={formSheetCancelClass} onClick={() => setIsAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className={formSheetSubmitClass} disabled={addCustomerMutation.isPending}>
+                {addCustomerMutation.isPending ? 'Adding...' : 'Create'}
+              </Button>
+            </FormSheetFooter>
+          </form>
         </SheetContent>
       </Sheet>
 
@@ -597,24 +593,18 @@ export default function CustomersPage() {
       <Sheet open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <SheetContent 
           side="right" 
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
         >
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                Edit Customer
-              </SheetTitle>
-              <p className="text-sm text-gray-600 mt-2">
-                Update customer information
-              </p>
-            </SheetHeader>
-          </div>
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <FormSheetHeader
+            title="Edit Customer"
+            description="Update customer information"
+            onClose={() => setIsEditDialogOpen(false)}
+          />
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="edit_name">Name</Label>
                 <Input
@@ -725,16 +715,16 @@ export default function CustomersPage() {
                 rows={3}
               />
             </div>
-            <div className="flex justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+            </div>
+            <FormSheetFooter>
+              <Button type="button" variant="outline" className={formSheetCancelClass} onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={updateCustomerMutation.isPending}>
-                {updateCustomerMutation.isPending ? 'Updating...' : 'Update Customer'}
+              <Button type="submit" className={formSheetSubmitClass} disabled={updateCustomerMutation.isPending}>
+                {updateCustomerMutation.isPending ? 'Updating...' : 'Update'}
               </Button>
-            </div>
+            </FormSheetFooter>
           </form>
-          </div>
         </SheetContent>
       </Sheet>
 

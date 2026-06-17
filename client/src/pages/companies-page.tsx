@@ -26,7 +26,9 @@ import {
   formatViewDate,
   formatViewValue,
 } from "@/components/ui/entity-view-sheet";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -217,8 +219,8 @@ export default function CompaniesPage() {
       (company.address ?? "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const renderCompanyForm = () => (
-    <form onSubmit={handleSubmit} className="space-y-4">
+  const renderCompanyFormFields = () => (
+    <div className="space-y-4">
       <div>
         <Label htmlFor="companyName">Company Name *</Label>
         <Input
@@ -273,25 +275,7 @@ export default function CompaniesPage() {
           onChange={(e) => setFormData({ ...formData, website: e.target.value })}
         />
       </div>
-
-      <div className="flex justify-end space-x-2 pt-4">
-        <Button type="button" variant="outline" onClick={closeFormSheet}>
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          disabled={addCompanyMutation.isPending || updateCompanyMutation.isPending}
-        >
-          {addCompanyMutation.isPending || updateCompanyMutation.isPending
-            ? isEditModalOpen
-              ? "Updating..."
-              : "Saving..."
-            : isEditModalOpen
-              ? "Update Company"
-              : "Save Company"}
-        </Button>
-      </div>
-    </form>
+    </div>
   );
 
   return (
@@ -429,24 +413,42 @@ export default function CompaniesPage() {
       >
         <SheetContent
           side="right"
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
         >
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                {isEditModalOpen ? "Edit Company" : "Add Company"}
-              </SheetTitle>
-              <p className="text-sm text-gray-600 mt-2">
-                {isEditModalOpen
-                  ? "Update company information"
-                  : "Add a new company to your organization"}
-              </p>
-            </SheetHeader>
-          </div>
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
-            {renderCompanyForm()}
-          </div>
+          <FormSheetHeader
+            title={isEditModalOpen ? "Edit Company" : "Add Company"}
+            description={
+              isEditModalOpen
+                ? "Update company information"
+                : "Add a new company to your organization"
+            }
+            onClose={closeFormSheet}
+          />
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {renderCompanyFormFields()}
+            </div>
+            <FormSheetFooter>
+              <Button type="button" variant="outline" className={formSheetCancelClass} onClick={closeFormSheet}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className={formSheetSubmitClass}
+                disabled={addCompanyMutation.isPending || updateCompanyMutation.isPending}
+              >
+                {addCompanyMutation.isPending || updateCompanyMutation.isPending
+                  ? isEditModalOpen
+                    ? "Updating..."
+                    : "Saving..."
+                  : isEditModalOpen
+                    ? "Update"
+                    : "Create"}
+              </Button>
+            </FormSheetFooter>
+          </form>
         </SheetContent>
       </Sheet>
 

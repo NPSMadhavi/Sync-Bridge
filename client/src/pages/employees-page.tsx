@@ -24,7 +24,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { getEffectiveTenantId } from "@/lib/tenant-context";
@@ -543,23 +545,17 @@ export default function EmployeesPage() {
   // Delete employee mutation
   const deleteEmployeeMutation = useMutation({
     mutationFn: async (id: number) => {
-      console.log('Deleting employee with ID:', id);
-      const response = await apiRequest('DELETE', `/api/employees/${id}`);
-      console.log('Delete employee response:', response);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Delete employee error:', errorText);
-        throw new Error(`Failed to delete employee: ${errorText}`);
-      }
+      await apiRequest('DELETE', `/api/employees/${id}`);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({
         title: "Success",
         description: "Employee deleted successfully",
       });
-      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      await queryClient.invalidateQueries({ queryKey: ['employees'] });
+      await queryClient.refetchQueries({ queryKey: ['employees', user?.tenantId] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setSelectedEmployee(null);
       setIsDeleteDialogOpen(false);
     },
     onError: (error: any) => {
@@ -1384,23 +1380,18 @@ export default function EmployeesPage() {
           <Sheet open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
             <SheetContent 
               side="right" 
-              className="p-0 flex flex-col"
+              hideClose
+              className="p-0 flex flex-col overflow-hidden"
               style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
             >
-              {/* Sticky Header */}
-              <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-                <SheetHeader>
-                  <SheetTitle className="text-2xl font-bold text-gray-900">
-                    Add New Employee
-                  </SheetTitle>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Add a new employee to your organization
-                  </p>
-                </SheetHeader>
-              </div>
-              {/* Scrollable Content */}
-              <div className="flex-1 overflow-y-auto px-6 pb-24">
-                <form onSubmit={handleSubmit} className="space-y-6">
+              <FormSheetHeader
+                title="Add New Employee"
+                description="Add a new employee to your organization"
+                onClose={() => setIsAddModalOpen(false)}
+              />
+              <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="space-y-6">
                   {renderEmployeeFormDetailsGrid('add')}
                   {isForeigner && renderForeignerImmigrationFields('add')}
 
@@ -1712,22 +1703,22 @@ export default function EmployeesPage() {
                       <p className="text-muted-foreground">No dependents added yet. Click 'Add Dependent' to start.</p>
                     )}
                   </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex justify-end space-x-4 pt-6 border-t">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsAddModalOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={addEmployeeMutation.isPending}>
-                      {addEmployeeMutation.isPending ? 'Creating...' : 'Create Employee'}
-                    </Button>
-                  </div>
-                </form>
+                </div>
               </div>
+              <FormSheetFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={formSheetCancelClass}
+                  onClick={() => setIsAddModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" className={formSheetSubmitClass} disabled={addEmployeeMutation.isPending}>
+                  {addEmployeeMutation.isPending ? 'Creating...' : 'Create Employee'}
+                </Button>
+              </FormSheetFooter>
+              </form>
             </SheetContent>
           </Sheet>
         )}
@@ -1737,23 +1728,18 @@ export default function EmployeesPage() {
           <Sheet open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
             <SheetContent 
               side="right" 
-              className="p-0 flex flex-col"
+              hideClose
+              className="p-0 flex flex-col overflow-hidden"
               style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
             >
-              {/* Sticky Header */}
-              <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-                <SheetHeader>
-                  <SheetTitle className="text-2xl font-bold text-gray-900">
-                    Edit Employee
-                  </SheetTitle>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Update employee information
-                  </p>
-                </SheetHeader>
-              </div>
-              {/* Scrollable Content */}
-              <div className="flex-1 overflow-y-auto px-6 pb-24">
-                <form onSubmit={handleSubmit} className="space-y-6">
+              <FormSheetHeader
+                title="Edit Employee"
+                description="Update employee information"
+                onClose={() => setIsEditModalOpen(false)}
+              />
+              <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="space-y-6">
                   {renderEmployeeFormDetailsGrid('edit')}
                   {isForeigner && renderForeignerImmigrationFields('edit')}
 
@@ -2065,22 +2051,22 @@ export default function EmployeesPage() {
                       <p className="text-muted-foreground">No dependents added yet. Click 'Add Dependent' to start.</p>
                     )}
                   </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex justify-end space-x-4 pt-6 border-t">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsEditModalOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={updateEmployeeMutation.isPending}>
-                      {updateEmployeeMutation.isPending ? 'Updating...' : 'Update Employee'}
-                    </Button>
-                  </div>
-                </form>
+                </div>
               </div>
+              <FormSheetFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={formSheetCancelClass}
+                  onClick={() => setIsEditModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" className={formSheetSubmitClass} disabled={updateEmployeeMutation.isPending}>
+                  {updateEmployeeMutation.isPending ? 'Updating...' : 'Update Employee'}
+                </Button>
+              </FormSheetFooter>
+              </form>
             </SheetContent>
           </Sheet>
         )}

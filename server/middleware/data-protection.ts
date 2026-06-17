@@ -72,7 +72,7 @@ function processResponseData(data: any, user?: AuthenticatedRequest['user']): an
         // Always decrypt encrypted data first and send to frontend
         // Frontend will handle masking based on user permissions and eye icon clicks
         try {
-          const decryptedValue = DataEncryption.decrypt(value);
+          const decryptedValue = DataEncryption.decryptFully(value);
           processed[key] = decryptedValue;
         } catch (error) {
           console.error('Error decrypting data:', error);

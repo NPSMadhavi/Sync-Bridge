@@ -85,10 +85,11 @@ import {
 } from '@shared/document-expiry';
 import {
   documentTypeLabel,
+  formatEmployeeDocumentTypeEnum,
   type DocumentExpiryRecord,
 } from '@shared/document-reminder-utils';
 import { normalizePermissions } from '@shared/permissions';
-import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or, getTableColumns } from 'drizzle-orm';
+import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or, inArray, getTableColumns } from 'drizzle-orm';
 import { DataEncryption } from './utils/encryption';
 
 // Define sensitive fields for encryption
@@ -623,6 +624,23 @@ export class DatabaseStorage implements IStorage {
 
 
   async deleteEmployee(id: number): Promise<void> {
+    const employeeDependents = await db
+      .select({ id: dependents.id })
+      .from(dependents)
+      .where(eq(dependents.employeeId, id));
+    const dependentIds = employeeDependents.map((d) => d.id);
+
+    if (dependentIds.length > 0) {
+      await db.delete(documentReminderHistory).where(
+        or(
+          eq(documentReminderHistory.employeeId, id),
+          inArray(documentReminderHistory.dependentId, dependentIds)
+        )
+      );
+    } else {
+      await db.delete(documentReminderHistory).where(eq(documentReminderHistory.employeeId, id));
+    }
+
     // Delete all related records to avoid FK constraint violations
     await db.delete(employeeCompanyHistory).where(eq(employeeCompanyHistory.employeeId, id));
     await db.delete(assetAssignments).where(eq(assetAssignments.employeeId, id));
@@ -1162,6 +1180,8 @@ export class DatabaseStorage implements IStorage {
       employeeName: string;
       dependentId?: number | null;
       dependentName?: string | null;
+      documentNumber?: string | null;
+      documentTitle?: string | null;
       expiry: Date | string | null | undefined;
       entityId?: number | null;
       email?: string;
@@ -1169,6 +1189,9 @@ export class DatabaseStorage implements IStorage {
       if (!params.expiry) return;
       const days = getDaysUntilExpiry(params.expiry, referenceDate);
       if (days === null) return;
+      const documentNumber = params.documentNumber?.trim() || "—";
+      const documentTitle =
+        params.documentTitle?.trim() || documentTypeLabel(params.reminderType);
 
       if (mode === "expiring") {
         if (!isDocumentExpiringSoon(params.expiry, referenceDate, DOCUMENT_EXPIRY_SOON_DAYS)) return;
@@ -1181,6 +1204,8 @@ export class DatabaseStorage implements IStorage {
           dependentId: params.dependentId ?? null,
           dependentName: params.dependentName ?? null,
           documentType: documentTypeLabel(params.reminderType),
+          documentNumber,
+          documentTitle,
           expiryDate: new Date(params.expiry).toISOString(),
           daysRemaining: days,
           entityId: params.entityId ?? null,
@@ -1196,6 +1221,8 @@ export class DatabaseStorage implements IStorage {
           dependentId: params.dependentId ?? null,
           dependentName: params.dependentName ?? null,
           documentType: documentTypeLabel(params.reminderType),
+          documentNumber,
+          documentTitle,
           expiryDate: new Date(params.expiry).toISOString(),
           daysExpired: Math.abs(days),
           entityId: params.entityId ?? null,
@@ -1210,6 +1237,10 @@ export class DatabaseStorage implements IStorage {
         employeeId: employees.employeeId,
         name: employees.name,
         email: employees.email,
+        passportNumber: employees.passportNumber,
+        visaNumber: employees.visaNumber,
+        nricNumber: employees.nricNumber,
+        finNumber: employees.finNumber,
         passportExpiry: employees.passportExpiry,
         visaExpiry: employees.visaExpiry,
         nricExpiry: employees.nricExpiry,
@@ -1227,6 +1258,8 @@ export class DatabaseStorage implements IStorage {
         employeeDbId: row.id,
         employeeId: row.employeeId,
         employeeName: row.name,
+        documentNumber: row.passportNumber,
+        documentTitle: documentTypeLabel("employee_passport"),
         expiry: row.passportExpiry,
         email: row.email ?? undefined,
       });
@@ -1236,6 +1269,8 @@ export class DatabaseStorage implements IStorage {
         employeeDbId: row.id,
         employeeId: row.employeeId,
         employeeName: row.name,
+        documentNumber: row.visaNumber,
+        documentTitle: documentTypeLabel("employee_visa"),
         expiry: row.visaExpiry,
         email: row.email ?? undefined,
       });
@@ -1245,6 +1280,8 @@ export class DatabaseStorage implements IStorage {
         employeeDbId: row.id,
         employeeId: row.employeeId,
         employeeName: row.name,
+        documentNumber: row.nricNumber || row.finNumber,
+        documentTitle: documentTypeLabel("employee_nric"),
         expiry: row.nricExpiry,
         email: row.email ?? undefined,
       });
@@ -1254,6 +1291,8 @@ export class DatabaseStorage implements IStorage {
       .select({
         dependentId: dependents.id,
         dependentName: dependents.name,
+        passportNumber: dependents.passportNumber,
+        visaNumber: dependents.visaNumber,
         passportExpiry: dependents.passportExpiry,
         visaExpiry: dependents.visaExpiry,
         employeeDbId: employees.id,
@@ -1277,6 +1316,8 @@ export class DatabaseStorage implements IStorage {
         employeeName: row.employeeName,
         dependentId: row.dependentId,
         dependentName: row.dependentName,
+        documentNumber: row.passportNumber,
+        documentTitle: documentTypeLabel("dependent_passport"),
         expiry: row.passportExpiry,
         email: row.email ?? undefined,
       });
@@ -1288,6 +1329,8 @@ export class DatabaseStorage implements IStorage {
         employeeName: row.employeeName,
         dependentId: row.dependentId,
         dependentName: row.dependentName,
+        documentNumber: row.visaNumber,
+        documentTitle: documentTypeLabel("dependent_visa"),
         expiry: row.visaExpiry,
         email: row.email ?? undefined,
       });
@@ -1297,6 +1340,7 @@ export class DatabaseStorage implements IStorage {
       .select({
         id: licenses.id,
         name: licenses.name,
+        licenseKey: licenses.licenseKey,
         expiryDate: licenses.expiryDate,
       })
       .from(licenses);
@@ -1310,6 +1354,8 @@ export class DatabaseStorage implements IStorage {
         reminderType: "license",
         employeeId: "—",
         employeeName: license.name,
+        documentNumber: license.licenseKey,
+        documentTitle: license.name,
         expiry: license.expiryDate,
         entityId: license.id,
       });
@@ -1332,6 +1378,8 @@ export class DatabaseStorage implements IStorage {
         reminderType: "company_document",
         employeeId: "—",
         employeeName: doc.title,
+        documentNumber: doc.title,
+        documentTitle: doc.title,
         expiry: doc.expiryDate,
         entityId: doc.id,
       });
@@ -1360,6 +1408,8 @@ export class DatabaseStorage implements IStorage {
         employeeDbId: doc.employeeDbId,
         employeeId: doc.employeeId,
         employeeName: doc.employeeName,
+        documentNumber: `DOC-${doc.id}`,
+        documentTitle: formatEmployeeDocumentTypeEnum(String(doc.documentType)),
         expiry: doc.expiryDate,
         entityId: doc.id,
         email: doc.email ?? undefined,
@@ -2156,13 +2206,13 @@ export class DatabaseStorage implements IStorage {
         name: employees.name,
         createdAt: employees.createdAt,
       })
-      .from(employees)
-      .orderBy(desc(employees.createdAt))
-      .limit(3);
+      .from(employees);
     if (tenantId !== undefined) {
       recentEmployeeQuery = recentEmployeeQuery.where(eq(employees.tenantId, tenantId));
     }
-    const recentEmployeeRows = await recentEmployeeQuery;
+    const recentEmployeeRows = await recentEmployeeQuery
+      .orderBy(desc(employees.createdAt))
+      .limit(3);
 
     let recentAssignmentQuery = db
       .select({
@@ -2179,13 +2229,18 @@ export class DatabaseStorage implements IStorage {
       })
       .from(assetAssignments)
       .leftJoin(assets, eq(assetAssignments.assetId, assets.id))
-      .leftJoin(employees, eq(assetAssignments.employeeId, employees.id))
-      .orderBy(desc(assetAssignments.dateAssigned))
-      .limit(5);
+      .leftJoin(employees, eq(assetAssignments.employeeId, employees.id));
     if (tenantId !== undefined) {
-      recentAssignmentQuery = recentAssignmentQuery.where(eq(assetAssignments.tenantId, tenantId));
+      recentAssignmentQuery = recentAssignmentQuery.where(
+        or(
+          eq(assetAssignments.tenantId, tenantId),
+          and(isNull(assetAssignments.tenantId), eq(employees.tenantId, tenantId))
+        )
+      );
     }
-    const recentAssignmentRows = await recentAssignmentQuery;
+    const recentAssignmentRows = await recentAssignmentQuery
+      .orderBy(desc(assetAssignments.dateAssigned))
+      .limit(3);
 
     let companyDocsQuery = db
       .select({
@@ -2265,9 +2320,11 @@ export class DatabaseStorage implements IStorage {
       status: assignment.dateReturned ? "returned" : "active",
       asset: {
         id: assignment.assetId || 0,
-        name: assignment.assetType
-          ? assignment.assetType.charAt(0).toUpperCase() + assignment.assetType.slice(1)
-          : "Unknown",
+        name:
+          assignment.assetTag ||
+          (assignment.assetType
+            ? assignment.assetType.charAt(0).toUpperCase() + assignment.assetType.slice(1)
+            : "Unknown"),
         type: assignment.assetType || "Unknown",
         tag: assignment.assetTag || "",
         serial: assignment.assetSerial || "",

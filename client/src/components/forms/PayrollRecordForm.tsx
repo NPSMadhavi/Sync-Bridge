@@ -6,9 +6,9 @@ import { z } from "zod";
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter } from "@/components/ui/form-sheet-footer";
 import {
   Form,
   FormControl,
@@ -301,26 +301,27 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent 
         side="right"
+        hideClose
         className="w-full max-w-[800px] p-0 overflow-hidden"
       >
         <Form {...form}>
           <div className="h-full flex flex-col">
-            {/* Header */}
-            <SheetHeader className="flex-shrink-0 px-6 py-4 border-b bg-background">
-              <SheetTitle className="flex items-center gap-2 text-xl">
-                <Calculator className="h-5 w-5 text-primary" />
-                {isEditMode ? "View Payroll Record" : "Process Payroll"}
-                {isEditMode && (
-                  <div className="ml-auto">
-                    {getStatusBadge(record!.status)}
-                  </div>
-                )}
-              </SheetTitle>
-            </SheetHeader>
+            <FormSheetHeader
+              title={
+                <>
+                  {isEditMode ? "View Payroll Record" : "Process Payroll"}
+                  {isEditMode && record && (
+                    <span className="ml-2">{getStatusBadge(record.status)}</span>
+                  )}
+                </>
+              }
+              onClose={onClose}
+              icon={<Calculator className="h-5 w-5 text-primary" />}
+            />
 
             {/* Form Content - Scrollable Area */}
-            <div className="flex-1 overflow-y-auto px-6 py-6 pb-24">
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="flex-1 overflow-y-auto px-6 py-6 min-h-0">
+              <div className="space-y-6">
                 
                 {/* Employee Selection & Pay Period */}
                 <Card>
@@ -564,17 +565,16 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                     </CardContent>
                   </Card>
                 )}
-              </form>
+              </div>
             </div>
 
-            {/* Footer Actions */}
-            <div className="flex-shrink-0 border-t bg-background px-6 py-4">
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={onClose}>
+            <FormSheetFooter>
+              <div className="flex w-full flex-col sm:flex-row sm:justify-between gap-3">
+                <Button variant="outline" className="w-full sm:w-auto min-w-[120px]" onClick={onClose}>
                   Close
                 </Button>
                 
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   {isEditMode ? (
                     // Status update buttons for existing records
                     <>
@@ -629,7 +629,7 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                   )}
                 </div>
               </div>
-            </div>
+            </FormSheetFooter>
           </div>
         </Form>
       </SheetContent>

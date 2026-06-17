@@ -41,9 +41,9 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import {
   TooltipProvider,
   Tooltip,
@@ -319,26 +319,24 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
           <div className={embedded ? "w-full" : "h-full flex flex-col"}>
             {/* Sticky Header - Only show if not embedded */}
             {!embedded && (
-              <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
-                <SheetHeader className="flex-row flex-1 justify-between items-center">
-                  <SheetTitle className="flex items-center gap-2 text-xl">
-                    <Users className="h-5 w-5 text-primary" />
+              <FormSheetHeader
+                title={
+                  <>
                     {isEditMode ? "Edit Employee" : "Add New Employee"}
                     {isExpired && (
-                      <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                      <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded-full ml-2">
                         Documents Expired
                       </span>
                     )}
-                  </SheetTitle>
-                </SheetHeader>
-                <Button variant="ghost" size="sm" onClick={() => onClose?.()}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+                  </>
+                }
+                onClose={() => onClose?.()}
+                icon={<Users className="h-5 w-5 text-primary" />}
+              />
             )}
 
             {/* Form Content - Scrollable Area */}
-            <div className={embedded ? "w-full" : "flex-1 overflow-y-auto px-6 pb-24"}>
+            <div className={embedded ? "w-full" : "flex-1 overflow-y-auto px-6 py-6 sm:px-8 min-h-0"}>
               {/* Responsive grid layout container */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto py-6">
                 
@@ -1025,39 +1023,39 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
                   </Card>
                 </div>
               </div>
-
-              {/* Sticky Footer with Actions - Outside scrollable area */}
-              <div className="flex-shrink-0 bg-background border-t px-8 py-4">
-                <form onSubmit={form.handleSubmit(onSubmit)}>
-                  <div className="flex flex-col sm:flex-row justify-end gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full sm:w-auto min-w-[120px]"
-                      onClick={() => {
-                        form.reset();
-                        onClose?.();
-                      }}
-                      disabled={createMutation.isPending || updateMutation.isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button 
-                      type="submit" 
-                      disabled={createMutation.isPending || updateMutation.isPending}
-                      className="w-full sm:w-auto min-w-[140px]"
-                    >
-                      {(createMutation.isPending || updateMutation.isPending) && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      {isEditMode ? "Update Employee" : "Create Employee"}
-                    </Button>
-                  </div>
-                </form>
-              </div>
             </div>
-          </Form>
-        </TooltipProvider>
+
+            {/* Sticky Footer with Actions - Outside scrollable area */}
+            {!embedded && (
+              <FormSheetFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={formSheetCancelClass}
+                  onClick={() => {
+                    form.reset();
+                    onClose?.();
+                  }}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className={formSheetSubmitClass}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  onClick={form.handleSubmit(onSubmit)}
+                >
+                  {(createMutation.isPending || updateMutation.isPending) && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  {isEditMode ? "Update " : "Create "}
+                </Button>
+              </FormSheetFooter>
+            )}
+          </div>
+        </Form>
+      </TooltipProvider>
       </>
     );
 
@@ -1070,7 +1068,8 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent 
         side="right"
-        className="!w-screen !max-w-none fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-white"
+        hideClose
+        className="!w-screen !max-w-none fixed top-0 right-0 h-screen z-50 p-0 flex flex-col overflow-hidden bg-white"
         onKeyDown={handleKeyDown}
       >
         {formContent}

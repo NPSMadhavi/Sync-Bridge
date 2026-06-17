@@ -28,9 +28,11 @@ import {
   getPayPeriodForMonth,
   hasPayrollConfigChanged,
   normalizePayPeriodDate,
+  parseForceOverwriteFlag,
   resolvePayrollMonthYearFromRecord,
   upsertPayrollRecord,
 } from './payroll-process-service';
+import { DataEncryption } from './utils/encryption';
 
 // Utility to get CPF rate based on citizenship and PR years
 type CpfRateArgs = { nationality?: string; joinDate?: Date | string; now?: Date; pr2ndYearRate?: number };
@@ -329,6 +331,9 @@ export async function getPayrollRecords(req: Request, res: Response) {
       .select({
         id: payrollRecords.id,
         employeeId: payrollRecords.employeeId,
+        payrollConfigId: payrollRecords.payrollConfigId,
+        payrollMonth: payrollRecords.payrollMonth,
+        payrollYear: payrollRecords.payrollYear,
         employeeName: employees.name,
         department: employees.department,
         designation: employees.designation,
@@ -768,6 +773,15 @@ function sumJsonValues(obj: Record<string, number> | null | undefined): number {
   return Object.values(obj).reduce((sum, v) => sum + (Number(v) || 0), 0);
 }
 
+function resolveEmployeeIcNo(employee: {
+  nricNumber: string | null;
+  finNumber: string | null;
+}): string {
+  const nric = employee.nricNumber ? DataEncryption.decryptFully(employee.nricNumber) : '';
+  const fin = employee.finNumber ? DataEncryption.decryptFully(employee.finNumber) : '';
+  return nric || fin;
+}
+
 function buildPayslipFromProcessedRecord(
   record: {
     payPeriodStart: string;
@@ -808,7 +822,7 @@ function buildPayslipFromProcessedRecord(
     employeeName: employee.name,
     employeeDbId: employee.id,
     employeeCode: employee.employeeId,
-    icNo: employee.nricNumber || employee.finNumber || '',
+    icNo: resolveEmployeeIcNo(employee),
     department: employee.department,
     jobTitle: employee.designation,
     month,
@@ -1256,12 +1270,14 @@ export async function processIndividualPayroll(req: Request, res: Response) {
       payPeriodEnd,
       overtimeHours = 0,
       notes = '',
+      forceOverwrite = false,
     } = req.body as {
       payrollConfigId?: number;
       payPeriodStart?: string;
       payPeriodEnd?: string;
       overtimeHours?: number;
       notes?: string;
+      forceOverwrite?: boolean;
     };
 
     const payrollConfigIdNum = Number(payrollConfigId);
@@ -1315,6 +1331,8 @@ export async function processIndividualPayroll(req: Request, res: Response) {
       return res.status(404).json({ message: 'Employee not found' });
     }
 
+    const forceOverwriteFlag = parseForceOverwriteFlag(forceOverwrite);
+
     const result = await db.transaction(async () => {
       return upsertPayrollRecord(
         fullConfig,
@@ -1327,14 +1345,21 @@ export async function processIndividualPayroll(req: Request, res: Response) {
           notes,
           overtimeHours: Number(overtimeHours) || 0,
           allowReprocess: true,
+          forceUpdate: forceOverwriteFlag,
+          requireForceForReprocess: true,
         }
       );
     });
 
     if (result.action === 'skipped') {
+      const dataChanged = result.reason === 'data_changed';
       const { monthLabel } = derivePayrollMonthYear(normalizedPayPeriodStart);
       return res.status(409).json({
-        message: `Payroll for ${monthLabel} has already been processed.`,
+        alreadyProcessed: true,
+        dataChanged,
+        message: dataChanged
+          ? `Payroll for ${monthLabel} has already been processed. The payroll values have been modified.`
+          : `Payroll for ${monthLabel} has already been processed. There are no changes to process.`,
         action: 'skipped',
         record: result.record,
       });
@@ -1369,12 +1394,14 @@ export async function batchProcessPayroll(req: Request, res: Response) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
 
-    const { payPeriodStart, payPeriodEnd, year, month, payrollConfigIds } = req.body as {
+    const { payPeriodStart, payPeriodEnd, year, month, payrollConfigIds, forceOverwrite = false, processScope } = req.body as {
       payPeriodStart?: string;
       payPeriodEnd?: string;
       year?: number;
       month?: number;
       payrollConfigIds?: number[];
+      forceOverwrite?: boolean;
+      processScope?: "pending" | "changed";
     };
 
     let resolvedPayPeriodStart = normalizePayPeriodDate(payPeriodStart);
@@ -1425,7 +1452,11 @@ export async function batchProcessPayroll(req: Request, res: Response) {
       return res.status(400).json({ message: 'No active payroll configurations to process' });
     }
 
-    const configsNeedingProcessing: typeof configs = [];
+    const forceOverwriteFlag = parseForceOverwriteFlag(forceOverwrite);
+
+    const pendingConfigs: typeof configs = [];
+    const changedConfigs: typeof configs = [];
+
     for (const config of configs) {
       const existing = await findPayrollRecordForPeriod(
         config.employeeId,
@@ -1433,25 +1464,89 @@ export async function batchProcessPayroll(req: Request, res: Response) {
         resolvedPayPeriodEnd
       );
       if (!existing) {
-        configsNeedingProcessing.push(config);
+        pendingConfigs.push(config);
         continue;
       }
       if (hasPayrollConfigChanged(config, existing, 0)) {
-        configsNeedingProcessing.push(config);
+        changedConfigs.push(config);
       }
     }
 
-    const alreadyProcessed = configsNeedingProcessing.length === 0;
+    const buildStatusSummary = (): BatchPayrollSummary => ({
+      totalEmployees: configs.length,
+      processedNew: 0,
+      updated: 0,
+      skipped: configs.length - pendingConfigs.length - changedConfigs.length,
+      failures: [],
+    });
+
+    if (!processScope && !forceOverwriteFlag) {
+      if (pendingConfigs.length > 0) {
+        return res.json({
+          needsPendingConfirmation: true,
+          scenario: 'pending',
+          message:
+            'Payroll for the selected period has not been processed for some employees. Do you want to process payroll for all pending employees?',
+          summary: buildStatusSummary(),
+        });
+      }
+
+      if (changedConfigs.length > 0) {
+        return res.json({
+          needsOverwriteConfirmation: true,
+          scenario: 'values-changed',
+          alreadyProcessed: true,
+          message:
+            'Payroll for the selected period has already been processed. Payroll values have been modified for one or more employees. Do you want to overwrite the existing payslips and regenerate them?',
+          summary: buildStatusSummary(),
+        });
+      }
+
+      return res.json({
+        needsNoChangesNotice: true,
+        scenario: 'no-changes',
+        alreadyProcessed: true,
+        message:
+          'Payroll for the selected period has already been processed. There are no changes to process.',
+        summary: buildStatusSummary(),
+      });
+    }
+
+    let configsToProcess: typeof configs = [];
+    let useForceUpdate = forceOverwriteFlag;
+
+    if (processScope === 'pending') {
+      configsToProcess = pendingConfigs;
+      useForceUpdate = false;
+    } else if (processScope === 'changed' || forceOverwriteFlag) {
+      configsToProcess = changedConfigs;
+      useForceUpdate = true;
+    } else {
+      configsToProcess = [...pendingConfigs, ...changedConfigs];
+    }
+
+    if (configsToProcess.length === 0) {
+      return res.json({
+        needsNoChangesNotice: true,
+        scenario: 'no-changes',
+        alreadyProcessed: true,
+        message:
+          'Payroll for the selected period has already been processed. There are no changes to process.',
+        summary: buildStatusSummary(),
+      });
+    }
 
     const summary: BatchPayrollSummary = {
       totalEmployees: configs.length,
       processedNew: 0,
       updated: 0,
-      skipped: alreadyProcessed ? configs.length : configs.length - configsNeedingProcessing.length,
+      skipped: configs.length - configsToProcess.length,
       failures: [],
     };
 
-    for (const config of configsNeedingProcessing) {
+    const processedConfigIds = new Set<number>();
+
+    for (const config of configsToProcess) {
       const employeeName =
         (
           await db
@@ -1497,6 +1592,8 @@ export async function batchProcessPayroll(req: Request, res: Response) {
             {
               notes: 'Batch processed payroll',
               allowReprocess: true,
+              forceUpdate: useForceUpdate,
+              requireForceForReprocess: processScope === 'changed',
             }
           )
         );
@@ -1514,6 +1611,8 @@ export async function batchProcessPayroll(req: Request, res: Response) {
           continue;
         }
 
+        processedConfigIds.add(config.id);
+
         if (result.action === 'created') {
           summary.processedNew++;
         } else if (result.action === 'updated') {
@@ -1529,7 +1628,7 @@ export async function batchProcessPayroll(req: Request, res: Response) {
 
     const zipFiles: { filename: string; buffer: Buffer }[] = [];
 
-    for (const config of configs) {
+    for (const config of configs.filter((item) => processedConfigIds.has(item.id))) {
       const employeeName =
         (
           await db
@@ -1581,9 +1680,7 @@ export async function batchProcessPayroll(req: Request, res: Response) {
 
     if (zipFiles.length === 0) {
       return res.status(409).json({
-        message: alreadyProcessed
-          ? 'Payroll for this month has already been processed, but no payslips could be generated.'
-          : `No payslips generated. ${summary.skipped} employee(s) skipped.`,
+        message: `No payslips generated. ${summary.skipped} employee(s) skipped.`,
         summary,
       });
     }
@@ -1595,9 +1692,6 @@ export async function batchProcessPayroll(req: Request, res: Response) {
       registerSessionPayslipZip(sessionId, zipPath);
     }
 
-    if (alreadyProcessed) {
-      res.setHeader('X-Payroll-Already-Processed', 'true');
-    }
     res.setHeader('X-Payroll-Summary', JSON.stringify(summary));
     sendPayslipZipFile(res, zipPath, zipFilename, sessionId);
   } catch (error) {

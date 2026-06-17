@@ -59,6 +59,28 @@ export class DataEncryption {
   }
 
   /**
+   * Repeatedly decrypt values that were encrypted more than once (e.g. on employee update).
+   */
+  static decryptFully(text: string, maxPasses = 5): string {
+    if (!text) return text;
+
+    let current = text.trim();
+    for (let pass = 0; pass < maxPasses; pass++) {
+      if (!this.isEncrypted(current)) {
+        break;
+      }
+
+      const next = this.decrypt(current);
+      if (next === current) {
+        break;
+      }
+      current = next;
+    }
+
+    return current;
+  }
+
+  /**
    * Check if a string is encrypted
    */
   static isEncrypted(text: string): boolean {
@@ -76,7 +98,9 @@ export class DataEncryption {
     
     for (const field of sensitiveFields) {
       if (encrypted[field] && typeof encrypted[field] === 'string') {
-        encrypted[field] = this.encrypt(encrypted[field]);
+        if (!this.isEncrypted(encrypted[field])) {
+          encrypted[field] = this.encrypt(encrypted[field]);
+        }
       }
     }
     
@@ -94,7 +118,7 @@ export class DataEncryption {
     
     for (const field of sensitiveFields) {
       if (decrypted[field] && typeof decrypted[field] === 'string') {
-        decrypted[field] = this.decrypt(decrypted[field]);
+        decrypted[field] = this.decryptFully(decrypted[field]);
       }
     }
     

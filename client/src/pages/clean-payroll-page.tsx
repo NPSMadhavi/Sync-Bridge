@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import Dashboard from "@/components/layout/Dashboard";
 import { Button } from "@/components/ui/button";
@@ -14,9 +15,8 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
 import PayrollConfigForm from "@/components/forms/PayrollConfigForm";
 import ProcessPayrollForm from "@/components/forms/ProcessPayrollForm";
 import {
@@ -41,6 +41,8 @@ import {
   isPayrollProcessedForPeriod,
   hasProcessedPayrollForEmployee,
   batchProcessPayrollForPeriod,
+  resolveBatchPayrollStatus,
+  type BatchPayrollScenario,
   type BatchPayrollSummary,
 } from "@/lib/payroll-batch-utils";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
@@ -196,6 +198,8 @@ export default function PayrollPage() {
   const [batchPayPeriodEnd, setBatchPayPeriodEnd] = useState(getCurrentPayPeriod().payPeriodEnd);
   const [batchSummary, setBatchSummary] = useState<BatchPayrollSummary | null>(null);
   const [batchSummaryOpen, setBatchSummaryOpen] = useState(false);
+  const [batchConfirmDialogOpen, setBatchConfirmDialogOpen] = useState(false);
+  const [batchConfirmScenario, setBatchConfirmScenario] = useState<BatchPayrollScenario | null>(null);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
   const [payslipConfig, setPayslipConfig] = useState<any>(null);
   const [selectedPayslipMonths, setSelectedPayslipMonths] = useState<number[]>([]);
@@ -392,6 +396,67 @@ export default function PayrollPage() {
     setBatchModalOpen(true);
   };
 
+  const runBatchProcess = async (processScope: "pending" | "changed") => {
+    const { monthLabel } = derivePayrollMonthYear(batchPayPeriodStart);
+
+    setIsBatchProcessing(true);
+
+    try {
+      const result = await batchProcessPayrollForPeriod(
+        batchPayPeriodStart,
+        batchPayPeriodEnd,
+        selectedConfigIds.length > 0 ? selectedConfigIds : undefined,
+        { processScope }
+      );
+
+      if ("scenario" in result && result.scenario === "no-changes") {
+        setBatchConfirmScenario("no-changes");
+        setBatchConfirmDialogOpen(true);
+        return;
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
+      setSelectedConfigIds([]);
+      setBatchConfirmDialogOpen(false);
+      setBatchConfirmScenario(null);
+
+      if (result.summary) {
+        setBatchSummary(result.summary);
+        setBatchSummaryOpen(true);
+      }
+
+      if (result.ok) {
+        toast({
+          title: processScope === "changed" ? "Payroll overwritten" : "Batch payroll complete",
+          description:
+            processScope === "changed"
+              ? `Payslips regenerated for employees with updated payroll values (${monthLabel}).`
+              : `Payroll for ${monthLabel} processed successfully. Payslips have been downloaded.`,
+        });
+      } else {
+        toast({
+          title: "Batch processing result",
+          description: result.message,
+          variant: result.summary?.processedNew || result.summary?.updated ? "default" : "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Batch processing failed",
+        description: error instanceof Error ? error.message : "Failed to batch process payroll",
+        variant: "destructive",
+      });
+    } finally {
+      setIsBatchProcessing(false);
+    }
+  };
+
+  const closeBatchConfirmDialog = () => {
+    setBatchConfirmDialogOpen(false);
+    setBatchConfirmScenario(null);
+  };
+
   const confirmBatchProcess = async () => {
     if (!batchPayPeriodStart || !batchPayPeriodEnd) {
       toast({
@@ -427,53 +492,25 @@ export default function PayrollPage() {
       return;
     }
 
-    const { monthLabel } = derivePayrollMonthYear(batchPayPeriodStart);
+    const batchStatus = resolveBatchPayrollStatus(
+      configsToProcess,
+      payrollRecords,
+      batchPayPeriodStart,
+      batchPayPeriodEnd
+    );
 
     setBatchModalOpen(false);
-    setIsBatchProcessing(true);
+    setBatchConfirmScenario(batchStatus.scenario);
+    setBatchConfirmDialogOpen(true);
+  };
 
-    try {
-      const result = await batchProcessPayrollForPeriod(
-        batchPayPeriodStart,
-        batchPayPeriodEnd,
-        selectedConfigIds.length > 0 ? selectedConfigIds : undefined
-      );
-
-      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
-      setSelectedConfigIds([]);
-
-      if (result.summary) {
-        setBatchSummary(result.summary);
-        setBatchSummaryOpen(true);
-      }
-
-      if (result.alreadyProcessed && result.ok) {
-        toast({
-          title: "Payroll already processed",
-          description:
-            "Payroll for this month has already been processed. You can download the payslips.",
-        });
-      } else if (result.ok) {
-        toast({
-          title: "Batch payroll complete",
-          description: `Payroll for ${monthLabel} processed successfully. Payslips have been downloaded.`,
-        });
-      } else {
-        toast({
-          title: "Batch processing result",
-          description: result.message,
-          variant: result.summary?.processedNew || result.summary?.updated ? "default" : "destructive",
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Batch processing failed",
-        description: error instanceof Error ? error.message : "Failed to batch process payroll",
-        variant: "destructive",
-      });
-    } finally {
-      setIsBatchProcessing(false);
+  const handleBatchConfirmProceed = async () => {
+    if (batchConfirmScenario === "pending") {
+      await runBatchProcess("pending");
+      return;
+    }
+    if (batchConfirmScenario === "values-changed") {
+      await runBatchProcess("changed");
     }
   };
 
@@ -683,7 +720,7 @@ export default function PayrollPage() {
           </Button>
           <Button
             onClick={() => setShowRecordForm(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+            className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:text-white disabled:hover:shadow-lg"
           >
             <Calculator className="h-4 w-4 mr-2" />
             Process Payroll
@@ -694,18 +731,20 @@ export default function PayrollPage() {
       {/* Summary Cards - Vendor Dashboard Style */}
       {!summaryLoading && payrollSummary && (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
-          <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("employees")}> {/* Total Employees */}
-            <CardContent className="p-6">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-400 to-teal-600">
-                <Users className="h-6 w-6" />
-              </div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-gray-600">Total Employees</h3>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{payrollSummary.totalEmployees}</p>
-              <p className="text-xs text-muted-foreground mt-1">Active payroll configurations</p>
-          </CardContent>
-        </Card>
+          <Link href="/employees" className="block">
+            <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer">
+              <CardContent className="p-6">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-400 to-teal-600">
+                  <Users className="h-6 w-6" />
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-600">Total Employees</h3>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{payrollSummary.totalEmployees}</p>
+                <p className="text-xs text-muted-foreground mt-1">Active payroll configurations</p>
+              </CardContent>
+            </Card>
+          </Link>
           <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("gross")}> {/* Total Gross Pay */}
             <CardContent className="p-6">
               <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-500 to-teal-700">
@@ -990,22 +1029,19 @@ export default function PayrollPage() {
       }}>
         <SheetContent 
           side="right" 
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
         >
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                {selectedConfig ? "Edit Payroll Configuration" : "Add Payroll Configuration"}
-              </SheetTitle>
-              <p className="text-sm text-gray-600 mt-2">
-                Configure payroll settings for an employee
-              </p>
-            </SheetHeader>
-          </div>
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <FormSheetHeader
+            title={selectedConfig ? "Edit Payroll Configuration" : "Add Payroll Configuration"}
+            description="Configure payroll settings for an employee"
+            onClose={() => {
+              setShowConfigForm(false);
+              setSelectedConfig(null);
+            }}
+          />
+          <div className="flex-1 min-h-0">
             <PayrollConfigForm
               onSuccess={() => {
                 setShowConfigForm(false);
@@ -1026,22 +1062,16 @@ export default function PayrollPage() {
       <Sheet open={showRecordForm} onOpenChange={setShowRecordForm}>
         <SheetContent 
           side="right" 
-          className="p-0 flex flex-col"
+          hideClose
+          className="p-0 flex flex-col overflow-hidden"
           style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}
         >
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-gray-900">
-                Generate Payroll Records
-              </SheetTitle>
-              <p className="text-sm text-gray-600 mt-2">
-                Create and process monthly payroll for employees
-              </p>
-            </SheetHeader>
-          </div>
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <FormSheetHeader
+            title="Generate Payroll Records"
+            description="Create and process monthly payroll for employees"
+            onClose={() => setShowRecordForm(false)}
+          />
+          <div className="flex-1 min-h-0">
             <ProcessPayrollForm
               onSuccess={() => setShowRecordForm(false)}
               onCancel={() => setShowRecordForm(false)}
@@ -1177,7 +1207,6 @@ export default function PayrollPage() {
                   value={formatCurrency(selectedRecord.cpfDeduction)}
                 />
                 <EntityViewField label="Net Pay" value={formatCurrency(selectedRecord.netPay)} />
-                <EntityViewField label="Status" value={formatViewStatus(selectedRecord.status)} />
                 <EntityViewField
                   label="Notes"
                   value={formatViewValue(selectedRecord.notes)}
@@ -1192,17 +1221,16 @@ export default function PayrollPage() {
 
       {/* Detail Sheet for Summary Cards */}
       <Sheet open={!!openDetail} onOpenChange={open => !open && setOpenDetail(null)}>
-        <SheetContent side="right" className="p-0 flex flex-col" style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}>
-          <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-3xl font-extrabold text-gray-900 mb-2">
-                {openDetail === "employees" && "Employees with Payroll Configurations"}
-                {openDetail === "gross" && "Payroll Records - Gross Pay"}
-                {openDetail === "net" && "Payroll Records - Net Pay"}
-                {openDetail === "records" && "Payroll Records"}
-              </SheetTitle>
-            </SheetHeader>
-          </div>
+        <SheetContent side="right" hideClose className="p-0 flex flex-col" style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}>
+          <FormSheetHeader
+            title={
+              openDetail === "employees" ? "Employees with Payroll Configurations"
+              : openDetail === "gross" ? "Payroll Records - Gross Pay"
+              : openDetail === "net" ? "Payroll Records - Net Pay"
+              : "Payroll Records"
+            }
+            onClose={() => setOpenDetail(null)}
+          />
           <div className="flex-1 overflow-y-auto px-6 pb-24">
             {/* Employees with Payroll Configs */}
             {openDetail === "employees" && (
@@ -1285,7 +1313,6 @@ export default function PayrollPage() {
                     <tr className="bg-gray-100">
                       <th className="px-4 py-2 text-left font-semibold">Employee</th>
                       <th className="px-4 py-2 text-left font-semibold">Period</th>
-                      <th className="px-4 py-2 text-left font-semibold">Status</th>
                       <th className="px-4 py-2 text-left font-semibold">Gross Pay</th>
                       <th className="px-4 py-2 text-left font-semibold">Net Pay</th>
                     </tr>
@@ -1295,7 +1322,6 @@ export default function PayrollPage() {
                       <tr key={`${rec.employeeId}-${rec.payPeriodStart}-${rec.payPeriodEnd}`} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2">{rec.employeeName}</td>
                         <td className="px-4 py-2">{rec.payPeriodStart} - {rec.payPeriodEnd}</td>
-                        <td className="px-4 py-2">{rec.status}</td>
                         <td className="px-4 py-2">{formatCurrency(rec.grossPay)}</td>
                         <td className="px-4 py-2">{formatCurrency(rec.netPay)}</td>
                       </tr>
@@ -1573,6 +1599,75 @@ export default function PayrollPage() {
                 "Save & Process"
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Process Confirmation */}
+      <Dialog
+        open={batchConfirmDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeBatchConfirmDialog();
+          else setBatchConfirmDialogOpen(true);
+        }}
+      >
+        <DialogContent className="max-w-md bg-white">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900">
+              {batchConfirmScenario === "pending"
+                ? "Confirm Batch Process"
+                : "Payroll Already Processed"}
+            </DialogTitle>
+            <div className="space-y-2 pt-2 text-sm text-gray-600">
+              {batchConfirmScenario === "pending" ? (
+                <>
+                  <p>
+                    Payroll for the selected period has not been processed for some employees.
+                  </p>
+                  <p>Do you want to process payroll for all pending employees?</p>
+                </>
+              ) : batchConfirmScenario === "values-changed" ? (
+                <>
+                  <p>Payroll for the selected period has already been processed.</p>
+                  <p>
+                    Payroll values have been modified for one or more employees. Do you want to
+                    overwrite the existing payslips and regenerate them?
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>Payroll for the selected period has already been processed.</p>
+                  <p>There are no changes to process.</p>
+                </>
+              )}
+            </div>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            {batchConfirmScenario === "no-changes" ? (
+              <Button type="button" variant="outline" onClick={closeBatchConfirmDialog}>
+                Close
+              </Button>
+            ) : (
+              <>
+                <Button type="button" variant="outline" onClick={closeBatchConfirmDialog}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleBatchConfirmProceed()}
+                  disabled={isBatchProcessing}
+                >
+                  {isBatchProcessing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    "Yes, Proceed"
+                  )}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

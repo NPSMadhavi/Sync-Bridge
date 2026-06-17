@@ -38,9 +38,9 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
+import { FormSheetHeader } from "@/components/ui/form-sheet-header";
+import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import {
   Badge,
 } from "@/components/ui/badge";
@@ -284,27 +284,21 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent 
         side="right"
+        hideClose
         style={{ width: '50vw', maxWidth: 'none', minWidth: '320px' }}
-        className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col bg-white"
+        className="fixed top-0 right-0 h-screen z-50 p-0 flex flex-col overflow-hidden bg-white"
         onKeyDown={handleKeyDown}
       >
         <Form {...form}>
           <div className="h-full flex flex-col">
-            {/* Sticky Header */}
-            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-center justify-between">
-              <SheetHeader className="flex-row flex-1 justify-between items-center">
-                <SheetTitle className="flex items-center gap-2 text-xl">
-                  <FileText className="h-5 w-5 text-primary" />
-                  {isEditMode ? "Edit Company Document" : "Upload Company Document"}
-                </SheetTitle>
-              </SheetHeader>
-              <Button variant="ghost" size="sm" onClick={onClose}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            <FormSheetHeader
+              title={isEditMode ? "Edit Company Document" : "Upload Company Document"}
+              onClose={onClose}
+              icon={<FileText className="h-5 w-5 text-primary" />}
+            />
 
             {/* Form Content - Scrollable Area */}
-            <div className="flex-1 overflow-y-auto px-6 pb-24">
+            <div className="flex-1 overflow-y-auto px-6 py-6 min-h-0">
               {/* Responsive grid layout container */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto py-6">
                 
@@ -640,34 +634,32 @@ export default function CompanyDocumentForm({ document, isOpen, onClose }: Compa
             </div>
 
             {/* Sticky Footer with Actions - Outside scrollable area */}
-            <div className="flex-shrink-0 bg-background border-t px-8 py-4">
-              <div className="flex flex-col sm:flex-row justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full sm:w-auto min-w-[120px]"
-                  onClick={() => {
-                    form.reset();
-                    setFile(null);
-                    onClose();
-                  }}
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                  className="w-full sm:w-auto min-w-[140px]"
-                  onClick={form.handleSubmit(onSubmit)}
-                >
-                  {(createMutation.isPending || updateMutation.isPending) && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {isEditMode ? "Update Document" : "Upload Document"}
-                </Button>
-              </div>
-            </div>
+            <FormSheetFooter>
+              <Button
+                type="button"
+                variant="outline"
+                className={formSheetCancelClass}
+                onClick={() => {
+                  form.reset();
+                  setFile(null);
+                  onClose();
+                }}
+                disabled={createMutation.isPending || updateMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className={formSheetSubmitClass}
+                disabled={createMutation.isPending || updateMutation.isPending}
+                onClick={form.handleSubmit(onSubmit)}
+              >
+                {(createMutation.isPending || updateMutation.isPending) && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {isEditMode ? "Update " : "Upload "}
+              </Button>
+            </FormSheetFooter>
           </div>
         </Form>
       </SheetContent>

@@ -22,6 +22,7 @@ import LicensesPage from "@/pages/licenses-page";
 import CustomersPage from "@/pages/customers-page";
 import InvoicesPage from "@/pages/invoices-page";
 import UserManagementPage from "@/pages/user-management-page";
+import ExpiringItemsPage from "@/pages/expiring-items-page";
 import NotificationsPage from "@/pages/notifications-page";
 import InterviewSlotsPage from "@/pages/interview-slots-page";
 import NoAccessPage from "@/pages/no-access-page";
@@ -66,6 +67,7 @@ function Router() {
         <ProtectedRoute path="/company" component={CompaniesPage} module="company" />
         <ProtectedRoute path="/employees" component={EmployeesPage} module="employee" />
         <ProtectedRoute path="/documents" component={DocumentsPage} module="documents" />
+        <ProtectedRoute path="/expiring-items" component={ExpiringItemsPage} />
         <ProtectedRoute path="/payroll" component={PayrollPage} module="payroll" />
         <ProtectedRoute path="/licenses" component={LicensesPage} module="licenses" />
         <ProtectedRoute path="/vendors" component={VendorsPage} module="vendors" />
