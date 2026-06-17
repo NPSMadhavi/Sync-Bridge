@@ -45,6 +45,7 @@ import { License } from "@shared/schema";
 import { format, isAfter, isBefore, addDays } from "date-fns";
 import LicenseForm from "@/components/forms/LicenseForm";
 import { useToast } from "@/hooks/use-toast";
+import { exportLicensesToExcel } from "@/lib/excel-utils";
 
 export default function LicensesPage() {
   const { toast } = useToast();
@@ -114,25 +115,24 @@ export default function LicensesPage() {
     }
   };
 
-  // Generate CSV report
-  const handleGenerateReport = async () => {
+  const handleGenerateReport = () => {
+    if (filteredLicenses.length === 0) {
+      toast({
+        title: "Nothing to export",
+        description: "No licenses match the current view.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      const res = await apiRequest("GET", "/api/reports/expiring-licenses");
-      if (!res.ok) {
-        toast({ title: "Export failed", description: "Could not generate the report.", variant: "destructive" });
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `licenses-report-${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      exportLicensesToExcel(filteredLicenses);
     } catch {
-      toast({ title: "Export failed", description: "Could not generate the report.", variant: "destructive" });
+      toast({
+        title: "Export failed",
+        description: "Could not generate the report.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -167,7 +167,7 @@ export default function LicensesPage() {
             onClick={handleGenerateReport}
             className="flex items-center gap-2"
           >
-            <DownloadIcon className="h-4 w-4" /> Export Report
+            <DownloadIcon className="h-4 w-4" /> Export
           </Button>
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus className="mr-2 h-4 w-4" /> Add License

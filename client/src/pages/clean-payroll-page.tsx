@@ -1552,7 +1552,7 @@ export default function PayrollPage() {
               }}
               disabled={forceDeleteMutation.status === 'pending'}
             >
-              Delete AnyWay
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

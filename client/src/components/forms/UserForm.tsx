@@ -300,7 +300,7 @@ export default function UserForm({ user, onSuccess }: UserFormProps) {
             {mutation.isPending && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
-            {user ? "Update User" : "Create User"}
+            {user ? "Update" : "Create"}
           </Button>
         </div>
       </form>

@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import type { License } from "@shared/schema";
 
 function parseExcelDate(value: unknown): string {
   if (value == null || value === "") return "";
@@ -26,6 +27,55 @@ function parseExcelDate(value: unknown): string {
 
 function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
   XLSX.writeFile(wb, filename);
+}
+
+function formatLicenseTableDate(
+  date: string | Date | null | undefined,
+  fallback: string
+): string {
+  if (!date) return fallback;
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatLicenseKeyForTable(key: string): string {
+  return key.length > 12 ? `${key.substring(0, 12)}...` : key;
+}
+
+function getLicenseStatusLabel(license: License): string {
+  if (!license.expiryDate) return "";
+  const expiryDate = new Date(license.expiryDate);
+  const now = new Date();
+  if (expiryDate < now) return "Expired";
+  const threshold = new Date(now);
+  threshold.setDate(threshold.getDate() + 30);
+  if (expiryDate < threshold) return "Expiring Soon";
+  return "Valid";
+}
+
+export function exportLicensesToExcel(licenses: License[]) {
+  const rows = licenses.map((license) => ({
+    Name: license.name || "",
+    Type: license.type
+      ? license.type.charAt(0).toUpperCase() + license.type.slice(1)
+      : "",
+    Key: formatLicenseKeyForTable(license.licenseKey || ""),
+    "Purchase Date": formatLicenseTableDate(license.purchaseDate, "-"),
+    "Expiry Date": formatLicenseTableDate(license.expiryDate, "Never"),
+    Status: getLicenseStatusLabel(license),
+    Asset: license.assetId != null ? `#${license.assetId}` : "-",
+    Seats: license.seats != null ? license.seats : "-",
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Licenses");
+  downloadWorkbook(wb, `licenses-${new Date().toISOString().split("T")[0]}.xlsx`);
 }
 
 function nationalityLabel(n?: string | null): string {
