@@ -1436,7 +1436,8 @@ app.use(express.static('public'));
       
       let filteredUsers = users;
       if (isSuperAdminUser(currentUser)) {
-        filteredUsers = users.filter((u) => !isSuperAdminUser(u));
+        // Super Admin sees all accounts, including other Super Admin credentials
+        filteredUsers = users;
       } else if (isAdminUser(currentUser)) {
         filteredUsers = users.filter((u) => !isSuperAdminUser(u));
       } else {

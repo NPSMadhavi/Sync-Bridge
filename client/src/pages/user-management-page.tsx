@@ -24,11 +24,14 @@ import Dashboard from "@/components/layout/Dashboard";
 import { TableRowActions } from "@/components/ui/table-row-actions";
 import UserPermissionsEditor from "@/components/forms/UserPermissionsEditor";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useAuth } from "@/hooks/use-auth";
 import {
   createEmptyPermissions,
   normalizePermissions,
+  isSuperAdminUser,
   type UserPermissionsMap,
 } from "@shared/permissions";
+import { formatDisplayDate } from "@shared/document-reminder-utils";
 
 interface User {
   id: string;
@@ -36,9 +39,9 @@ interface User {
   email: string;
   role: 'super_admin' | 'admin' | 'hr_manager' | 'employee' | 'vendor';
   isActive: boolean;
+  isSuperAdmin?: boolean;
   permissions?: UserPermissionsMap;
-  created_at: string;
-  updated_at: string;
+  createdAt?: string | null;
 }
 
 interface UserFormData {
@@ -66,6 +69,7 @@ export default function UserManagementPage() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
   const { canView, isAdmin, isSuperAdmin } = usePermissions();
 
   const canManageUsers = canView("userManagement") && (isAdmin || isSuperAdmin);
@@ -192,12 +196,6 @@ export default function UserManagementPage() {
     }
   };
 
-  const filteredUsers = users.filter((user: User) =>
-    (user.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (user.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (user.role?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-  );
-
   const roles = [
     { value: 'super_admin', label: 'Super Admin' },
     { value: 'admin', label: 'Admin' },
@@ -205,6 +203,25 @@ export default function UserManagementPage() {
     { value: 'employee', label: 'Employee' },
     { value: 'vendor', label: 'Vendor' }
   ].filter((role) => role.value !== 'super_admin' || isSuperAdmin);
+
+  const filteredUsers = users.filter((user: User) =>
+    (user.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (user.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (user.role?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (roles.find(r => r.value === user.role)?.label || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const canManageUserRow = (user: User) => {
+    if (!canManageUsers) return false;
+    if (isSuperAdminUser(user)) return isSuperAdmin;
+    return true;
+  };
+
+  const canDeleteUserRow = (user: User) => {
+    if (!canManageUserRow(user)) return false;
+    if (isSuperAdminUser(user) && isSuperAdmin) return true;
+    return String(user.id) !== String(currentUser?.id);
+  };
 
   const renderUserFormFields = (passwordRequired: boolean) => (
     <>
@@ -363,6 +380,7 @@ export default function UserManagementPage() {
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Created Date</TableHead>
                   {canManageUsers && <TableHead>Actions</TableHead>}
                 </TableRow>
               </TableHeader>
@@ -391,24 +409,33 @@ export default function UserManagementPage() {
                         {user.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      {user.createdAt ? formatDisplayDate(user.createdAt) : '—'}
+                    </TableCell>
                     {canManageUsers && (
                       <TableCell>
-                        <TableRowActions
-                          actions={[
-                            {
-                              icon: Edit,
-                              label: "Edit",
-                              variant: "edit",
-                              onClick: () => handleEdit(user),
-                            },
-                            {
-                              icon: Trash2,
-                              label: "Delete",
-                              variant: "delete",
-                              onClick: () => handleDelete(user.id),
-                            },
-                          ]}
-                        />
+                        {canManageUserRow(user) ? (
+                          <TableRowActions
+                            actions={[
+                              {
+                                icon: Edit,
+                                label: "Edit",
+                                variant: "edit",
+                                onClick: () => handleEdit(user),
+                              },
+                              ...(canDeleteUserRow(user)
+                                ? [
+                                    {
+                                      icon: Trash2,
+                                      label: "Delete",
+                                      variant: "delete" as const,
+                                      onClick: () => handleDelete(user.id),
+                                    },
+                                  ]
+                                : []),
+                            ]}
+                          />
+                        ) : null}
                       </TableCell>
                     )}
                   </TableRow>
