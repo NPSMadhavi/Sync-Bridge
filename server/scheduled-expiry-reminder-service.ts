@@ -237,6 +237,9 @@ export class ScheduledExpiryReminderService {
     });
 
     for (const user of users) {
+      if (payload.tenantId != null && user.tenantId != null && user.tenantId !== payload.tenantId) {
+        continue;
+      }
       const exists = await storage.hasNotificationForEntity(user.id, entityType);
       if (exists) continue;
 

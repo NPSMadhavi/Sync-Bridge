@@ -46,6 +46,9 @@ import { format, isAfter, isBefore, addDays } from "date-fns";
 import LicenseForm from "@/components/forms/LicenseForm";
 import { useToast } from "@/hooks/use-toast";
 import { exportLicensesToExcel } from "@/lib/excel-utils";
+import { useUrlSearchParam } from "@/hooks/use-url-search-param";
+import { useOpenViewFromUrl } from "@/hooks/use-open-view-from-url";
+import { matchesTableSearch } from "@/lib/table-search";
 
 export default function LicensesPage() {
   const { toast } = useToast();
@@ -56,6 +59,7 @@ export default function LicensesPage() {
   const [selectedLicense, setSelectedLicense] = useState<License | null>(null);
   const [viewingLicense, setViewingLicense] = useState<License | null>(null);
   const [activeTab, setActiveTab] = useState("all");
+  const searchTerm = useUrlSearchParam();
 
   // Fetch licenses
   const { data: licenses = [], isLoading } = useQuery<License[]>({
@@ -63,8 +67,11 @@ export default function LicensesPage() {
     queryFn: () => apiRequest("GET", "/api/licenses").then((res) => res.json()),
   });
 
-  // Filtered licenses based on tab
+  // Filtered licenses based on tab and search
   const filteredLicenses = licenses.filter((license) => {
+    if (!matchesTableSearch(searchTerm, license.name, license.licenseKey, license.vendor, license.type, license.status)) {
+      return false;
+    }
     if (activeTab === "all") return true;
     if (activeTab === "expiringSoon") {
       return (
@@ -107,6 +114,12 @@ export default function LicensesPage() {
     setViewingLicense(license);
     setIsViewDialogOpen(true);
   };
+
+  useOpenViewFromUrl({
+    items: licenses,
+    isLoading,
+    onOpen: handleViewLicense,
+  });
 
   // Handle license deletion
   const handleDelete = () => {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import Dashboard from "@/components/layout/Dashboard";
 import { 
   Table, 
@@ -58,15 +59,20 @@ import {
   isDocumentExpired,
   isDocumentExpiringSoon,
 } from "@shared/document-expiry";
+import { useUrlSearchParam } from "@/hooks/use-url-search-param";
+import { useOpenViewFromUrl } from "@/hooks/use-open-view-from-url";
+import { matchesTableSearch } from "@/lib/table-search";
 
 export default function DocumentsPage() {
   const { toast } = useToast();
+  const [location] = useLocation();
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(null);
   const [viewingDocument, setViewingDocument] = useState<CompanyDocument | null>(null);
   const [activeTab, setActiveTab] = useState<string>("all");
+  const searchTerm = useUrlSearchParam();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -74,7 +80,7 @@ export default function DocumentsPage() {
     if (tab === "expiring" || tab === "expired" || tab === "all") {
       setActiveTab(tab);
     }
-  }, []);
+  }, [location]);
   
   // Fetch company documents
   const { data: documents = [], isLoading } = useQuery<CompanyDocument[]>({
@@ -110,6 +116,12 @@ export default function DocumentsPage() {
     setIsViewDialogOpen(true);
   };
 
+  useOpenViewFromUrl({
+    items: documents,
+    isLoading,
+    onOpen: handleViewDocument,
+  });
+
   const handleEditDocument = (doc: CompanyDocument) => {
     setSelectedDocumentId(doc.id);
     setIsFormDialogOpen(true);
@@ -143,8 +155,11 @@ export default function DocumentsPage() {
     }
   };
   
-  // Filter documents based on active tab
-  const filteredDocuments = documents.filter(doc => {
+  // Filter documents based on active tab and search
+  const filteredDocuments = documents.filter((doc) => {
+    if (!matchesTableSearch(searchTerm, doc.title, doc.documentType, doc.notes)) {
+      return false;
+    }
     if (activeTab === 'all') return true;
     if (activeTab === 'expiring') return isDocumentExpiringSoon(doc.expiryDate);
     if (activeTab === 'expired') return isDocumentExpired(doc.expiryDate);

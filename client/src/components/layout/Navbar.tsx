@@ -1,7 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { Link } from "wouter";
-import { Search, Bell, HelpCircle, User, Menu } from "lucide-react";
+import { Link, useLocation, useSearch } from "wouter";
+import {
+  Search,
+  Bell,
+  HelpCircle,
+  User,
+  Menu,
+  Users,
+  Package,
+  FileText,
+  KeyRound,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +26,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { isTableSearchRoute } from "@/lib/table-search";
+import { getNotificationHref, notificationHasNavigation } from "@/lib/notification-navigation";
+
+type GlobalSearchResult = {
+  type: "employee" | "asset" | "license" | "document";
+  id: number;
+  title: string;
+  subtitle: string;
+  href: string;
+};
 
 function parseNotificationDetails(notification: Notification) {
   const entityType = notification.entityType || "";
@@ -78,10 +99,118 @@ function parseNotificationDetails(notification: Notification) {
   };
 }
 
+function searchResultIcon(type: GlobalSearchResult["type"]) {
+  switch (type) {
+    case "employee":
+      return Users;
+    case "asset":
+      return Package;
+    case "license":
+      return KeyRound;
+    case "document":
+      return FileText;
+    default:
+      return Search;
+  }
+}
+
+function searchResultLabel(type: GlobalSearchResult["type"]) {
+  switch (type) {
+    case "employee":
+      return "Employee";
+    case "asset":
+      return "Asset";
+    case "license":
+      return "License";
+    case "document":
+      return "Document";
+    default:
+      return "Result";
+  }
+}
+
 export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: () => void }) {
   const { user } = useAuth();
+  const [location, setLocation] = useLocation();
+  const urlSearch = useSearch();
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [open, setOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (isTableSearchRoute(location)) {
+      setSearchOpen(false);
+    }
+  }, [location]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q") || "";
+    if (isTableSearchRoute(location)) {
+      setSearchQuery(q);
+      setDebouncedQuery(q);
+    } else if (!q) {
+      setSearchQuery("");
+      setDebouncedQuery("");
+    }
+  }, [location]);
+
+  useEffect(() => {
+    if (!isTableSearchRoute(location)) return;
+
+    const basePath = location.split("?")[0];
+    const params = new URLSearchParams(urlSearch);
+    const currentQ = params.get("q") || "";
+
+    if (debouncedQuery.length >= 2) {
+      if (currentQ === debouncedQuery) return;
+      params.set("q", debouncedQuery);
+      setLocation(`${basePath}?${params.toString()}`);
+      return;
+    }
+
+    if (debouncedQuery.length === 0 && currentQ) {
+      params.delete("q");
+      const qs = params.toString();
+      setLocation(qs ? `${basePath}?${qs}` : basePath);
+    }
+  }, [debouncedQuery, location, urlSearch, setLocation]);
+
+  const onTableSearchRoute = isTableSearchRoute(location);
+
+  const { data: searchResults = [], isFetching: isSearching, isError: isSearchError } = useQuery<GlobalSearchResult[]>({
+    queryKey: ["/api/search", debouncedQuery],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/search?q=${encodeURIComponent(debouncedQuery)}`);
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("Search service unavailable. Please restart the server.");
+      }
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!user && debouncedQuery.length >= 2 && !onTableSearchRoute,
+  });
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target as Node)
+      ) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
@@ -121,7 +250,34 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
     if (!notification.seen) {
       await markNotificationAsSeen(notification.id);
     }
+
+    const href = getNotificationHref(notification);
+    if (href) {
+      setOpen(false);
+      setLocation(href);
+    }
   };
+
+  const handleSearchSelect = (result: GlobalSearchResult) => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setDebouncedQuery("");
+    setLocation(result.href);
+  };
+
+  const handleSearchSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (onTableSearchRoute) return;
+    if (searchResults.length > 0) {
+      handleSearchSelect(searchResults[0]);
+      return;
+    }
+    if (debouncedQuery.length >= 2) {
+      setSearchOpen(true);
+    }
+  };
+
+  const showSearchDropdown = searchOpen && debouncedQuery.length >= 2 && !onTableSearchRoute;
 
   return (
     <header className="bg-card border-b border-border flex items-center h-16 px-4 md:px-6">
@@ -132,17 +288,80 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
         <Menu className="h-6 w-6" />
       </button>
       <div className="flex-1 flex items-center justify-between">
-        <div className="relative w-full max-w-md">
-          <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-            <Search className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-          </span>
-          <Input
-            type="text"
-            className="w-full pl-10 pr-4 py-2 bg-background text-foreground"
-            placeholder="Search assets, employees, documents..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+        <div ref={searchContainerRef} className="relative w-full max-w-md">
+          <form onSubmit={handleSearchSubmit}>
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              {isSearching ? (
+                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+              ) : (
+                <Search className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+              )}
+            </span>
+            <Input
+              type="text"
+              className="w-full pl-10 pr-4 py-2 bg-background text-foreground"
+              placeholder={
+                onTableSearchRoute
+                  ? "Filter table..."
+                  : "Search assets, employees, documents..."
+              }
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (!onTableSearchRoute) {
+                  setSearchOpen(true);
+                }
+              }}
+              onFocus={() => {
+                if (!onTableSearchRoute && searchQuery.trim().length >= 2) {
+                  setSearchOpen(true);
+                }
+              }}
+            />
+          </form>
+
+          {showSearchDropdown && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg">
+              {isSearching ? (
+                <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+                  Searching...
+                </div>
+              ) : isSearchError ? (
+                <div className="px-4 py-6 text-sm text-destructive text-center">
+                  Search failed. Try again or refresh the page.
+                </div>
+              ) : searchResults.length === 0 ? (
+                <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+                  No results found for &quot;{debouncedQuery}&quot;
+                </div>
+              ) : (
+                <div className="max-h-80 overflow-y-auto py-1">
+                  {searchResults.map((result) => {
+                    const Icon = searchResultIcon(result.type);
+                    return (
+                      <button
+                        key={`${result.type}-${result.id}-${result.href}`}
+                        type="button"
+                        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/70 transition-colors"
+                        onClick={() => handleSearchSelect(result)}
+                      >
+                        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-sm font-medium">{result.title}</p>
+                            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {searchResultLabel(result.type)}
+                            </span>
+                          </div>
+                          <p className="truncate text-xs text-muted-foreground">{result.subtitle}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center space-x-4">
           <DropdownMenu
@@ -197,6 +416,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
                 ) : (
                   expiryNotifications.map((notification) => {
                     const details = parseNotificationDetails(notification);
+                    const navigable = notificationHasNavigation(notification);
                     return (
                       <button
                         key={notification.id}
@@ -204,6 +424,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
                         onClick={() => handleNotificationClick(notification)}
                         className={cn(
                           "w-full text-left px-4 py-3 border-b last:border-b-0 transition-colors",
+                          navigable && "cursor-pointer",
                           notification.seen
                             ? "hover:bg-muted/50"
                             : "bg-primary/10 hover:bg-primary/15 dark:bg-primary/15 dark:hover:bg-primary/20"

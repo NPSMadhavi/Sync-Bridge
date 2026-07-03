@@ -246,6 +246,8 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
         description: "Employee updated successfully!",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/configs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary"] });
       onClose?.();
     },
     onError: (error: Error) => {

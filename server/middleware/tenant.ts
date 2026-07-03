@@ -2,6 +2,52 @@ import { Request, Response, NextFunction } from "express";
 import { eq } from "drizzle-orm";
 import { tenants } from "@shared/schema";
 import { db } from "../db";
+import { isSuperAdminUser } from "@shared/permissions";
+
+type TenantScopedUser = {
+  role?: string | null;
+  isSuperAdmin?: boolean | null;
+  tenantId?: number | null;
+};
+
+/** List/query scope: super admin may pass tenant context; everyone else uses their tenantId only. */
+export async function resolveListScopedTenantId(req: Request): Promise<number | undefined> {
+  const user = req.user as TenantScopedUser | undefined;
+  if (isSuperAdminUser(user)) {
+    const tenant = await getTenantFromRequest(req);
+    return tenant?.id;
+  }
+  return user?.tenantId ?? undefined;
+}
+
+export function buildTenantSlug(name: string, email: string): string {
+  const base =
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") ||
+    email
+      .split("@")[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-") ||
+    "org";
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+export function assertResourceTenantAccess(
+  req: Request,
+  res: Response,
+  resourceTenantId: number | null | undefined
+): boolean {
+  const user = req.user as TenantScopedUser | undefined;
+  if (isSuperAdminUser(user)) return true;
+  if (!user?.tenantId || resourceTenantId == null || resourceTenantId !== user.tenantId) {
+    res.status(403).json({ message: "Access denied" });
+    return false;
+  }
+  return true;
+}
 
 // Get tenant from request
 export const getTenantFromRequest = async (req: Request) => {

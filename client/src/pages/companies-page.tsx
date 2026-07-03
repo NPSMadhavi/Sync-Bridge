@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Search, Globe, Phone, MapPin, Edit, Trash2, Eye } from "lucide-react";
+import { Plus, Globe, Phone, MapPin, Edit, Trash2, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -39,6 +39,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useUrlSearchParam } from "@/hooks/use-url-search-param";
+import { matchesTableSearch } from "@/lib/table-search";
 
 interface Company {
   id: number;
@@ -73,7 +75,7 @@ export default function CompaniesPage() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
+  const searchTerm = useUrlSearchParam();
   const [formData, setFormData] = useState<CompanyFormData>(emptyForm);
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof CompanyFormData, string>>>({});
 
@@ -212,11 +214,15 @@ export default function CompaniesPage() {
 
   const isFormSheetOpen = isAddModalOpen || isEditModalOpen;
 
-  const filteredCompanies = companies.filter(
-    (company: Company) =>
-      company.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      company.uenNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (company.address ?? "").toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredCompanies = companies.filter((company: Company) =>
+    matchesTableSearch(
+      searchTerm,
+      company.companyName,
+      company.uenNumber,
+      company.address,
+      company.phoneNumber,
+      company.website
+    )
   );
 
   const renderCompanyFormFields = () => (
@@ -280,20 +286,9 @@ export default function CompaniesPage() {
 
   return (
     <Dashboard
-      title={<span className="text-[32px] font-bold">Company Management</span>}
-      description="Manage your organization's company records."
-    >
-      <div className="mb-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search companies..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 w-full sm:w-64"
-            />
-          </div>
+      title={
+        <div className="flex justify-between items-center w-full">
+          <span className="text-[32px] font-bold">Company Management</span>
           <Button
             onClick={() => {
               resetForm();
@@ -304,8 +299,9 @@ export default function CompaniesPage() {
             Add Company
           </Button>
         </div>
-      </div>
-
+      }
+      description="Manage your organization's company records."
+    >
       <Card>
         <CardHeader>
           <CardTitle>All Companies</CardTitle>

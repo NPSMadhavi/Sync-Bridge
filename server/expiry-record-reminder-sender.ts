@@ -60,6 +60,9 @@ async function createReminderNotifications(
 
   let created = 0;
   for (const user of byId.values()) {
+    if (tenantId != null && user.tenantId != null && user.tenantId !== tenantId) {
+      continue;
+    }
     await storage.createNotification({
       tenantId: tenantId ?? user.tenantId ?? null,
       type: notificationType,

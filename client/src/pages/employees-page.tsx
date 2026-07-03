@@ -32,6 +32,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { getEffectiveTenantId } from "@/lib/tenant-context";
 import { isExpiryDueForAttention } from "@shared/document-expiry";
 import { useLocation } from "wouter";
+import { useUrlSearchParam } from "@/hooks/use-url-search-param";
+import { useOpenViewFromUrl } from "@/hooks/use-open-view-from-url";
+import { matchesTableSearch } from "@/lib/table-search";
 import { exportEmployeesToExcel, parseEmployeeImportFile, type EmployeeImportRow } from "@/lib/excel-utils";
 import { insertEmployeeSchema } from "@shared/schema";
 import { ZodError } from "zod";
@@ -91,6 +94,8 @@ interface EmployeeCompanyHistoryRecord {
   companyId?: number | null;
   companyName: string;
   dateChanged: string;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
 }
 
 interface EmployeeFormData {
@@ -234,9 +239,9 @@ export default function EmployeesPage() {
     visaType: 'other'
   });
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const searchTerm = useUrlSearchParam();
   const [expiryFilter, setExpiryFilter] = useState<'passportExpiry' | 'visaExpiry' | null>(null);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [visibleNumbers, setVisibleNumbers] = useState<{
     [key: string]: { visible: boolean; timeout?: NodeJS.Timeout };
   }>({});
@@ -286,7 +291,7 @@ export default function EmployeesPage() {
     } else {
       setExpiryFilter(null);
     }
-  }, []);
+  }, [location]);
 
   const clearExpiryFilter = () => {
     setExpiryFilter(null);
@@ -528,6 +533,8 @@ export default function EmployeesPage() {
       });
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/configs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary"] });
       setIsEditModalOpen(false);
       resetForm();
     },
@@ -639,6 +646,12 @@ export default function EmployeesPage() {
     setIsViewDetailsModalOpen(true);
   };
 
+  useOpenViewFromUrl({
+    items: employees,
+    isLoading,
+    onOpen: handleViewDetails,
+  });
+
   const handleDelete = (employee: Employee) => {
     setSelectedEmployee(employee);
     setIsDeleteDialogOpen(true);
@@ -682,8 +695,15 @@ export default function EmployeesPage() {
 
   const filteredEmployees = employees.filter((employee: Employee) =>
     matchesExpiryFilter(employee) &&
-    (employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    employee.employeeId.toLowerCase().includes(searchTerm.toLowerCase()))
+    matchesTableSearch(
+      searchTerm,
+      employee.name,
+      employee.employeeId,
+      employee.email,
+      employee.department,
+      employee.designation,
+      displayCompanyName(employee)
+    )
   );
 
   const isForeigner = formData.nationality === 'foreigner';
@@ -2197,7 +2217,8 @@ export default function EmployeesPage() {
                         <TableHead>EmpID</TableHead>
                         <TableHead>EmpName</TableHead>
                         <TableHead>Company</TableHead>
-                        <TableHead>Date Changed</TableHead>
+                        <TableHead>Effective From</TableHead>
+                        <TableHead>Effective To</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -2207,7 +2228,14 @@ export default function EmployeesPage() {
                           <TableCell>{record.employeeName}</TableCell>
                           <TableCell>{record.companyName}</TableCell>
                           <TableCell>
-                            {new Date(record.dateChanged).toLocaleDateString('en-GB')}
+                            {record.effectiveFrom
+                              ? new Date(record.effectiveFrom).toLocaleDateString('en-GB')
+                              : new Date(record.dateChanged).toLocaleDateString('en-GB')}
+                          </TableCell>
+                          <TableCell>
+                            {record.effectiveTo
+                              ? new Date(record.effectiveTo).toLocaleDateString('en-GB')
+                              : 'Current'}
                           </TableCell>
                         </TableRow>
                       ))}

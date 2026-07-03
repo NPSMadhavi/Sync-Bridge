@@ -5,7 +5,7 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, whenSchemaReady } from "./db";
 import { User as SelectUser, userRoleEnum, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
@@ -113,7 +113,7 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
-  void ensureSuperAdminLogin();
+  void whenSchemaReady().then(() => ensureSuperAdminLogin());
 
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || "syncbridge-secret-key",

@@ -5,7 +5,8 @@
   "license": "MIT",
   "main": "main.cjs",
   "scripts": {
-    "predev": "powershell -ExecutionPolicy Bypass -File scripts/free-port-5000.ps1",
+    "predev": "powershell -ExecutionPolicy Bypass -File scripts/stop-syncbridge-servers.ps1 && powershell -ExecutionPolicy Bypass -File scripts/free-port-5000.ps1",
+    "db:reset": "powershell -ExecutionPolicy Bypass -File scripts/reset-postgres-connections.ps1",
     "dev": "tsx --env-file=server/.env server/index.ts",
     "build": "vite build && npm run build:server",
     "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server/dist",

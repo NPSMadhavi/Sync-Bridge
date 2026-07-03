@@ -39,7 +39,7 @@ const payrollRecordSchema = z.object({
   employeeId: z.number().min(1, "Please select an employee"),
   payPeriodStart: z.string().min(1, "Pay period start is required"),
   payPeriodEnd: z.string().min(1, "Pay period end is required"),
-  overtimeHours: z.string().default("0.00"),
+  overtimeHours: z.string().default(""),
   notes: z.string().optional(),
 });
 
@@ -110,7 +110,7 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
       employeeId: record?.employeeId || 0,
       payPeriodStart: record?.payPeriodStart || "",
       payPeriodEnd: record?.payPeriodEnd || "",
-      overtimeHours: record?.overtimeHours || "0.00",
+      overtimeHours: record?.overtimeHours ?? "",
       notes: record?.notes || "",
     },
   });
@@ -418,7 +418,7 @@ export function PayrollRecordForm({ isOpen, onClose, record }: PayrollRecordForm
                           <FormControl>
                             <NumberInput
                               step="0.5"
-                              placeholder="0.0"
+                              placeholder=""
                               {...field}
                               disabled={isEditMode}
                             />

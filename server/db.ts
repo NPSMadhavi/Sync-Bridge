@@ -11,12 +11,22 @@ type DbGlobal = {
   pool?: PgPoolLike;
   db?: ReturnType<typeof drizzleNode>;
   shutdownRegistered?: boolean;
+  schemaEnsured?: boolean;
+  schemaReadyPromise?: Promise<void>;
 };
 
 const globalForDb = globalThis as typeof globalThis & { __syncbridgeDb?: DbGlobal };
 
 const isNeon = () =>
   Boolean(process.env.DATABASE_URL?.includes("pooler.internal.neon.tech"));
+
+function resolvePoolMax(): number {
+  const configuredMax = Number(process.env.PG_POOL_MAX);
+  if (Number.isFinite(configuredMax) && configuredMax > 0) {
+    return configuredMax;
+  }
+  return isNeon() ? 3 : 2;
+}
 
 async function closePoolSafely(existing?: PgPoolLike) {
   if (!existing || typeof (existing as pg.Pool).end !== "function") return;
@@ -45,7 +55,7 @@ function registerPoolShutdown(poolToClose: PgPoolLike) {
 
 function createPool(): PgPoolLike {
   const connectionString = process.env.DATABASE_URL!;
-  const maxConnections = isNeon() ? 3 : 2;
+  const maxConnections = resolvePoolMax();
 
   if (isNeon()) {
     neonConfig.webSocketConstructor = ws;
@@ -59,11 +69,38 @@ function createPool(): PgPoolLike {
   return new pg.Pool({
     connectionString,
     connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 10_000,
+    idleTimeoutMillis: 5_000,
     max: maxConnections,
     allowExitOnIdle: true,
     application_name: "syncbridge",
   });
+}
+
+function createDrizzle(activePool: PgPoolLike) {
+  return isNeon()
+    ? drizzle({ client: activePool as Pool, schema })
+    : drizzleNode(activePool as pg.Pool, { schema });
+}
+
+function scheduleSchemaPatches(activePool: PgPoolLike) {
+  if (globalForDb.__syncbridgeDb?.schemaEnsured) {
+    return;
+  }
+
+  const schemaReadyPromise = import("./ensure-schema")
+    .then(({ runAllSchemaPatches }) => runAllSchemaPatches(activePool))
+    .then(() => {
+      console.log("[ensure-schema] complete");
+    })
+    .catch((err: Error) => {
+      console.warn("[ensure-schema] failed:", err.message);
+    });
+
+  globalForDb.__syncbridgeDb = {
+    ...globalForDb.__syncbridgeDb,
+    schemaEnsured: true,
+    schemaReadyPromise,
+  };
 }
 
 // Create database connection with singleton pool (survives dev reloads)
@@ -75,14 +112,16 @@ try {
     throw new Error("DATABASE_URL not provided");
   }
 
-  if (globalForDb.__syncbridgeDb?.pool && globalForDb.__syncbridgeDb?.db) {
-    pool = globalForDb.__syncbridgeDb.pool;
-    db = globalForDb.__syncbridgeDb.db;
-  } else {
-    if (globalForDb.__syncbridgeDb?.pool) {
-      void closePoolSafely(globalForDb.__syncbridgeDb.pool);
-    }
+  const existing = globalForDb.__syncbridgeDb;
 
+  if (existing?.pool) {
+    pool = existing.pool;
+    db = existing.db ?? createDrizzle(pool);
+    globalForDb.__syncbridgeDb = { ...existing, pool, db };
+    if (!existing.schemaEnsured) {
+      scheduleSchemaPatches(pool);
+    }
+  } else {
     pool = createPool();
 
     if (pool instanceof pg.Pool) {
@@ -91,55 +130,24 @@ try {
       });
     }
 
-    db = isNeon()
-      ? drizzle({ client: pool as Pool, schema })
-      : drizzleNode(pool as pg.Pool, { schema });
-
+    db = createDrizzle(pool);
     globalForDb.__syncbridgeDb = { pool, db };
     registerPoolShutdown(pool);
 
-    console.log(
-      `Connected to PostgreSQL database (pool max=${isNeon() ? 3 : 2})`
-    );
+    const poolMax =
+      pool instanceof pg.Pool ? pool.options.max : (pool as Pool).options?.max;
+    console.log(`Connected to PostgreSQL database (pool max=${poolMax ?? "default"})`);
 
-    import("./ensure-schema").then(
-      ({
-        ensurePayrollSchema,
-        ensureCompaniesSchema,
-        ensureEmployeeCompanySchema,
-        ensureRunningNumbersSchema,
-        ensureUserPermissionsSchema,
-        ensureAssetTenantSchema,
-        ensureEmployeeReminderSchema,
-      }) => {
-        const queryPool = pool as { query: (sql: string) => Promise<unknown> };
-        ensurePayrollSchema(queryPool).catch((err: Error) =>
-          console.warn("[ensure-schema] payroll skipped:", err.message)
-        );
-        ensureCompaniesSchema(queryPool).catch((err: Error) =>
-          console.warn("[ensure-schema] companies skipped:", err.message)
-        );
-        ensureEmployeeCompanySchema(queryPool).catch((err: Error) =>
-          console.warn("[ensure-schema] employee company skipped:", err.message)
-        );
-        ensureRunningNumbersSchema(queryPool).catch((err: Error) =>
-          console.warn("[ensure-schema] running numbers skipped:", err.message)
-        );
-        ensureUserPermissionsSchema(queryPool).catch((err: Error) =>
-          console.warn("[ensure-schema] user permissions skipped:", err.message)
-        );
-        ensureAssetTenantSchema(queryPool).catch((err: Error) =>
-          console.warn("[ensure-schema] asset tenant skipped:", err.message)
-        );
-        ensureEmployeeReminderSchema(queryPool).catch((err: Error) =>
-          console.warn("[ensure-schema] employee reminder skipped:", err.message)
-        );
-      }
-    );
+    scheduleSchemaPatches(pool);
   }
 } catch (error) {
   console.error("Database connection failed:", (error as Error).message);
   throw error;
+}
+
+/** Resolves after startup schema patches finish (or fail). Safe to call before patches run. */
+export function whenSchemaReady(): Promise<void> {
+  return globalForDb.__syncbridgeDb?.schemaReadyPromise ?? Promise.resolve();
 }
 
 export { pool, db };

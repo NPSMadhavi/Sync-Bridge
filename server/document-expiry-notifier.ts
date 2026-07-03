@@ -1,6 +1,7 @@
 import { storage } from './storage';
 import { sendEmail, generateDocumentExpiryEmailHTML, generateDocumentExpiryEmailText } from './email';
 import { getOptedInProfileReminderEmails, getReminderNotificationUsers } from './reminder-email-recipients';
+import { whenSchemaReady } from './db';
 
 interface ExpiringDocument {
   id: number;
@@ -203,6 +204,9 @@ export class DocumentExpiryNotifier {
       const users = await getReminderNotificationUsers(document.tenantId);
 
       for (const user of users) {
+        if (document.tenantId != null && user.tenantId != null && user.tenantId !== document.tenantId) {
+          continue;
+        }
         const exists = await storage.hasNotificationForEntity(user.id, entityType);
         if (exists) continue;
 
@@ -265,16 +269,16 @@ export class DocumentExpiryNotifier {
  */
 export function initializeDocumentExpiryMonitoring(): void {
   const notifier = DocumentExpiryNotifier.getInstance();
-  
-  // Run initial check
-  notifier.checkAndNotifyExpiringDocuments();
-  
-  // Schedule daily checks at 9 AM
-  const checkInterval = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-  setInterval(() => {
-    notifier.checkAndNotifyExpiringDocuments();
-  }, checkInterval);
-  
+
+  const runCheck = () => {
+    void notifier.checkAndNotifyExpiringDocuments();
+  };
+
+  void whenSchemaReady().then(runCheck);
+
+  const checkInterval = 24 * 60 * 60 * 1000;
+  setInterval(runCheck, checkInterval);
+
   console.log('📅 Document expiry monitoring initialized - checks run every 24 hours');
 }
 

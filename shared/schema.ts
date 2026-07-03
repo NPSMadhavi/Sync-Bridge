@@ -175,7 +175,10 @@ export const employeeCompanyHistory = pgTable("employee_company_history", {
   companyId: integer("company_id").references(() => companies.id),
   companyName: text("company_name").notNull(),
   dateChanged: timestamp("date_changed").notNull().defaultNow(),
+  effectiveFrom: date("effective_from"),
+  effectiveTo: date("effective_to"),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const dependents = pgTable("dependents", {
@@ -494,6 +497,7 @@ export const payrollRecords = pgTable("payroll_records", {
   taxDeduction: decimal("tax_deduction", { precision: 10, scale: 2 }).default('0.00'),
   cpfDeduction: decimal("cpf_deduction", { precision: 10, scale: 2 }).default('0.00'),
   netPay: decimal("net_pay", { precision: 10, scale: 2 }).notNull(),
+  companyId: integer("company_id").references(() => companies.id),
   status: payrollStatusEnum("status").notNull().default('draft'),
   paymentDate: date("payment_date"),
   notes: text("notes"),

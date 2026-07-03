@@ -36,12 +36,13 @@ import { apiRequest } from "@/lib/queryClient";
 import { exportPayrollConfigsToExcel } from "@/lib/excel-utils";
 import {
   getCurrentPayPeriod,
+  getLastCompletedPayPeriod,
   derivePayrollMonthYear,
-  getProcessedMonthsForEmployee,
   isPayrollProcessedForPeriod,
-  hasProcessedPayrollForEmployee,
   batchProcessPayrollForPeriod,
   resolveBatchPayrollStatus,
+  isPayPeriodEligibleForProcessing,
+  PAYROLL_CURRENT_MONTH_ERROR,
   type BatchPayrollScenario,
   type BatchPayrollSummary,
 } from "@/lib/payroll-batch-utils";
@@ -62,6 +63,7 @@ import {
   formatViewStatus,
   formatViewValue,
 } from "@/components/ui/entity-view-sheet";
+import PayslipPreviewModal from "@/components/payroll/PayslipPreviewModal";
 
 const PAYROLL_CONFIG_PAGE_SIZE = 10;
 
@@ -83,6 +85,36 @@ const PAYSLIP_MONTHS_RIGHT = [
   { value: 12, label: "December" },
 ];
 
+function isPayslipMonthSelectable(
+  year: number,
+  month: number,
+  now = new Date()
+): boolean {
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  if (year > currentYear) return false;
+  // Payslips are generated after the month ends — current month is not selectable.
+  if (year === currentYear && month >= currentMonth) return false;
+  return true;
+}
+
+function isNoCompanyPayslipError(
+  message?: string,
+  data?: { ineligibleMonths?: string[] }
+): boolean {
+  if (data?.ineligibleMonths?.length) return true;
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes("company");
+}
+
+function getNoCompanyPayslipMessage(action: "view" | "download"): string {
+  return action === "view"
+    ? "No company is assigned for the selected month. Payslip cannot be viewed."
+    : "No company is assigned for the selected month. Payslip cannot be downloaded.";
+}
+
 function buildPayslipDownloadFilename(
   employeeName: string,
   month: number,
@@ -97,18 +129,6 @@ function buildPayslipDownloadFilename(
     PAYSLIP_MONTHS_LEFT.concat(PAYSLIP_MONTHS_RIGHT).find((m) => m.value === month)?.label ||
     `Month${month}`;
   return `Payslip_${safeName}_${monthLabel}_${year}.pdf`;
-}
-
-function closePayslipViewer(
-  url: string | null,
-  setOpen: (open: boolean) => void,
-  setUrl: (url: string | null) => void
-) {
-  setOpen(false);
-  if (url) {
-    window.URL.revokeObjectURL(url);
-    setUrl(null);
-  }
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string) {
@@ -194,8 +214,8 @@ export default function PayrollPage() {
   const [selectedConfigIds, setSelectedConfigIds] = useState<number[]>([]);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [batchModalOpen, setBatchModalOpen] = useState(false);
-  const [batchPayPeriodStart, setBatchPayPeriodStart] = useState(getCurrentPayPeriod().payPeriodStart);
-  const [batchPayPeriodEnd, setBatchPayPeriodEnd] = useState(getCurrentPayPeriod().payPeriodEnd);
+  const [batchPayPeriodStart, setBatchPayPeriodStart] = useState(getLastCompletedPayPeriod().payPeriodStart);
+  const [batchPayPeriodEnd, setBatchPayPeriodEnd] = useState(getLastCompletedPayPeriod().payPeriodEnd);
   const [batchSummary, setBatchSummary] = useState<BatchPayrollSummary | null>(null);
   const [batchSummaryOpen, setBatchSummaryOpen] = useState(false);
   const [batchConfirmDialogOpen, setBatchConfirmDialogOpen] = useState(false);
@@ -207,16 +227,22 @@ export default function PayrollPage() {
   const [isPayslipDownloading, setIsPayslipDownloading] = useState(false);
   const [isPayslipViewing, setIsPayslipViewing] = useState(false);
   const [payslipViewerOpen, setPayslipViewerOpen] = useState(false);
-  const [payslipViewerUrl, setPayslipViewerUrl] = useState<string | null>(null);
+  const [payslipViewerHtml, setPayslipViewerHtml] = useState<string | null>(null);
   const [payslipViewerTitle, setPayslipViewerTitle] = useState("");
+  const [payslipViewerContext, setPayslipViewerContext] = useState<{
+    payrollConfigId: number;
+    employeeName: string;
+    year: number;
+    month: number;
+  } | null>(null);
+  const [payslipNotice, setPayslipNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (payslipViewerUrl) {
-        window.URL.revokeObjectURL(payslipViewerUrl);
-      }
-    };
-  }, [payslipViewerUrl]);
+  const closePayslipViewer = () => {
+    setPayslipViewerOpen(false);
+    setPayslipViewerHtml(null);
+    setPayslipViewerContext(null);
+    setPayslipViewerTitle("");
+  };
 
   const { payPeriodStart, payPeriodEnd } = getCurrentPayPeriod();
 
@@ -390,13 +416,24 @@ export default function PayrollPage() {
   const processedRowClass = "bg-[#E3F2FD] border-l-4 border-[#90CAF9]";
 
   const handleBatchProcess = () => {
-    const { payPeriodStart, payPeriodEnd } = getCurrentPayPeriod();
+    const { payPeriodStart, payPeriodEnd } = getLastCompletedPayPeriod();
     setBatchPayPeriodStart(payPeriodStart);
     setBatchPayPeriodEnd(payPeriodEnd);
     setBatchModalOpen(true);
   };
 
-  const runBatchProcess = async (processScope: "pending" | "changed") => {
+  const runBatchProcess = async (options?: {
+    processScope?: "pending" | "changed";
+    forceOverwrite?: boolean;
+  }) => {
+    if (!isPayPeriodEligibleForProcessing(batchPayPeriodStart, batchPayPeriodEnd)) {
+      toast({
+        title: "Payroll not allowed",
+        description: PAYROLL_CURRENT_MONTH_ERROR,
+      });
+      return;
+    }
+
     const { monthLabel } = derivePayrollMonthYear(batchPayPeriodStart);
 
     setIsBatchProcessing(true);
@@ -406,10 +443,17 @@ export default function PayrollPage() {
         batchPayPeriodStart,
         batchPayPeriodEnd,
         selectedConfigIds.length > 0 ? selectedConfigIds : undefined,
-        { processScope }
+        {
+          processScope: options?.processScope,
+          forceOverwrite: options?.forceOverwrite === true,
+        }
       );
 
-      if ("scenario" in result && result.scenario === "no-changes") {
+      if (
+        "scenario" in result &&
+        result.scenario === "no-changes" &&
+        !options?.forceOverwrite
+      ) {
         setBatchConfirmScenario("no-changes");
         setBatchConfirmDialogOpen(true);
         return;
@@ -428,9 +472,10 @@ export default function PayrollPage() {
 
       if (result.ok) {
         toast({
-          title: processScope === "changed" ? "Payroll overwritten" : "Batch payroll complete",
-          description:
-            processScope === "changed"
+          title: options?.forceOverwrite ? "Payroll overwritten" : "Batch payroll complete",
+          description: options?.forceOverwrite
+            ? `Payslips regenerated for the selected period (${monthLabel}).`
+            : options?.processScope === "changed"
               ? `Payslips regenerated for employees with updated payroll values (${monthLabel}).`
               : `Payroll for ${monthLabel} processed successfully. Payslips have been downloaded.`,
         });
@@ -463,6 +508,14 @@ export default function PayrollPage() {
         title: "Missing pay period",
         description: "Please select both pay period start and end dates.",
         variant: "destructive",
+      });
+      return;
+    }
+
+    if (!isPayPeriodEligibleForProcessing(batchPayPeriodStart, batchPayPeriodEnd)) {
+      toast({
+        title: "Payroll not allowed",
+        description: PAYROLL_CURRENT_MONTH_ERROR,
       });
       return;
     }
@@ -506,11 +559,11 @@ export default function PayrollPage() {
 
   const handleBatchConfirmProceed = async () => {
     if (batchConfirmScenario === "pending") {
-      await runBatchProcess("pending");
+      await runBatchProcess({ processScope: "pending" });
       return;
     }
-    if (batchConfirmScenario === "values-changed") {
-      await runBatchProcess("changed");
+    if (batchConfirmScenario === "values-changed" || batchConfirmScenario === "no-changes") {
+      await runBatchProcess({ forceOverwrite: true });
     }
   };
 
@@ -520,30 +573,35 @@ export default function PayrollPage() {
     );
   };
 
-  const openPayslipModal = (config: any) => {
+  const openPayslipModal = async (config: any) => {
     const year = new Date().getFullYear();
-    const availableMonths = getProcessedMonthsForEmployee(
-      config.employeeId,
-      year,
-      payrollRecords
-    );
     const currentMonth = new Date().getMonth() + 1;
 
+    let defaultYear = year;
+    let defaultMonth = currentMonth - 1;
+    if (defaultMonth < 1) {
+      defaultMonth = 12;
+      defaultYear = year - 1;
+    }
+
+    const defaultSelection = isPayslipMonthSelectable(defaultYear, defaultMonth)
+      ? defaultMonth
+      : null;
+
     setPayslipConfig(config);
-    setPayslipYear(year);
-    setSelectedPayslipMonths(
-      availableMonths.includes(currentMonth) ? [currentMonth] : availableMonths.slice(0, 1)
-    );
+    setPayslipYear(defaultSelection ? defaultYear : year);
+    setPayslipNotice(null);
+    setSelectedPayslipMonths(defaultSelection ? [defaultSelection] : []);
     setPayslipModalOpen(true);
   };
 
-  const payslipAvailableMonths = payslipConfig
-    ? getProcessedMonthsForEmployee(payslipConfig.employeeId, payslipYear, payrollRecords)
-    : [];
-
-  const isPayslipMonthAvailable = (month: number) => payslipAvailableMonths.includes(month);
+  const isMonthEnabled = (month: number) => isPayslipMonthSelectable(payslipYear, month);
 
   const togglePayslipMonth = (month: number, checked: boolean) => {
+    if (checked && !isMonthEnabled(month)) {
+      return;
+    }
+    setPayslipNotice(null);
     setSelectedPayslipMonths((prev) =>
       checked ? [...prev, month].sort((a, b) => a - b) : prev.filter((m) => m !== month)
     );
@@ -562,6 +620,7 @@ export default function PayrollPage() {
       return;
     }
 
+    setPayslipNotice(null);
     setIsPayslipDownloading(true);
 
     try {
@@ -578,6 +637,10 @@ export default function PayrollPage() {
 
       if (!res.ok) {
         const error = await res.json().catch(() => ({ message: "Failed to download payslip" }));
+        if (isNoCompanyPayslipError(error.message, error)) {
+          setPayslipNotice(getNoCompanyPayslipMessage("download"));
+          return;
+        }
         toast({
           title: "Download failed",
           description: error.message || "Failed to download payslips.",
@@ -608,6 +671,8 @@ export default function PayrollPage() {
             ? `Downloaded ${selectedPayslipMonths.length} payslip(s) as a ZIP file for ${payslipConfig.employeeName}.${missingHeader ? ` Missing: ${missingHeader}.` : ""}`
             : `Downloaded payslip for ${payslipConfig.employeeName}.${missingHeader ? ` Missing: ${missingHeader}.` : ""}`,
         });
+      } else if (isNoCompanyPayslipError(result.message)) {
+        setPayslipNotice(getNoCompanyPayslipMessage("download"));
       } else {
         toast({
           title: "Download failed",
@@ -619,6 +684,65 @@ export default function PayrollPage() {
       toast({
         title: "Download failed",
         description: error instanceof Error ? error.message : "Failed to download payslips.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPayslipDownloading(false);
+    }
+  };
+
+  const handlePayslipViewerDownload = async () => {
+    if (!payslipViewerContext) {
+      return;
+    }
+
+    setIsPayslipDownloading(true);
+
+    try {
+      const res = await fetch("/api/payroll/payslips/download", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payrollConfigId: payslipViewerContext.payrollConfigId,
+          year: payslipViewerContext.year,
+          months: [payslipViewerContext.month],
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ message: "Failed to download payslip" }));
+        toast({
+          title: "Download failed",
+          description: error.message || "Failed to download payslip.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const fallbackFilename = buildPayslipDownloadFilename(
+        payslipViewerContext.employeeName,
+        payslipViewerContext.month,
+        payslipViewerContext.year
+      );
+      const result = await handlePayslipDownloadResponse(res, fallbackFilename);
+
+      if (result.ok) {
+        toast({
+          title: "Payslip downloaded",
+          description: `Downloaded payslip for ${payslipViewerContext.employeeName}.`,
+        });
+      } else {
+        toast({
+          title: "Download failed",
+          description: result.message,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: error instanceof Error ? error.message : "Failed to download payslip.",
         variant: "destructive",
       });
     } finally {
@@ -639,11 +763,12 @@ export default function PayrollPage() {
       return;
     }
 
+    setPayslipNotice(null);
     setIsPayslipViewing(true);
     const month = selectedPayslipMonths[0];
 
     try {
-      const res = await fetch("/api/payroll/payslips/view", {
+      const res = await fetch("/api/payroll/payslips/preview", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -656,6 +781,10 @@ export default function PayrollPage() {
 
       if (!res.ok) {
         const error = await res.json().catch(() => ({ message: "Failed to view payslip" }));
+        if (isNoCompanyPayslipError(error.message, error)) {
+          setPayslipNotice(getNoCompanyPayslipMessage("view"));
+          return;
+        }
         toast({
           title: "View failed",
           description: error.message || "Failed to load payslip preview.",
@@ -664,30 +793,15 @@ export default function PayrollPage() {
         return;
       }
 
-      const arrayBuffer = await res.arrayBuffer();
-      if (!isPdfArrayBuffer(arrayBuffer)) {
-        toast({
-          title: "View failed",
-          description: "Server did not return a valid PDF file.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (payslipViewerUrl) {
-        window.URL.revokeObjectURL(payslipViewerUrl);
-      }
-
-      const blob = new Blob([arrayBuffer], { type: "application/pdf" });
-      const objectUrl = window.URL.createObjectURL(blob);
-      const monthLabel =
-        PAYSLIP_MONTHS_LEFT.concat(PAYSLIP_MONTHS_RIGHT).find((m) => m.value === month)?.label ||
-        String(month);
-
-      setPayslipViewerTitle(
-        `${payslipConfig.employeeName} — ${monthLabel} ${payslipYear}`
-      );
-      setPayslipViewerUrl(objectUrl);
+      const data = await res.json();
+      setPayslipViewerTitle(data.title || `${payslipConfig.employeeName} — ${payslipYear}`);
+      setPayslipViewerHtml(data.html || null);
+      setPayslipViewerContext({
+        payrollConfigId: payslipConfig.id,
+        employeeName: payslipConfig.employeeName,
+        year: payslipYear,
+        month,
+      });
       setPayslipViewerOpen(true);
       setPayslipModalOpen(false);
     } catch (error) {
@@ -730,10 +844,10 @@ export default function PayrollPage() {
 
       {/* Summary Cards - Vendor Dashboard Style */}
       {!summaryLoading && payrollSummary && (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
-          <Link href="/employees" className="block">
-            <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer">
-              <CardContent className="p-6">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8 items-stretch">
+          <Link href="/employees" className="block h-full">
+            <Card className="group h-full hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer">
+              <CardContent className="flex h-full flex-col p-6">
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-400 to-teal-600">
                   <Users className="h-6 w-6" />
                 </div>
@@ -741,12 +855,15 @@ export default function PayrollPage() {
                   <h3 className="text-sm font-medium text-gray-600">Total Employees</h3>
                 </div>
                 <p className="text-2xl font-bold text-gray-900">{payrollSummary.totalEmployees}</p>
-                <p className="text-xs text-muted-foreground mt-1">Active payroll configurations</p>
+                <div className="mt-auto space-y-1 pt-1">
+                  <p className="text-xs text-muted-foreground">Active payroll configurations</p>
+                  <p className="text-xs text-muted-foreground">&nbsp;</p>
+                </div>
               </CardContent>
             </Card>
           </Link>
-          <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("gross")}> {/* Total Gross Pay */}
-            <CardContent className="p-6">
+          <Card className="group h-full hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("gross")}> {/* Total Gross Pay */}
+            <CardContent className="flex h-full flex-col p-6">
               <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-500 to-teal-700">
                 <DollarSign className="h-6 w-6" />
               </div>
@@ -754,12 +871,14 @@ export default function PayrollPage() {
                 <h3 className="text-sm font-medium text-gray-600">Total Gross Pay</h3>
               </div>
               <p className="text-2xl font-bold text-gray-900">{formatCurrency(payrollSummary.totalGrossPay)}</p>
-              <p className="text-xs text-muted-foreground mt-1">{getUniquePayrollRecords(payrollRecords)?.length || 0} records</p>
-              <p className="text-xs text-muted-foreground">Before deductions</p>
+              <div className="mt-auto space-y-1 pt-1">
+                <p className="text-xs text-muted-foreground">{getUniquePayrollRecords(payrollRecords)?.length || 0} records</p>
+                <p className="text-xs text-muted-foreground">Before deductions</p>
+              </div>
           </CardContent>
         </Card>
-          <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("net")}> {/* Total Net Pay */}
-            <CardContent className="p-6">
+          <Card className="group h-full hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("net")}> {/* Total Net Pay */}
+            <CardContent className="flex h-full flex-col p-6">
               <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-teal-600 to-teal-800">
                 <DollarSign className="h-6 w-6" />
               </div>
@@ -767,12 +886,14 @@ export default function PayrollPage() {
                 <h3 className="text-sm font-medium text-gray-600">Total Net Pay</h3>
               </div>
               <p className="text-2xl font-bold text-gray-900">{formatCurrency(payrollSummary.totalNetPay)}</p>
-              <p className="text-xs text-muted-foreground mt-1">{getUniquePayrollRecords(payrollRecords)?.length || 0} records</p>
-              <p className="text-xs text-muted-foreground">After deductions</p>
+              <div className="mt-auto space-y-1 pt-1">
+                <p className="text-xs text-muted-foreground">{getUniquePayrollRecords(payrollRecords)?.length || 0} records</p>
+                <p className="text-xs text-muted-foreground">After deductions</p>
+              </div>
           </CardContent>
         </Card>
-          <Card className="group hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("records")}>
-            <CardContent className="p-6">
+          <Card className="group h-full hover:shadow-lg hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => setOpenDetail("records")}>
+            <CardContent className="flex h-full flex-col p-6">
               <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-4 bg-gradient-to-r from-orange-400 to-orange-600">
                 <FileText className="h-6 w-6" />
               </div>
@@ -780,7 +901,10 @@ export default function PayrollPage() {
                 <h3 className="text-sm font-medium text-gray-600">No. of Payroll Records</h3>
               </div>
               <p className="text-2xl font-bold text-gray-900">{getUniquePayrollRecords(payrollRecords)?.length || 0}</p>
-              <p className="text-xs text-muted-foreground mt-1">Total processed payroll records</p>
+              <div className="mt-auto space-y-1 pt-1">
+                <p className="text-xs text-muted-foreground">Total processed payroll records</p>
+                <p className="text-xs text-muted-foreground">&nbsp;</p>
+              </div>
           </CardContent>
         </Card>
       </div>
@@ -878,10 +1002,6 @@ export default function PayrollPage() {
             <TableBody>
                 {paginatedPayrollConfigs.map((config: any) => {
                   const processed = isConfigProcessed(config);
-                  const canDownloadPayslip = hasProcessedPayrollForEmployee(
-                    config.employeeId,
-                    payrollRecords
-                  );
                   return (
                 <TableRow
                   key={config.id}
@@ -929,12 +1049,8 @@ export default function PayrollPage() {
                       size="icon"
                       className="h-8 w-8 text-teal-700 hover:text-teal-800 hover:bg-teal-50 disabled:opacity-40 disabled:pointer-events-none"
                       onClick={() => openPayslipModal(config)}
-                      disabled={!canDownloadPayslip || isBatchProcessing}
-                      title={
-                        canDownloadPayslip
-                          ? `Download payslip for ${config.employeeName}`
-                          : "Process payroll first to enable payslip download"
-                      }
+                      disabled={isBatchProcessing}
+                      title={`Download payslip for ${config.employeeName}`}
                       aria-label={`Download payslip for ${config.employeeName}`}
                     >
                       <Download className="h-4 w-4" />
@@ -1073,6 +1189,7 @@ export default function PayrollPage() {
           />
           <div className="flex-1 min-h-0">
             <ProcessPayrollForm
+              isOpen={showRecordForm}
               onSuccess={() => setShowRecordForm(false)}
               onCancel={() => setShowRecordForm(false)}
             />
@@ -1345,8 +1462,7 @@ export default function PayrollPage() {
               <p className="text-sm text-muted-foreground">
                 Select one or more months for{" "}
                 <span className="font-medium text-foreground">{payslipConfig.employeeName}</span>{" "}
-                (ID: {payslipConfig.employeeId}). Payslips use processed payroll data only — process
-                payroll for the selected month(s) before downloading.
+                (ID: {payslipConfig.employeeId}) to view or download payslips.
               </p>
               <div className="flex items-center gap-3">
                 <label htmlFor="payslip-year" className="text-sm font-medium">
@@ -1361,52 +1477,28 @@ export default function PayrollPage() {
                   onChange={(e) => {
                     const nextYear = parseInt(e.target.value, 10) || new Date().getFullYear();
                     setPayslipYear(nextYear);
-                    if (payslipConfig) {
-                      const available = getProcessedMonthsForEmployee(
-                        payslipConfig.employeeId,
-                        nextYear,
-                        payrollRecords
-                      );
-                      setSelectedPayslipMonths((prev) =>
-                        prev.filter((m) => available.includes(m))
-                      );
-                    }
+                    setPayslipNotice(null);
+                    setSelectedPayslipMonths((prev) =>
+                      prev.filter((month) => isPayslipMonthSelectable(nextYear, month))
+                    );
                   }}
                   className="h-9 w-28 rounded-md border border-input bg-background px-3 text-sm"
                 />
               </div>
-              {payslipAvailableMonths.length === 0 ? (
-                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-                  No processed payroll is available for this employee in {payslipYear}. Please process
-                  payroll first, then return to download the payslip.
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Available months (processed payroll):{" "}
-                  {payslipAvailableMonths
-                    .map(
-                      (m) =>
-                        PAYSLIP_MONTHS_LEFT.concat(PAYSLIP_MONTHS_RIGHT).find((x) => x.value === m)
-                          ?.label
-                    )
-                    .filter(Boolean)
-                    .join(", ")}
-                </p>
-              )}
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-3">
                   {PAYSLIP_MONTHS_LEFT.map((month) => {
-                    const available = isPayslipMonthAvailable(month.value);
+                    const enabled = isMonthEnabled(month.value);
                     return (
                     <label
                       key={month.value}
-                      className={`flex items-center gap-2 text-sm ${available ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
+                      className={`flex items-center gap-2 text-sm ${enabled ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
                     >
                       <Checkbox
                         checked={selectedPayslipMonths.includes(month.value)}
-                        disabled={!available}
+                        disabled={!enabled}
                         onCheckedChange={(checked) =>
-                          available && togglePayslipMonth(month.value, checked === true)
+                          togglePayslipMonth(month.value, checked === true)
                         }
                       />
                       {month.label}
@@ -1416,17 +1508,17 @@ export default function PayrollPage() {
                 </div>
                 <div className="space-y-3">
                   {PAYSLIP_MONTHS_RIGHT.map((month) => {
-                    const available = isPayslipMonthAvailable(month.value);
+                    const enabled = isMonthEnabled(month.value);
                     return (
                     <label
                       key={month.value}
-                      className={`flex items-center gap-2 text-sm ${available ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
+                      className={`flex items-center gap-2 text-sm ${enabled ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
                     >
                       <Checkbox
                         checked={selectedPayslipMonths.includes(month.value)}
-                        disabled={!available}
+                        disabled={!enabled}
                         onCheckedChange={(checked) =>
-                          available && togglePayslipMonth(month.value, checked === true)
+                          togglePayslipMonth(month.value, checked === true)
                         }
                       />
                       {month.label}
@@ -1435,6 +1527,14 @@ export default function PayrollPage() {
                   })}
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                The current month and future months are disabled until the pay period ends.
+              </p>
+              {payslipNotice && (
+                <p className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white">
+                  {payslipNotice}
+                </p>
+              )}
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
@@ -1447,8 +1547,7 @@ export default function PayrollPage() {
               disabled={
                 isPayslipViewing ||
                 isPayslipDownloading ||
-                selectedPayslipMonths.length !== 1 ||
-                payslipAvailableMonths.length === 0
+                selectedPayslipMonths.length !== 1
               }
             >
               {isPayslipViewing ? (
@@ -1468,8 +1567,7 @@ export default function PayrollPage() {
               disabled={
                 isPayslipDownloading ||
                 isPayslipViewing ||
-                selectedPayslipMonths.length === 0 ||
-                payslipAvailableMonths.length === 0
+                selectedPayslipMonths.length === 0
               }
             >
               {isPayslipDownloading ? (
@@ -1488,51 +1586,21 @@ export default function PayrollPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Payslip PDF Viewer */}
-      <Dialog
+      {/* Payslip Preview */}
+      <PayslipPreviewModal
         open={payslipViewerOpen}
         onOpenChange={(open) => {
           if (!open) {
-            closePayslipViewer(payslipViewerUrl, setPayslipViewerOpen, setPayslipViewerUrl);
+            closePayslipViewer();
           } else {
             setPayslipViewerOpen(true);
           }
         }}
-      >
-        <DialogContent className="max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 py-4 border-b shrink-0">
-            <DialogTitle>{payslipViewerTitle || "Payslip Preview"}</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 bg-muted/30">
-            {payslipViewerUrl ? (
-              <iframe
-                src={payslipViewerUrl}
-                title="Payslip preview"
-                className="w-full h-full min-h-[70vh] border-0 bg-white"
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                Loading payslip...
-              </div>
-            )}
-          </div>
-          <DialogFooter className="px-6 py-3 border-t shrink-0">
-            <Button
-              variant="outline"
-              onClick={() =>
-                closePayslipViewer(payslipViewerUrl, setPayslipViewerOpen, setPayslipViewerUrl)
-              }
-            >
-              Close
-            </Button>
-            {payslipViewerUrl && (
-              <Button onClick={() => window.open(payslipViewerUrl, "_blank", "noopener,noreferrer")}>
-                Open in New Tab
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={payslipViewerTitle || "Payslip Preview"}
+        html={payslipViewerHtml}
+        isDownloading={isPayslipDownloading}
+        onDownload={handlePayslipViewerDownload}
+      />
 
       {/* Force Delete Dialog */}
       <Dialog open={showForceDeleteDialog} onOpenChange={setShowForceDeleteDialog}>
@@ -1618,36 +1686,11 @@ export default function PayrollPage() {
                 ? "Confirm Batch Process"
                 : "Payroll Already Processed"}
             </DialogTitle>
-            <div className="space-y-2 pt-2 text-sm text-gray-600">
-              {batchConfirmScenario === "pending" ? (
-                <>
-                  <p>
-                    Payroll for the selected period has not been processed for some employees.
-                  </p>
-                  <p>Do you want to process payroll for all pending employees?</p>
-                </>
-              ) : batchConfirmScenario === "values-changed" ? (
-                <>
-                  <p>Payroll for the selected period has already been processed.</p>
-                  <p>
-                    Payroll values have been modified for one or more employees. Do you want to
-                    overwrite the existing payslips and regenerate them?
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p>Payroll for the selected period has already been processed.</p>
-                  <p>There are no changes to process.</p>
-                </>
-              )}
-            </div>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
-            {batchConfirmScenario === "no-changes" ? (
-              <Button type="button" variant="outline" onClick={closeBatchConfirmDialog}>
-                Close
-              </Button>
-            ) : (
+            {batchConfirmScenario === "no-changes" ||
+            batchConfirmScenario === "values-changed" ||
+            batchConfirmScenario === "pending" ? (
               <>
                 <Button type="button" variant="outline" onClick={closeBatchConfirmDialog}>
                   Cancel
@@ -1667,6 +1710,10 @@ export default function PayrollPage() {
                   )}
                 </Button>
               </>
+            ) : (
+              <Button type="button" variant="outline" onClick={closeBatchConfirmDialog}>
+                Close
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>

@@ -13,6 +13,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 import { dataProtectionMiddleware } from "./middleware/data-protection";
+import { whenSchemaReady } from "./db";
 
 const app = express();
 
@@ -67,33 +68,35 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Initialize document expiry monitoring with proper delay
+  // Initialize background jobs only after DB schema patches complete
   setTimeout(() => {
-    import('./document-expiry-notifier').then(({ initializeDocumentExpiryMonitoring }) => {
-      initializeDocumentExpiryMonitoring();
-      console.log("Document expiry monitoring initialized");
-    }).catch(error => {
-      console.warn("Document expiry monitoring not available:", error.message);
+    void whenSchemaReady().then(() => {
+      import('./document-expiry-notifier').then(({ initializeDocumentExpiryMonitoring }) => {
+        initializeDocumentExpiryMonitoring();
+        console.log("Document expiry monitoring initialized");
+      }).catch(error => {
+        console.warn("Document expiry monitoring not available:", error.message);
+      });
+      import('./employee-document-reminder-service').then(({ initializeEmployeeDocumentReminderMonitoring }) => {
+        initializeEmployeeDocumentReminderMonitoring();
+        console.log("Employee document reminder monitoring initialized");
+      }).catch(error => {
+        console.warn("Employee document reminder monitoring not available:", error.message);
+      });
+      import('./document-reminder-notification-sync').then(({ initializeDocumentReminderNotificationSync }) => {
+        initializeDocumentReminderNotificationSync();
+        console.log("Document reminder notification sync initialized");
+      }).catch(error => {
+        console.warn("Document reminder notification sync not available:", error.message);
+      });
+      import('./scheduled-expiry-reminder-service').then(({ initializeScheduledExpiryReminders }) => {
+        initializeScheduledExpiryReminders();
+        console.log("Scheduled expiry reminder service initialized");
+      }).catch(error => {
+        console.warn("Scheduled expiry reminder service not available:", error.message);
+      });
     });
-    import('./employee-document-reminder-service').then(({ initializeEmployeeDocumentReminderMonitoring }) => {
-      initializeEmployeeDocumentReminderMonitoring();
-      console.log("Employee document reminder monitoring initialized");
-    }).catch(error => {
-      console.warn("Employee document reminder monitoring not available:", error.message);
-    });
-    import('./document-reminder-notification-sync').then(({ initializeDocumentReminderNotificationSync }) => {
-      initializeDocumentReminderNotificationSync();
-      console.log("Document reminder notification sync initialized");
-    }).catch(error => {
-      console.warn("Document reminder notification sync not available:", error.message);
-    });
-    import('./scheduled-expiry-reminder-service').then(({ initializeScheduledExpiryReminders }) => {
-      initializeScheduledExpiryReminders();
-      console.log("Scheduled expiry reminder service initialized");
-    }).catch(error => {
-      console.warn("Scheduled expiry reminder service not available:", error.message);
-    });
-  }, 30000);
+  }, 10000);
 
   // Register routes
   const server = await registerRoutes(app);

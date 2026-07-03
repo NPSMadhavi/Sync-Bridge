@@ -8,7 +8,7 @@ import { setupFileServing, uploadMiddleware, handleFileUpload, processEmployeeSc
 import { ZodError } from "zod";
 import { sendEmail, generateVerificationEmailHTML, generateVerificationEmailText } from "./email";
 import { hashPassword } from "./auth";
-import { getTenantFromRequest, resolveRequestTenantId } from "./middleware/tenant";
+import { getTenantFromRequest, resolveRequestTenantId, resolveListScopedTenantId, buildTenantSlug } from "./middleware/tenant";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertDependentSchema, 
   insertEmployeeDocumentSchema, insertVendorSchema, insertCompanySchema, insertAssetAssignmentSchema,
@@ -28,6 +28,14 @@ import {
 } from "@shared/permissions";
 import { assertCanManageUser, requireModuleAccess, enforceApiModuleAccess } from "./permission-guard";
 import type { DocumentExpiryRecord } from "@shared/document-reminder-utils";
+import { syncPayrollConfigFromEmployee } from "./payroll-process-service";
+import {
+  assignEmployeeCompany,
+  seedInitialEmployeeCompanyHistory,
+  toDateOnly,
+} from "./employee-company-history-service";
+import { performGlobalSearch } from "./global-search";
+import { canViewModule } from "@shared/permissions";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
@@ -151,11 +159,46 @@ app.use(express.static('public'));
     res.json({ message: "SyncBridge API" });
   });
 
+  app.get("/api/search", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const user = req.user as any;
+      const query = String(req.query.q || "").trim();
+      if (query.length < 2) {
+        return res.json([]);
+      }
+
+      let scopedTenantId: number | undefined;
+      if (user?.role === "super_admin" || user?.isSuperAdmin) {
+        const tenant = await getTenantFromRequest(req);
+        scopedTenantId = tenant?.id;
+      } else {
+        scopedTenantId = user?.tenantId ?? undefined;
+      }
+
+      const results = await performGlobalSearch(query, scopedTenantId, {
+        includeEmployees: canViewModule(user, "employee"),
+        includeAssets: canViewModule(user, "assets"),
+        includeLicenses: canViewModule(user, "licenses"),
+        includeDocuments: canViewModule(user, "documents"),
+      });
+
+      res.json(results);
+    } catch (error) {
+      console.error("GET /api/search error:", error);
+      res.status(500).json({ message: "Failed to perform search" });
+    }
+  });
+
 
   // Employee routes
   app.get("/api/employees", requireRole(['admin', 'hr', 'it_manager']), async (req, res) => {
     try {
-      const employees = await storage.getEmployees();
+      const scopedTenantId = await resolveListScopedTenantId(req);
+      const employees = await storage.getEmployees(scopedTenantId);
       res.json(employees);
     } catch (error: any) {
       console.error("GET /api/employees error:", error?.message || error);
@@ -227,14 +270,14 @@ app.use(express.static('public'));
       if (employee.companyId) {
         const company = await storage.getCompany(employee.companyId);
         if (company) {
-          await storage.createEmployeeCompanyHistory({
+          await seedInitialEmployeeCompanyHistory({
             tenantId: employee.tenantId ?? null,
             employeeId: employee.id,
             employeeCode: employee.employeeId,
             employeeName: employee.name,
             companyId: employee.companyId,
             companyName: company.companyName,
-            dateChanged: new Date(),
+            joinDate: employee.joinDate,
           });
         }
       }
@@ -305,19 +348,32 @@ app.use(express.static('public'));
         return res.status(404).json({ message: "Employee not found" });
       }
 
+      try {
+        const freshEmployee = await storage.getEmployee(id);
+        if (freshEmployee) {
+          await syncPayrollConfigFromEmployee(freshEmployee);
+        }
+      } catch (syncError) {
+        console.error("Failed to sync employee payroll config:", syncError);
+      }
+
       const newCompanyId = updatedEmployee.companyId ?? null;
       const previousCompanyId = existingEmployee.companyId ?? null;
       if (newCompanyId && newCompanyId !== previousCompanyId) {
         const company = await storage.getCompany(newCompanyId);
         if (company) {
-          await storage.createEmployeeCompanyHistory({
+          const effectiveFrom =
+            bodyWithSavedScans.companyEffectiveFrom ||
+            bodyWithSavedScans.companyAssignmentDate ||
+            toDateOnly(new Date());
+          await assignEmployeeCompany({
             tenantId: updatedEmployee.tenantId ?? null,
             employeeId: updatedEmployee.id,
             employeeCode: updatedEmployee.employeeId,
             employeeName: updatedEmployee.name,
             companyId: newCompanyId,
             companyName: company.companyName,
-            dateChanged: new Date(),
+            effectiveFrom,
           });
         }
       }
@@ -778,18 +834,20 @@ app.use(express.static('public'));
         timestamp: new Date()
       });
       
-      // If document has expiry date, create notifications for HR/Admin
+      // If document has expiry date, notify HR/Admin users in the same organization
       if (document.expiryDate) {
-        // Get admin and HR users
-        const admins = Array.from((await storage.getEmployees())
-          .filter(emp => emp.userId)
-          .map(emp => emp.userId as number));
-        
-        for (const adminId of admins) {
+        const employee = await storage.getEmployee(parseInt(employeeId));
+        const tenantId = employee?.tenantId ?? (req.user as { tenantId?: number | null })?.tenantId;
+        const recipients = tenantId
+          ? await storage.getNotificationRecipientUsers(tenantId)
+          : [];
+
+        for (const recipient of recipients) {
           await storage.createNotification({
+            tenantId: tenantId ?? null,
             type: 'document_expiry',
             message: `Document ${document.documentType} will expire on ${new Date(document.expiryDate).toLocaleDateString()}`,
-            targetUserId: adminId,
+            targetUserId: recipient.id,
             seen: false,
             entityId: document.id,
             entityType: 'employee_document'
@@ -808,7 +866,8 @@ app.use(express.static('public'));
   // Vendor routes
   app.get("/api/vendors", async (req, res) => {
     try {
-      const vendors = await storage.getVendors();
+      const scopedTenantId = await resolveListScopedTenantId(req);
+      const vendors = await storage.getVendors(scopedTenantId);
       res.json(vendors);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch vendors" });
@@ -817,7 +876,11 @@ app.use(express.static('public'));
 
   app.post("/api/vendors", requireRole(['admin', 'it_manager']), async (req, res) => {
     try {
-      const vendorData = insertVendorSchema.parse(req.body);
+      const tenantId = await resolveRequestTenantId(req, req.user);
+      const vendorData = insertVendorSchema.parse({
+        ...req.body,
+        ...(tenantId ? { tenantId } : {}),
+      });
       const vendor = await storage.createVendor(vendorData);
       
       // Create audit log
@@ -907,7 +970,11 @@ app.use(express.static('public'));
 
   app.post("/api/companies", requireRole(['super_admin', 'admin', 'it_manager', 'hr_manager']), async (req, res) => {
     try {
-      const companyData = insertCompanySchema.parse(req.body);
+      const tenantId = await resolveRequestTenantId(req, req.user);
+      const companyData = insertCompanySchema.parse({
+        ...req.body,
+        ...(tenantId ? { tenantId } : {}),
+      });
       const company = await storage.createCompany(companyData);
 
       await storage.createAuditLog({
@@ -976,8 +1043,17 @@ app.use(express.static('public'));
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: "Not authenticated" });
       }
-      
-      const notifications = await storage.getNotificationsByUserId(req.user!.id);
+
+      const user = req.user!;
+      let notifications = await storage.getNotificationsByUserId(user.id);
+
+      if (!isSuperAdminUser(user) && user.tenantId != null) {
+        notifications = notifications.filter(
+          (notification) =>
+            notification.tenantId == null || notification.tenantId === user.tenantId
+        );
+      }
+
       res.json(notifications);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch notifications" });
@@ -1027,17 +1103,16 @@ app.use(express.static('public'));
       const assetId = req.query.assetId ? parseInt(req.query.assetId as string) : undefined;
       
       const user = req.user as any;
-      const effectiveTenantId = user?.role === 'super_admin' || user?.isSuperAdmin ? undefined : user?.tenantId;
+      const scopedTenantId = await resolveListScopedTenantId(req);
       
       let licenses;
       if (assetId) {
         licenses = await storage.getLicensesByAssetId(assetId);
-        // Ensure tenant isolation
-        if (effectiveTenantId) {
-          licenses = licenses.filter(l => l.tenantId === effectiveTenantId);
+        if (scopedTenantId) {
+          licenses = licenses.filter(l => l.tenantId === scopedTenantId);
         }
       } else {
-        licenses = await storage.getAllLicenses(effectiveTenantId);
+        licenses = await storage.getAllLicenses(scopedTenantId);
       }
       
       res.json(licenses);
@@ -1160,8 +1235,9 @@ app.use(express.static('public'));
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: "Not authenticated" });
       }
-      
-      const customers = await storage.getCustomers();
+
+      const scopedTenantId = await resolveListScopedTenantId(req);
+      const customers = await storage.getCustomers(scopedTenantId);
       res.json(customers);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch customers" });
@@ -1432,16 +1508,22 @@ app.use(express.static('public'));
       }
       
       const currentUser = req.user!;
-      const users = await storage.getUsers();
-      
-      let filteredUsers = users;
+      let filteredUsers;
+
       if (isSuperAdminUser(currentUser)) {
-        // Super Admin sees all accounts, including other Super Admin credentials
-        filteredUsers = users;
+        filteredUsers = await storage.getUsers();
       } else if (isAdminUser(currentUser)) {
-        filteredUsers = users.filter((u) => !isSuperAdminUser(u));
+        if (!currentUser.tenantId) {
+          return res.status(400).json({
+            message: "Your account is not assigned to an organization",
+          });
+        }
+        filteredUsers = (await storage.getUsers(currentUser.tenantId)).filter(
+          (u) => !isSuperAdminUser(u)
+        );
       } else {
-        filteredUsers = users.filter((u) => u.id === currentUser.id);
+        const self = await storage.getUser(currentUser.id);
+        filteredUsers = self ? [self] : [];
       }
       
       const safeUsers = filteredUsers.map(({ password, ...user }) => ({
@@ -1466,7 +1548,7 @@ app.use(express.static('public'));
         return res.status(403).json({ message: "Cannot create super admin accounts" });
       }
       
-      const { permissions, ...body } = req.body;
+      const { permissions, organizationName, ...body } = req.body;
       const normalizedPermissions =
         body.role === "admin"
           ? createFullPermissions()
@@ -1474,13 +1556,46 @@ app.use(express.static('public'));
             ? normalizePermissions(permissions)
             : undefined;
 
+      let resolvedTenantId: number;
+
+      if (isSuperAdminUser(currentUser)) {
+        if (body.role === "admin") {
+          const orgName =
+            typeof organizationName === "string" && organizationName.trim()
+              ? organizationName.trim()
+              : `${String(body.name || "Admin").trim()}'s Organization`;
+          const tenant = await storage.createTenant({
+            name: orgName,
+            slug: buildTenantSlug(String(body.name || "admin"), String(body.email || "admin")),
+            plan: "free",
+            isActive: true,
+          });
+          resolvedTenantId = tenant.id;
+        } else {
+          const tenantId = await resolveRequestTenantId(req, currentUser);
+          if (!tenantId) {
+            return res.status(400).json({
+              message: "Select an organization before creating this user",
+            });
+          }
+          resolvedTenantId = tenantId;
+        }
+      } else {
+        if (!currentUser.tenantId) {
+          return res.status(400).json({
+            message: "Your account is not assigned to an organization",
+          });
+        }
+        resolvedTenantId = currentUser.tenantId;
+      }
+
       const userData = insertUserSchema.parse({
         ...body,
-        tenantId: req.user!.tenantId || 1,
+        tenantId: resolvedTenantId,
         permissions: normalizedPermissions,
       });
       
-      const user = await storage.createUser(userData, userData.tenantId || 1);
+      const user = await storage.createUser(userData, resolvedTenantId);
       
       const { password, ...safeUser } = user;
       res.status(201).json({
@@ -1924,10 +2039,13 @@ app.use(express.static('public'));
       });
 
       res.json({ message: "Reminder scheduled" });
-      const { DocumentReminderNotificationSync } = await import("./document-reminder-notification-sync");
-      DocumentReminderNotificationSync.getInstance()
-        .syncForTenant(tenant?.id ?? user?.tenantId)
-        .catch(() => undefined);
+      const tenantId = tenant?.id ?? user?.tenantId;
+      if (tenantId) {
+        const { DocumentReminderNotificationSync } = await import("./document-reminder-notification-sync");
+        DocumentReminderNotificationSync.getInstance()
+          .syncForTenant(tenantId)
+          .catch(() => undefined);
+      }
     } catch (error) {
       console.error("POST /api/document-reminders/schedule error:", error);
       res.status(500).json({ message: "Failed to schedule reminder" });

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
+import { EmployeeSearchSelect } from "@/components/ui/employee-search-select";
 import {
   Select,
   SelectContent,
@@ -341,6 +342,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll/configs", tenantId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       toast({
         title: "Success",
         description: isEditMode
@@ -381,24 +383,16 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Employee *</FormLabel>
-                        <Select
-                          value={field.value?.toString()}
-                          onValueChange={(v) => field.onChange(parseInt(v))}
-                          disabled={isEditMode}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select employee" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {employees.map((emp) => (
-                              <SelectItem key={emp.id} value={emp.id.toString()}>
-                                {emp.name} ({emp.employeeId}) — {emp.designation}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <EmployeeSearchSelect
+                            employees={employees}
+                            value={field.value ? field.value.toString() : ""}
+                            onValueChange={(v) => field.onChange(parseInt(v, 10))}
+                            disabled={isEditMode}
+                            placeholder="Search employee..."
+                            subtitle="designation"
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

@@ -656,7 +656,10 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(employeeCompanyHistory)
       .where(eq(employeeCompanyHistory.employeeId, employeeId))
-      .orderBy(desc(employeeCompanyHistory.dateChanged));
+      .orderBy(
+        desc(employeeCompanyHistory.effectiveFrom),
+        desc(employeeCompanyHistory.dateChanged)
+      );
   }
 
   async createEmployeeCompanyHistory(record: InsertEmployeeCompanyHistory): Promise<EmployeeCompanyHistory> {
@@ -672,7 +675,10 @@ export class DatabaseStorage implements IStorage {
 
   async getCompanies(tenantId?: number): Promise<Company[]> {
     if (tenantId) {
-      return await db.select().from(companies).where(eq(companies.tenantId, tenantId));
+      return await db
+        .select()
+        .from(companies)
+        .where(or(eq(companies.tenantId, tenantId), isNull(companies.tenantId)));
     }
     return await db.select().from(companies);
   }
@@ -701,7 +707,10 @@ export class DatabaseStorage implements IStorage {
 
   async getVendors(tenantId?: number): Promise<Vendor[]> {
     if (tenantId) {
-      return await db.select().from(vendors).where(eq(vendors.tenantId, tenantId));
+      return await db
+        .select()
+        .from(vendors)
+        .where(or(eq(vendors.tenantId, tenantId), isNull(vendors.tenantId)));
     }
     return await db.select().from(vendors);
   }
@@ -1471,13 +1480,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNotificationRecipientUsers(tenantId?: number): Promise<User[]> {
+    if (tenantId == null) {
+      return [];
+    }
     const allUsers = await this.getUsers(tenantId);
     return allUsers.filter(
       (user) =>
-        user.role === "admin" ||
-        user.role === "super_admin" ||
-        user.role === "hr_manager" ||
-        user.isSuperAdmin
+        user.tenantId === tenantId &&
+        (user.role === "admin" || user.role === "hr_manager")
     );
   }
 

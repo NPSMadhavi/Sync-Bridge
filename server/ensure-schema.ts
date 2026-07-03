@@ -1,7 +1,46 @@
 /**
  * Idempotent schema patches for columns added after initial deploy.
  */
-export async function ensurePayrollSchema(pool: { query: (sql: string) => Promise<unknown> }) {
+type QueryPool = { query: (sql: string) => Promise<unknown> };
+
+export async function runAllSchemaPatches(pool: {
+  query?: (sql: string, values?: unknown[]) => Promise<unknown>;
+  connect?: () => Promise<{
+    query: (sql: string, values?: unknown[]) => Promise<unknown>;
+    release: () => void;
+  }>;
+}) {
+  let queryPool: QueryPool;
+  let releaseClient: (() => void) | null = null;
+
+  if (typeof pool.connect === "function") {
+    const client = await pool.connect();
+    releaseClient = () => client.release();
+    queryPool = {
+      query: (sql: string) => client.query(sql),
+    };
+  } else if (typeof pool.query === "function") {
+    queryPool = {
+      query: (sql: string) => pool.query!(sql),
+    };
+  } else {
+    throw new Error("Database pool does not support query or connect");
+  }
+
+  try {
+    await ensurePayrollSchema(queryPool);
+    await ensureCompaniesSchema(queryPool);
+    await ensureEmployeeCompanySchema(queryPool);
+    await ensureRunningNumbersSchema(queryPool);
+    await ensureUserPermissionsSchema(queryPool);
+    await ensureAssetTenantSchema(queryPool);
+    await ensureEmployeeReminderSchema(queryPool);
+  } finally {
+    releaseClient?.();
+  }
+}
+
+export async function ensurePayrollSchema(pool: QueryPool) {
   const statements = [
     `ALTER TABLE employees ADD COLUMN IF NOT EXISTS pr_status TEXT`,
     `DO $$ BEGIN
@@ -109,8 +148,54 @@ export async function ensureEmployeeCompanySchema(pool: { query: (sql: string) =
       company_id INTEGER REFERENCES companies(id),
       company_name TEXT NOT NULL,
       date_changed TIMESTAMP NOT NULL DEFAULT NOW(),
-      created_at TIMESTAMP DEFAULT NOW()
+      effective_from DATE,
+      effective_to DATE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
     )`,
+    `ALTER TABLE employee_company_history ADD COLUMN IF NOT EXISTS effective_from DATE`,
+    `ALTER TABLE employee_company_history ADD COLUMN IF NOT EXISTS effective_to DATE`,
+    `ALTER TABLE employee_company_history ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id)`,
+    `UPDATE employee_company_history
+      SET effective_from = date_changed::date
+      WHERE effective_from IS NULL AND date_changed IS NOT NULL`,
+    `WITH ordered AS (
+      SELECT
+        id,
+        LEAD(date_changed::date) OVER (
+          PARTITION BY employee_id
+          ORDER BY date_changed ASC, id ASC
+        ) AS next_effective_from
+      FROM employee_company_history
+    )
+    UPDATE employee_company_history AS h
+    SET
+      effective_to = (o.next_effective_from - INTERVAL '1 day')::date,
+      updated_at = NOW()
+    FROM ordered AS o
+    WHERE h.id = o.id
+      AND o.next_effective_from IS NOT NULL
+      AND h.effective_to IS NULL`,
+    `INSERT INTO employee_company_history (
+      tenant_id, employee_id, employee_code, employee_name, company_id, company_name,
+      date_changed, effective_from, effective_to, created_at, updated_at
+    )
+    SELECT
+      e.tenant_id, e.id, e.employee_id, e.name, e.company_id, c.company_name,
+      COALESCE(e.join_date, NOW()), COALESCE(e.join_date::date, CURRENT_DATE), NULL, NOW(), NOW()
+    FROM employees e
+    INNER JOIN companies c ON c.id = e.company_id
+    WHERE e.company_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM employee_company_history h WHERE h.employee_id = e.id
+      )`,
+    `UPDATE payroll_records pr
+      SET company_id = e.company_id
+      FROM employees e
+      WHERE pr.employee_id = e.id
+        AND pr.company_id IS NULL
+        AND e.company_id IS NOT NULL`,
   ];
 
   for (const sql of statements) {

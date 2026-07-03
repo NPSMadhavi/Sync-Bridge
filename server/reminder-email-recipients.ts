@@ -144,6 +144,10 @@ export async function getReminderNotificationUsers(
   tenantId?: number,
   options?: { includeItManagers?: boolean }
 ): Promise<import("@shared/schema").User[]> {
+  if (tenantId == null) {
+    return [];
+  }
+
   const adminUsers = await storage.getNotificationRecipientUsers(tenantId);
   const allUsers = await storage.getUsers(tenantId);
   const optedIn = allUsers.filter((user) => user.sendReminderEmails);

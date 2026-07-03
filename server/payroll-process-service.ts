@@ -7,6 +7,10 @@ import {
   mapEmployeeResidency,
 } from "@shared/singapore-payroll";
 import { calculateSingaporePayroll } from "./singapore-payroll-calculator";
+import {
+  resolveCompanyIdForDate,
+  resolveReferenceDateFromPayPeriod,
+} from "./employee-company-history-service";
 
 export type PayrollProcessAction = "created" | "updated" | "skipped";
 
@@ -219,6 +223,41 @@ export function hasPayrollConfigChanged(
   return false;
 }
 
+function amountsNearlyEqual(a: number, b: number) {
+  return Math.abs(a - b) < 0.01;
+}
+
+/** Detects payroll config, employee profile, or calculated amount changes vs an existing record. */
+export function hasPayrollInputsChanged(
+  config: typeof employeePayroll.$inferSelect,
+  employee: typeof employees.$inferSelect,
+  record: typeof payrollRecords.$inferSelect,
+  payPeriodStart: string,
+  payPeriodEnd: string,
+  requestedOvertimeHours = 0
+) {
+  if (hasPayrollConfigChanged(config, record, requestedOvertimeHours)) {
+    return true;
+  }
+
+  const payload = buildPayrollRecordPayload(
+    config,
+    employee,
+    payPeriodStart,
+    payPeriodEnd,
+    0,
+    config.tenantId,
+    "",
+    requestedOvertimeHours
+  );
+
+  return (
+    !amountsNearlyEqual(Number(payload.grossPay), Number(record.grossPay)) ||
+    !amountsNearlyEqual(Number(payload.netPay), Number(record.netPay)) ||
+    !amountsNearlyEqual(Number(payload.cpfDeduction ?? 0), Number(record.cpfDeduction ?? 0))
+  );
+}
+
 export function buildPayrollCalculationInput(
   config: typeof employeePayroll.$inferSelect,
   employee: typeof employees.$inferSelect,
@@ -247,7 +286,8 @@ export function buildPayrollRecordPayload(
   userId: number,
   tenantId: number,
   notes = "",
-  overtimeHours = 0
+  overtimeHours = 0,
+  companyId: number | null = null
 ) {
   const calculationInput = buildPayrollCalculationInput(config, employee, overtimeHours);
   const calculation = calculateSingaporePayroll(calculationInput);
@@ -284,6 +324,7 @@ export function buildPayrollRecordPayload(
     taxDeduction: 0,
     cpfDeduction: Number(calculation.employeeCpf || 0),
     netPay: Number(calculation.netPay || 0),
+    companyId,
     status: "pending" as const,
     notes,
     createdBy: userId,
@@ -305,20 +346,34 @@ export async function upsertPayrollRecord(
     requireForceForReprocess?: boolean;
   } = {}
 ): Promise<PayrollProcessResult> {
+  const activeConfig = (await syncPayrollConfigFromEmployee(employee, config.id)) ?? config;
+
+  const normalizedStart = normalizePayPeriodDate(payPeriodStart);
+  const normalizedEnd = normalizePayPeriodDate(payPeriodEnd);
+  const { month: payrollMonth, year: payrollYear } = derivePayrollMonthYear(normalizedStart);
+  const referenceDate = resolveReferenceDateFromPayPeriod(
+    normalizedStart,
+    normalizedEnd,
+    payrollMonth,
+    payrollYear
+  );
+  const companyId = await resolveCompanyIdForDate(employee.id, referenceDate);
+
   const existing = await findPayrollRecordForPeriod(
     employee.id,
-    normalizePayPeriodDate(payPeriodStart),
-    normalizePayPeriodDate(payPeriodEnd)
+    normalizedStart,
+    normalizedEnd
   );
   const payload = buildPayrollRecordPayload(
-    config,
+    activeConfig,
     employee,
-    normalizePayPeriodDate(payPeriodStart),
-    normalizePayPeriodDate(payPeriodEnd),
+    normalizedStart,
+    normalizedEnd,
     userId,
     tenantId,
     options.notes ?? "",
-    options.overtimeHours ?? 0
+    options.overtimeHours ?? 0,
+    companyId
   );
 
   if (!existing) {
@@ -327,14 +382,17 @@ export async function upsertPayrollRecord(
   }
 
   const forceUpdate = parseForceOverwriteFlag(options.forceUpdate);
-  const configChanged = hasPayrollConfigChanged(
-    config,
+  const inputsChanged = hasPayrollInputsChanged(
+    activeConfig,
+    employee,
     existing,
+    normalizePayPeriodDate(payPeriodStart),
+    normalizePayPeriodDate(payPeriodEnd),
     options.overtimeHours ?? 0
   );
 
   if (!forceUpdate) {
-    if (!configChanged) {
+    if (!inputsChanged) {
       return {
         action: "skipped",
         record: existing,
@@ -371,4 +429,79 @@ export async function upsertPayrollRecord(
     .returning();
 
   return { action: "updated", record };
+}
+
+function resolveMonthlySalaryFromEmployee(employee: typeof employees.$inferSelect): number | null {
+  if (employee.salary != null && String(employee.salary).trim() !== "") {
+    const monthly = Number(employee.salary);
+    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+  }
+  if (employee.annualSalary != null && String(employee.annualSalary).trim() !== "") {
+    const monthly = Number(employee.annualSalary) / 12;
+    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+  }
+  return null;
+}
+
+/** Keep active payroll config in sync when employee profile/salary changes elsewhere. */
+export async function syncPayrollConfigFromEmployee(
+  employee: typeof employees.$inferSelect,
+  targetConfigId?: number
+): Promise<typeof employeePayroll.$inferSelect | null> {
+  let config: typeof employeePayroll.$inferSelect | undefined;
+
+  if (targetConfigId) {
+    [config] = await db
+      .select()
+      .from(employeePayroll)
+      .where(
+        and(eq(employeePayroll.id, targetConfigId), eq(employeePayroll.employeeId, employee.id))
+      )
+      .limit(1);
+  } else {
+    [config] = await db
+      .select()
+      .from(employeePayroll)
+      .where(and(eq(employeePayroll.employeeId, employee.id), eq(employeePayroll.isActive, true)))
+      .orderBy(desc(employeePayroll.updatedAt))
+      .limit(1);
+  }
+
+  if (!config) return null;
+
+  const monthlySalary = resolveMonthlySalaryFromEmployee(employee) ?? Number(config.baseSalary);
+  const configForCalc = { ...config, baseSalary: String(monthlySalary) };
+  const calculation = calculateSingaporePayroll(buildPayrollCalculationInput(configForCalc, employee, 0));
+
+  const [updated] = await db
+    .update(employeePayroll)
+    .set({
+      baseSalary: String(monthlySalary),
+      cpfRate: String(calculation.employeeCpfRate),
+      cpfAmount: String(calculation.employeeCpf),
+      employerCpfRate: String(calculation.employerCpfRate),
+      employerCpfAmount: String(calculation.employerCpf),
+      netSalary: String(calculation.netPay),
+      updatedAt: new Date(),
+    })
+    .where(eq(employeePayroll.id, config.id))
+    .returning();
+
+  return updated ?? null;
+}
+
+/** Mirror payroll config base salary back to the employee record. */
+export async function syncEmployeeSalaryFromPayrollConfig(
+  config: typeof employeePayroll.$inferSelect
+): Promise<void> {
+  const monthlySalary = Number(config.baseSalary);
+  if (!monthlySalary || Number.isNaN(monthlySalary)) return;
+
+  await db
+    .update(employees)
+    .set({
+      salary: String(monthlySalary),
+      annualSalary: String(monthlySalary * 12),
+    })
+    .where(eq(employees.id, config.employeeId));
 }

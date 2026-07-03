@@ -38,14 +38,17 @@ export class DocumentReminderNotificationSync {
   async syncAllTenants(): Promise<void> {
     console.log("🔔 Syncing document reminder notifications...");
     try {
-      await this.syncForTenant(undefined);
+      const allTenants = await storage.getTenants();
+      for (const tenant of allTenants) {
+        await this.syncForTenant(tenant.id);
+      }
       console.log("✅ Document reminder notifications synced");
     } catch (error) {
       console.error("❌ Document reminder notification sync error:", error);
     }
   }
 
-  async syncForTenant(tenantId?: number): Promise<void> {
+  async syncForTenant(tenantId: number): Promise<void> {
     const recipients = await getReminderNotificationUsers(tenantId, { includeItManagers: true });
     if (recipients.length === 0) return;
 
@@ -67,14 +70,14 @@ export class DocumentReminderNotificationSync {
         record.reminderType === "license" ? "license_expiry" : "document_expiry";
 
       for (const user of recipients) {
-        if (tenantId !== undefined && user.tenantId !== tenantId && !user.isSuperAdmin) {
+        if (user.tenantId != null && user.tenantId !== tenantId) {
           continue;
         }
         const exists = await storage.hasNotificationForEntity(user.id, entityType);
         if (exists) continue;
 
         await storage.createNotification({
-          tenantId: tenantId ?? user.tenantId ?? null,
+          tenantId,
           type: notificationType,
           message: buildNotificationMessage(record, mode),
           targetUserId: user.id,

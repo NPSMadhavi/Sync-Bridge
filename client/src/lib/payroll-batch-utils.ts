@@ -16,6 +16,51 @@ export function getCurrentPayPeriod() {
   };
 }
 
+/** Last fully completed calendar month — default for payroll processing forms. */
+export function getLastCompletedPayPeriod(now = new Date()) {
+  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return getPayPeriodForMonth(d.getFullYear(), d.getMonth() + 1);
+}
+
+export const PAYROLL_CURRENT_MONTH_ERROR =
+  "This month has not ended yet, so payroll cannot be processed.";
+
+/** Payroll can only be processed for months that have fully ended. */
+export function isPayPeriodEligibleForProcessing(
+  payPeriodStart: string,
+  payPeriodEnd?: string,
+  now = new Date()
+): boolean {
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const { year: startYear, month: startMonth } = derivePayrollMonthYear(payPeriodStart);
+  if (startYear > currentYear) return false;
+  if (startYear === currentYear && startMonth >= currentMonth) return false;
+
+  if (payPeriodEnd) {
+    const { year: endYear, month: endMonth } = derivePayrollMonthYear(payPeriodEnd);
+    if (endYear > currentYear) return false;
+    if (endYear === currentYear && endMonth >= currentMonth) return false;
+  }
+
+  return true;
+}
+
+export function getMaxSelectablePayPeriodDate(now = new Date()): string {
+  return getLastCompletedPayPeriod(now).payPeriodEnd;
+}
+
+export function isPayPeriodDateDisabled(date: Date, now = new Date()): boolean {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  if (year > currentYear) return true;
+  if (year === currentYear && month >= currentMonth) return true;
+  return false;
+}
+
 export function getPayPeriodForMonth(year: number, month: number) {
   const lastDay = new Date(year, month, 0).getDate();
   return {
@@ -137,7 +182,8 @@ export function findPayrollRecordForPeriod(
 export function hasPayrollDataChanged(
   config: any,
   record: any,
-  requestedOvertimeHours = 0
+  requestedOvertimeHours = 0,
+  calculation?: { grossPay?: number; netPay?: number; employeeCpf?: number; cpfDeduction?: number } | null
 ) {
   if (!config || !record) return false;
 
@@ -157,7 +203,16 @@ export function hasPayrollDataChanged(
   if (Number(requestedOvertimeHours) !== Number(record.overtimeHours ?? 0)) return true;
 
   if (config.updatedAt && record.updatedAt) {
-    return new Date(config.updatedAt).getTime() > new Date(record.updatedAt).getTime();
+    if (new Date(config.updatedAt).getTime() > new Date(record.updatedAt).getTime()) {
+      return true;
+    }
+  }
+
+  if (calculation) {
+    const employeeCpf = calculation.employeeCpf ?? calculation.cpfDeduction ?? 0;
+    if (Math.abs(Number(calculation.grossPay ?? 0) - Number(record.grossPay)) > 0.01) return true;
+    if (Math.abs(Number(calculation.netPay ?? 0) - Number(record.netPay)) > 0.01) return true;
+    if (Math.abs(Number(employeeCpf) - Number(record.cpfDeduction ?? 0)) > 0.01) return true;
   }
 
   return false;
@@ -315,6 +370,26 @@ export async function downloadPayrollFileResponse(
   }
 }
 
+export function resolveEffectiveMonthlySalary(
+  employee?: { salary?: string | number | null; annualSalary?: string | number | null } | null,
+  config?: { baseSalary?: string | number | null; monthlySalary?: string | number | null } | null
+): number {
+  if (employee?.salary != null && String(employee.salary).trim() !== "") {
+    const monthly = Number(employee.salary);
+    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+  }
+  if (employee?.annualSalary != null && String(employee.annualSalary).trim() !== "") {
+    const monthly = Number(employee.annualSalary) / 12;
+    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+  }
+  const configSalary = config?.monthlySalary ?? config?.baseSalary;
+  if (configSalary != null && String(configSalary).trim() !== "") {
+    const monthly = Number(configSalary);
+    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+  }
+  return 0;
+}
+
 export async function processIndividualPayrollForConfig(
   config: any,
   payPeriodStart: string,
@@ -390,6 +465,7 @@ export async function batchProcessPayrollForPeriod(
       return {
         ok: false as const,
         alreadyProcessed: true as const,
+        needsOverwriteConfirmation: true as const,
         scenario: "no-changes" as const,
         message: data.message as string,
         summary: data.summary as BatchPayrollSummary | undefined,

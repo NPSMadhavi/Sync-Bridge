@@ -30,9 +30,9 @@ export function requireModuleAccess(module: ModuleKey) {
 export function assertCanManageUser(
   req: Request,
   res: Response,
-  targetUser: { role?: string | null; isSuperAdmin?: boolean | null }
+  targetUser: { role?: string | null; isSuperAdmin?: boolean | null; tenantId?: number | null }
 ): boolean {
-  const currentUser = req.user as PermissionUser;
+  const currentUser = req.user as PermissionUser & { tenantId?: number | null };
 
   if (isSuperAdminUser(targetUser) && !isSuperAdminUser(currentUser)) {
     res.status(403).json({ message: "Super admin accounts can only be managed by a Super Admin" });
@@ -41,6 +41,16 @@ export function assertCanManageUser(
 
   if (!isSuperAdminUser(currentUser) && !isAdminUser(currentUser)) {
     res.status(403).json({ message: "Access denied" });
+    return false;
+  }
+
+  if (
+    !isSuperAdminUser(currentUser) &&
+    currentUser.tenantId != null &&
+    targetUser.tenantId != null &&
+    targetUser.tenantId !== currentUser.tenantId
+  ) {
+    res.status(403).json({ message: "Cannot manage users outside your organization" });
     return false;
   }
 

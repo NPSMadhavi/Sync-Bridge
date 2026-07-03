@@ -579,7 +579,9 @@ export class EmployeeDocumentReminderService {
     const notificationUsers = await getReminderNotificationUsers(employee?.tenantId ?? undefined);
 
     for (const user of notificationUsers) {
-
+      if (employee?.tenantId != null && user.tenantId != null && user.tenantId !== employee.tenantId) {
+        continue;
+      }
       const exists = await storage.hasNotificationForEntity(user.id, entityType);
 
       if (exists) continue;

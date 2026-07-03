@@ -51,6 +51,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import AssignAssetModal from "@/components/modals/AssignAssetModal";
+import { useUrlSearchParam } from "@/hooks/use-url-search-param";
+import { useOpenViewFromUrl } from "@/hooks/use-open-view-from-url";
+import { matchesTableSearch } from "@/lib/table-search";
 
 export default function AssetsPage() {
   const { toast } = useToast();
@@ -60,6 +63,7 @@ export default function AssetsPage() {
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
   const [viewingAsset, setViewingAsset] = useState<Asset | null>(null);
+  const searchTerm = useUrlSearchParam();
   
   // Fetch assets
   const { data: assets = [], isLoading } = useQuery<Asset[]>({
@@ -69,6 +73,18 @@ export default function AssetsPage() {
     refetchOnMount: true,
     refetchOnWindowFocus: true,
   });
+
+  const filteredAssets = assets.filter((asset) =>
+    matchesTableSearch(
+      searchTerm,
+      asset.tag,
+      asset.type,
+      asset.category,
+      asset.serial,
+      asset.status,
+      asset.location
+    )
+  );
   
   // Delete asset mutation
   const deleteAssetMutation = useMutation({
@@ -102,6 +118,12 @@ export default function AssetsPage() {
     setViewingAsset(asset);
     setIsViewDialogOpen(true);
   };
+
+  useOpenViewFromUrl({
+    items: assets,
+    isLoading,
+    onOpen: handleViewAsset,
+  });
   
   const handleDeleteAsset = (id: number) => {
     setSelectedAssetId(id);
@@ -168,7 +190,7 @@ export default function AssetsPage() {
             <div className="flex justify-center items-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
             </div>
-          ) : assets.length > 0 ? (
+          ) : filteredAssets.length > 0 ? (
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
@@ -183,7 +205,7 @@ export default function AssetsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {assets.map((asset) => (
+                  {filteredAssets.map((asset) => (
                     <TableRow key={asset.id}>
                       <TableCell className="font-medium">{asset.tag}</TableCell>
                       <TableCell>
@@ -245,6 +267,14 @@ export default function AssetsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          ) : assets.length > 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <AlertCircle className="h-12 w-12 text-gray-300 mb-3" />
+              <h3 className="text-lg font-medium text-gray-800 mb-1">No matching assets</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                No assets match &quot;{searchTerm}&quot;. Try a different search term.
+              </p>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-10 text-center">

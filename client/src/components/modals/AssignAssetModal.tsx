@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { EmployeeSearchSelect } from "@/components/ui/employee-search-select";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Asset, Employee } from "@shared/schema";
@@ -126,22 +127,13 @@ export default function AssignAssetModal({ open, onClose }: AssignAssetModalProp
           
           <div className="space-y-2">
             <Label htmlFor="employee">Employee</Label>
-            <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-              <SelectTrigger id="employee">
-                <SelectValue placeholder="Select an employee" />
-              </SelectTrigger>
-              <SelectContent>
-                {employees.length > 0 ? (
-                  employees.map((employee) => (
-                    <SelectItem key={employee.id} value={employee.id.toString()}>
-                      {employee.name} ({employee.department})
-                    </SelectItem>
-                  ))
-                ) : (
-                  <SelectItem value="none" disabled>No employees found</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
+            <EmployeeSearchSelect
+              employees={employees}
+              value={selectedEmployeeId}
+              onValueChange={setSelectedEmployeeId}
+              placeholder="Search employee..."
+              subtitle="department"
+            />
           </div>
           
           <div className="space-y-2">

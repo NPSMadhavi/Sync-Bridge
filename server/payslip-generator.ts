@@ -109,7 +109,26 @@ function formatWorkingDays(value: number | null | undefined): string {
   return (Number.isFinite(num) ? num : 0).toFixed(2);
 }
 
-function buildPayslipHtml(data: PayslipData): string {
+/** Scale down long text so payslip cells stay within borders. */
+function longTextSizeClass(
+  value: string,
+  options?: { medium?: number; long?: number; veryLong?: number }
+): string {
+  const len = (value || "").trim().length;
+  const medium = options?.medium ?? 28;
+  const long = options?.long ?? 40;
+  const veryLong = options?.veryLong ?? 55;
+  if (len >= veryLong) return "text-very-long";
+  if (len >= long) return "text-long";
+  if (len >= medium) return "text-medium";
+  return "";
+}
+
+function isLongIcNo(value: string): boolean {
+  return (value || "").trim().length > 18;
+}
+
+export function buildPayslipHtml(data: PayslipData): string {
   const payPeriodStart = normalizePayPeriodDate(data.payPeriodStart);
   const payPeriodEnd = normalizePayPeriodDate(data.payPeriodEnd);
   const payrollMonthShort = formatPayslipMonthShort(data.month, data.year);
@@ -118,7 +137,9 @@ function buildPayslipHtml(data: PayslipData): string {
   const companyName = escapeHtml(data.companyName || "");
   const companyAddress = escapeHtml(data.companyAddress || "");
   const employeeName = escapeHtml(data.employeeName || "");
+  const employeeNameClass = longTextSizeClass(data.employeeName || "");
   const icNo = escapeHtml(data.icNo || "");
+  const icNoClass = isLongIcNo(data.icNo || "") ? "ic-value" : "";
   const employeeCode = escapeHtml(data.employeeCode || "");
   const department = escapeHtml(data.department || "");
   const jobTitle = escapeHtml(data.jobTitle || "");
@@ -249,6 +270,32 @@ body {
 
 .emp-table td.value {
   font-weight: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.emp-table td.value.text-medium {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.emp-table td.value.text-long {
+  font-size: 12px;
+  line-height: 1.28;
+}
+
+.emp-table td.value.text-very-long {
+  font-size: 11px;
+  line-height: 1.22;
+}
+
+.emp-table td.value.ic-value {
+  font-size: 11px;
+  line-height: 1.25;
+  word-break: break-all;
 }
 
 .emp-table .value-semibold {
@@ -365,8 +412,9 @@ body {
 }
 
 .row-signature td {
-  padding: 0;
-  height: 80px;
+  padding: 0 0 6px;
+  height: auto;
+  min-height: 88px;
   vertical-align: bottom;
 }
 
@@ -374,19 +422,23 @@ body {
   font-size: 14px;
   font-weight: normal;
   text-align: right;
-  padding: 0 10px 8px;
+  padding: 0 10px 10px;
   vertical-align: bottom;
 }
 
 .signature-line-block {
-  display: block;
-  height: 80px;
-  padding: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 88px;
+  height: 100%;
+  padding: 0 0 10px;
   box-sizing: border-box;
 }
 
 .signature-space {
-  height: 48px;
+  flex: 1 1 auto;
+  min-height: 20px;
 }
 
 .signature-line {
@@ -403,9 +455,27 @@ body {
   font-size: 15px;
   font-weight: 600;
   text-align: left;
-  line-height: 1.25;
+  line-height: 1.2;
   margin-top: 6px;
   padding: 0 10px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.signature-text.text-medium {
+  font-size: 13px;
+  line-height: 1.18;
+}
+
+.signature-text.text-long {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.signature-text.text-very-long {
+  font-size: 9px;
+  line-height: 1.12;
 }
 
 .footer-note {
@@ -440,11 +510,11 @@ body {
     <table class="emp-table">
       <tr class="emp-row-name">
         <td class="label">Name :</td>
-        <td class="value value-semibold">${employeeName}</td>
+        <td class="value value-semibold ${employeeNameClass}">${employeeName}</td>
       </tr>
       <tr class="emp-row-ic">
         <td class="label">IC NO :</td>
-        <td class="value value-semibold">${icNo}</td>
+        <td class="value value-semibold ${icNoClass}">${icNo}</td>
       </tr>
       <tr>
         <td class="label">Employee Code :</td>
@@ -543,14 +613,14 @@ body {
     <div class="signature-line-block">
       <div class="signature-space"></div>
       <div class="signature-line"></div>
-      <div class="signature-text">${employeeName}</div>
+      <div class="signature-text ${employeeNameClass}">${employeeName}</div>
     </div>
   </td>
   <td>
     <div class="signature-line-block">
       <div class="signature-space"></div>
       <div class="signature-line"></div>
-      <div class="signature-text">${companyName}</div>
+      <div class="signature-text ${longTextSizeClass(data.companyName || "", { medium: 30, long: 45, veryLong: 60 })}">${companyName}</div>
     </div>
   </td>
 </tr>

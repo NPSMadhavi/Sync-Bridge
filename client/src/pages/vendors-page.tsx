@@ -11,7 +11,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { FormSheetHeader } from "@/components/ui/form-sheet-header";
 import { FormSheetFooter, formSheetCancelClass, formSheetSubmitClass } from "@/components/ui/form-sheet-footer";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Edit, Trash2, Eye, Mail, Phone, MapPin, Globe } from "lucide-react";
+import { Plus, Edit, Trash2, Eye, Mail, Phone, MapPin, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -35,6 +35,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useUrlSearchParam } from "@/hooks/use-url-search-param";
+import { matchesTableSearch } from "@/lib/table-search";
 
 interface Vendor {
   id: number;
@@ -79,13 +81,13 @@ interface VendorFormData {
 }
 
 export default function VendorsPage() {
-  const { user } = useAuth();
+  const { user, tenantId } = useAuth();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const searchTerm = useUrlSearchParam();
   const [formData, setFormData] = useState<VendorFormData>({
     name: '',
     contact: '',
@@ -110,11 +112,12 @@ export default function VendorsPage() {
 
   // Fetch vendors
   const { data: vendors = [], isLoading } = useQuery({
-    queryKey: ['/api/vendors'],
+    queryKey: ['/api/vendors', tenantId],
     queryFn: async () => {
       const response = await apiRequest('GET', '/api/vendors');
       return response.json();
-    }
+    },
+    enabled: !!user,
   });
 
   // Add vendor mutation
@@ -453,38 +456,37 @@ export default function VendorsPage() {
   );
 
   const filteredVendors = vendors.filter((vendor: Vendor) =>
-    vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.contact.toLowerCase().includes(searchTerm.toLowerCase())
+    matchesTableSearch(
+      searchTerm,
+      vendor.name,
+      vendor.email,
+      vendor.contact,
+      vendor.phone,
+      vendor.website,
+      vendor.city,
+      vendor.country
+    )
   );
 
   return (
 <Dashboard
-  title={<span className="text-[32px] font-bold">Vendors</span>}
-  description="Manage your organization's assets."
+  title={
+    <div className="flex justify-between items-center w-full">
+      <span className="text-[32px] font-bold">Vendors</span>
+      <Button
+        onClick={() => {
+          resetForm();
+          setSelectedVendor(null);
+          setIsAddModalOpen(true);
+        }}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Add Vendor
+      </Button>
+    </div>
+  }
+  description="Manage your organization's vendors."
 >
-      <div className="mb-6">
-        <div className="flex justify-between items-center">
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search vendors..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 w-64"
-            />
-          </div>
-          <Button onClick={() => {
-            resetForm();
-            setSelectedVendor(null);
-            setIsAddModalOpen(true);
-          }}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Vendor
-          </Button>
-        </div>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>All Vendors</CardTitle>
@@ -492,6 +494,10 @@ export default function VendorsPage() {
         <CardContent>
           {isLoading ? (
             <div className="text-center py-8">Loading vendors...</div>
+          ) : filteredVendors.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No vendors found. Click &quot;Add Vendor&quot; to create one.
+            </div>
           ) : (
             <div className="rounded-md border">
               <Table>
