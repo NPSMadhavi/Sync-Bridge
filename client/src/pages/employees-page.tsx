@@ -245,6 +245,7 @@ export default function EmployeesPage() {
   const [visibleNumbers, setVisibleNumbers] = useState<{
     [key: string]: { visible: boolean; timeout?: NodeJS.Timeout };
   }>({});
+  const [dobValidationAttempted, setDobValidationAttempted] = useState(false);
   const [formData, setFormData] = useState<EmployeeFormData>({
     employeeId: '',
     name: '',
@@ -576,6 +577,7 @@ export default function EmployeesPage() {
   });
 
   const resetForm = () => {
+    setDobValidationAttempted(false);
     setFormData({
       employeeId: '',
       name: '',
@@ -607,6 +609,7 @@ export default function EmployeesPage() {
 
   const handleEdit = (employee: Employee) => {
     setSelectedEmployee(employee);
+    setDobValidationAttempted(false);
     setFormData({
       employeeId: employee.employeeId,
       name: employee.name,
@@ -670,6 +673,11 @@ export default function EmployeesPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.dateOfBirth.trim()) {
+      setDobValidationAttempted(true);
+      return;
+    }
+    setDobValidationAttempted(false);
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email.trim())) {
       toast({
@@ -885,7 +893,11 @@ export default function EmployeesPage() {
             <Label htmlFor={`${p}date_of_birth`}>Date of Birth*</Label>
             <StringDatePicker
               value={formData.dateOfBirth}
-              onChange={(val) => setFormData({ ...formData, dateOfBirth: val })}
+              onChange={(val) => {
+                setFormData({ ...formData, dateOfBirth: val });
+                if (val) setDobValidationAttempted(false);
+              }}
+              className={dobValidationAttempted && !formData.dateOfBirth ? "border-destructive" : ""}
             />
           </div>
 

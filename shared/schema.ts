@@ -874,21 +874,21 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
       return d;
     })
   ),
-  // dateOfBirth is a `date` column — must be a YYYY-MM-DD string, not a Date object
-  dateOfBirth: z.string().optional().nullable().transform(str => {
-    if (!str || str.trim() === '') return null;
-    try {
-      let cleanStr = str;
-      if (str.includes('+05') && str.startsWith('+05')) {
-        cleanStr = str.replace(/^\+05/, '');
+  // dateOfBirth is mandatory and stored as YYYY-MM-DD.
+  dateOfBirth: z.preprocess(
+    (val) => (val === null || val === undefined ? '' : String(val)),
+    z.string().min(1, "Date of birth is required").transform(str => {
+      let cleanStr = str.trim();
+      if (cleanStr.includes('+05') && cleanStr.startsWith('+05')) {
+        cleanStr = cleanStr.replace(/^\+05/, '');
       }
       const d = new Date(cleanStr);
-      if (isNaN(d.getTime())) return null;
+      if (isNaN(d.getTime())) {
+        throw new Error("Invalid date of birth format");
+      }
       return d.toISOString().split('T')[0];
-    } catch {
-      return null;
-    }
-  }),
+    })
+  ),
   salary: z.union([z.string(), z.number()]).optional().nullable().transform(val => {
     if (val === null || val === undefined || val === '') return null;
     if (typeof val === 'string') return val;

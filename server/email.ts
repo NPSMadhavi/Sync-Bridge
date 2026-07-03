@@ -63,6 +63,36 @@ function formatSmtpError(error: unknown): NodemailerSmtpError {
   };
 }
 
+function isGmailHost(host: string): boolean {
+  return host.toLowerCase().includes("gmail");
+}
+
+function formatUserFriendlySmtpError(config: ResolvedEmailConfig, error: unknown): string {
+  const details = formatSmtpError(error);
+  const isAuthError =
+    details.code === "EAUTH" || details.responseCode === 535 || details.response?.includes("535");
+
+  if (!isAuthError) {
+    return details.message || "SMTP connection failed.";
+  }
+
+  if (isGmailHost(config.host)) {
+    if (config.user.trim().toLowerCase() !== config.from.trim().toLowerCase()) {
+      return (
+        "Gmail rejected the login: SMTP Username and From Email Address must be the same Gmail account."
+      );
+    }
+
+    return (
+      "Gmail rejected the username or password. Use a Google App Password (not your normal Gmail password). " +
+      "Enable 2-Step Verification on the account, then create an App Password at " +
+      "https://myaccount.google.com/apppasswords and paste it into SMTP Password."
+    );
+  }
+
+  return "SMTP username or password was rejected. Check your credentials and try again.";
+}
+
 function logSmtpError(context: string, config: ResolvedEmailConfig, error: unknown): void {
   const details = formatSmtpError(error);
   console.error(`[SMTP] ${context}`, {
@@ -213,8 +243,8 @@ async function ensureSmtpConnectionVerified(
     logSmtpError("Connection verification failed", config, error);
     const details = formatSmtpError(error);
     const message =
-      details.code === "EAUTH"
-        ? `SMTP authentication failed (${details.responseCode ?? ""} ${details.response ?? details.message ?? "invalid credentials"}).`
+      details.code === "EAUTH" || details.responseCode === 535
+        ? formatUserFriendlySmtpError(config, error)
         : details.message || "SMTP connection verification failed.";
     return { ok: false, error: message.trim() };
   }
@@ -317,15 +347,60 @@ export async function sendEmailDetailed(params: EmailParams): Promise<SendEmailR
     const details = formatSmtpError(error);
 
     const message =
-      details.code === "EAUTH"
-        ? `SMTP authentication failed (${details.responseCode ?? ""} ${details.response ?? details.message ?? "invalid credentials"}).`
+      details.code === "EAUTH" || details.responseCode === 535
+        ? formatUserFriendlySmtpError(config, error)
         : details.message || "Failed to deliver email.";
 
-    if (details.code === "EAUTH") {
+    if (details.code === "EAUTH" || details.responseCode === 535) {
       verifiedConfigKey = null;
     }
 
     return { success: false, error: message.trim() };
+  }
+}
+
+export async function sendEmailWithConfig(
+  config: ResolvedEmailConfig,
+  params: Omit<EmailParams, "tenantId">
+): Promise<SendEmailResult> {
+  const recipient = params.to?.trim();
+  if (!recipient || !recipient.includes("@")) {
+    return { success: false, error: "Recipient email address is required." };
+  }
+
+  const transporter = nodemailer.createTransport(buildTransportOptions(config));
+  const configKey = `inline-${JSON.stringify({
+    host: config.host,
+    port: config.port,
+    smtpSecure: config.smtpSecure,
+    user: config.user,
+    from: config.from,
+  })}`;
+
+  const verification = await ensureSmtpConnectionVerified(transporter, config, configKey);
+  if (!verification.ok) {
+    return { success: false, error: verification.error };
+  }
+
+  try {
+    await transporter.sendMail({
+      from: params.from || config.from,
+      to: recipient,
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+    });
+    return { success: true };
+  } catch (error) {
+    logSmtpError(`Failed to send email to ${recipient}`, config, error);
+    const details = formatSmtpError(error);
+    const message =
+      details.code === "EAUTH" || details.responseCode === 535
+        ? formatUserFriendlySmtpError(config, error)
+        : details.message || "Failed to deliver email.";
+    return { success: false, error: message.trim() };
+  } finally {
+    transporter.close();
   }
 }
 

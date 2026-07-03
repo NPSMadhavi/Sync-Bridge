@@ -376,6 +376,52 @@ export function setupAuth(app: Express) {
     }
   });
 
+  app.post("/api/change-password", async (req, res, next) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const changePasswordSchema = z.object({
+        currentPassword: z.string().min(6, "Current password must be at least 6 characters"),
+        newPassword: z.string().min(6, "New password must be at least 6 characters"),
+      });
+
+      const data = changePasswordSchema.parse(req.body);
+      const user = await storage.getUser(req.user!.id);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const isCurrentValid = await comparePasswords(data.currentPassword, user.password);
+      if (!isCurrentValid) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+
+      if (data.currentPassword === data.newPassword) {
+        return res.status(400).json({ message: "New password must be different from the current password" });
+      }
+
+      const updated = await storage.updateUser(user.id, {
+        password: data.newPassword,
+      });
+
+      if (!updated) {
+        return res.status(500).json({ message: "Failed to update password" });
+      }
+
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.errors[0]?.message || "Invalid password data",
+        });
+      }
+      next(error);
+    }
+  });
+
   // Role-based authentication middleware
   const requireRole = (roles: string[]) => {
     return (req: Request, res: Response, next: NextFunction) => {

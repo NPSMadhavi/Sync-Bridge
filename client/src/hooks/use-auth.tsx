@@ -73,11 +73,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       return user;
     },
-    onError: (error: Error) => {
+    onError: () => {
       toast({
-        title: "Login failed",
-        description: "Incorrect credentials",
-        variant: "destructive",
+        description: "Please enter correct email and password",
       });
     },
   });

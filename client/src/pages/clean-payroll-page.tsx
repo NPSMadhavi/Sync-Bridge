@@ -43,6 +43,7 @@ import {
   resolveBatchPayrollStatus,
   isPayPeriodEligibleForProcessing,
   PAYROLL_CURRENT_MONTH_ERROR,
+  getProcessedMonthsForEmployee,
   type BatchPayrollScenario,
   type BatchPayrollSummary,
 } from "@/lib/payroll-batch-utils";
@@ -575,27 +576,38 @@ export default function PayrollPage() {
 
   const openPayslipModal = async (config: any) => {
     const year = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1;
+
+    const findLatestSelectableMonth = (targetYear: number) => {
+      const processed = getProcessedMonthsForEmployee(config.employeeId, targetYear, payrollRecords);
+      const selectable = processed.filter((month) => isPayslipMonthSelectable(targetYear, month));
+      return selectable.length > 0 ? selectable[selectable.length - 1] : null;
+    };
 
     let defaultYear = year;
-    let defaultMonth = currentMonth - 1;
-    if (defaultMonth < 1) {
-      defaultMonth = 12;
-      defaultYear = year - 1;
+    let defaultMonth = findLatestSelectableMonth(year);
+
+    if (!defaultMonth) {
+      const previousYear = year - 1;
+      const previousMonth = findLatestSelectableMonth(previousYear);
+      if (previousMonth) {
+        defaultYear = previousYear;
+        defaultMonth = previousMonth;
+      }
     }
 
-    const defaultSelection = isPayslipMonthSelectable(defaultYear, defaultMonth)
-      ? defaultMonth
-      : null;
-
     setPayslipConfig(config);
-    setPayslipYear(defaultSelection ? defaultYear : year);
+    setPayslipYear(defaultYear);
     setPayslipNotice(null);
-    setSelectedPayslipMonths(defaultSelection ? [defaultSelection] : []);
+    setSelectedPayslipMonths(defaultMonth ? [defaultMonth] : []);
     setPayslipModalOpen(true);
   };
 
-  const isMonthEnabled = (month: number) => isPayslipMonthSelectable(payslipYear, month);
+  const processedPayslipMonths = payslipConfig
+    ? getProcessedMonthsForEmployee(payslipConfig.employeeId, payslipYear, payrollRecords)
+    : [];
+
+  const isMonthEnabled = (month: number) =>
+    isPayslipMonthSelectable(payslipYear, month) && processedPayslipMonths.includes(month);
 
   const togglePayslipMonth = (month: number, checked: boolean) => {
     if (checked && !isMonthEnabled(month)) {
@@ -1479,7 +1491,16 @@ export default function PayrollPage() {
                     setPayslipYear(nextYear);
                     setPayslipNotice(null);
                     setSelectedPayslipMonths((prev) =>
-                      prev.filter((month) => isPayslipMonthSelectable(nextYear, month))
+                      prev.filter((month) => {
+                        if (!isPayslipMonthSelectable(nextYear, month)) return false;
+                        if (!payslipConfig) return false;
+                        const processed = getProcessedMonthsForEmployee(
+                          payslipConfig.employeeId,
+                          nextYear,
+                          payrollRecords
+                        );
+                        return processed.includes(month);
+                      })
                     );
                   }}
                   className="h-9 w-28 rounded-md border border-input bg-background px-3 text-sm"
@@ -1528,7 +1549,8 @@ export default function PayrollPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                The current month and future months are disabled until the pay period ends.
+                Only months with processed payroll can be selected. The current month and future months
+                are disabled until the pay period ends.
               </p>
               {payslipNotice && (
                 <p className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white">

@@ -119,6 +119,7 @@ export default function SettingsPage() {
   const [isSavingEmailSettings, setIsSavingEmailSettings] = useState(false);
   const [isSavingRunningNumber, setIsSavingRunningNumber] = useState(false);
   const [isSavingSystem, setIsSavingSystem] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testEmail, setTestEmail] = useState("");
   
@@ -265,12 +266,33 @@ export default function SettingsPage() {
   };
   
   // Change password
-  const onPasswordSubmit = (data: PasswordFormValues) => {
-    toast({
-      title: "Password changed",
-      description: "Your password has been changed successfully.",
-    });
-    passwordForm.reset();
+  const onPasswordSubmit = async (data: PasswordFormValues) => {
+    setIsChangingPassword(true);
+    try {
+      const response = await apiRequest("POST", "/api/change-password", {
+        currentPassword: data.currentPassword,
+        newPassword: data.newPassword,
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Password changed",
+          description: "Your password has been changed successfully.",
+        });
+        passwordForm.reset();
+      } else {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.message || "Failed to change password");
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to change password. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const onSaveSystemSettings = async () => {
@@ -398,10 +420,45 @@ export default function SettingsPage() {
       return;
     }
 
+    const formValues = emailSettingsForm.getValues();
+    const smtpHost = formValues.smtpHost?.trim();
+    const smtpUser = formValues.smtpUser?.trim();
+    const emailFrom = formValues.emailFrom?.trim();
+
+    if (
+      smtpHost?.toLowerCase().includes("gmail") &&
+      smtpUser &&
+      emailFrom &&
+      smtpUser.toLowerCase() !== emailFrom.toLowerCase()
+    ) {
+      toast({
+        title: "Gmail configuration error",
+        description:
+          "SMTP Username and From Email Address must be the same Gmail account.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!formValues.smtpPass?.trim() && !emailSettings?.hasPassword) {
+      toast({
+        title: "SMTP password required",
+        description: "Enter your SMTP password (use a Google App Password for Gmail) before testing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsTestingEmail(true);
     try {
       const response = await apiRequest('POST', '/api/email-settings/test', {
-        testEmail
+        testEmail,
+        smtpHost: formValues.smtpHost,
+        smtpPort: formValues.smtpPort,
+        smtpSecure: formValues.smtpSecure,
+        smtpUser: formValues.smtpUser,
+        smtpPass: formValues.smtpPass?.trim() || undefined,
+        emailFrom: formValues.emailFrom,
       });
       
       if (response.ok) {
@@ -612,8 +669,8 @@ export default function SettingsPage() {
                       />
                       
                       <div className="mt-6">
-                        <Button type="submit">
-                          {passwordForm.formState.isSubmitting ? (
+                        <Button type="submit" disabled={isChangingPassword}>
+                          {isChangingPassword ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                               Changing Password...
@@ -735,8 +792,8 @@ export default function SettingsPage() {
                                 </FormControl>
                                 <FormDescription>
                                   {emailSettings?.hasPassword
-                                    ? "Leave blank to keep the saved password"
-                                    : "Your SMTP authentication password"}
+                                    ? "Leave blank to keep the saved password. For Gmail, use a Google App Password."
+                                    : "Your SMTP password. For Gmail, use a Google App Password (not your normal password)."}
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -754,7 +811,7 @@ export default function SettingsPage() {
                                 <Input placeholder="noreply@example.com" {...field} />
                               </FormControl>
                               <FormDescription>
-                                The email address that will appear as the sender
+                                The sender address. For Gmail, this must match SMTP Username.
                               </FormDescription>
                               <FormMessage />
                             </FormItem>

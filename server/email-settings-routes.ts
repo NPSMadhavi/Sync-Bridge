@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "./storage";
 import { resolveRequestTenantId } from "./middleware/tenant";
-import { invalidateEmailTransporterCache, sendEmailDetailed, verifySmtpConnection } from "./email";
+import { invalidateEmailTransporterCache, sendEmailWithConfig } from "./email";
 
 const emailSettingsBodySchema = z.object({
   smtpHost: z.string().trim().min(1),
@@ -12,6 +12,32 @@ const emailSettingsBodySchema = z.object({
   smtpPass: z.string().optional(),
   emailFrom: z.string().trim().email(),
 });
+
+const emailTestBodySchema = z.object({
+  testEmail: z.string().trim().email(),
+  smtpHost: z.string().trim().min(1).optional(),
+  smtpPort: z.union([z.string(), z.number()]).optional(),
+  smtpSecure: z.enum(["None", "SSL/TLS", "STARTTLS"]).optional(),
+  smtpUser: z.string().trim().min(1).optional(),
+  smtpPass: z.string().optional(),
+  emailFrom: z.string().trim().email().optional(),
+});
+
+function isGmailHost(host: string): boolean {
+  return host.toLowerCase().includes("gmail");
+}
+
+function validateGmailAccountMatch(smtpHost: string, smtpUser: string, emailFrom: string): string | null {
+  if (!isGmailHost(smtpHost)) {
+    return null;
+  }
+
+  if (smtpUser.trim().toLowerCase() !== emailFrom.trim().toLowerCase()) {
+    return "For Gmail, SMTP Username and From Email Address must be the same Gmail account.";
+  }
+
+  return null;
+}
 
 function sanitizeEmailSettingsResponse(settings: {
   id: number;
@@ -87,6 +113,15 @@ export function registerEmailSettingsRoutes(
           return res.status(400).json({ message: "SMTP password is required" });
         }
 
+        const gmailMismatch = validateGmailAccountMatch(
+          parsed.data.smtpHost,
+          parsed.data.smtpUser,
+          parsed.data.emailFrom
+        );
+        if (gmailMismatch) {
+          return res.status(400).json({ message: gmailMismatch });
+        }
+
         const payload = {
           tenantId,
           smtpHost: parsed.data.smtpHost,
@@ -127,19 +162,55 @@ export function registerEmailSettingsRoutes(
           return res.status(400).json({ message: "Tenant context is required" });
         }
 
-        const testEmail = z
-          .string()
-          .trim()
-          .email()
-          .parse(req.body?.testEmail);
+        const parsed = emailTestBodySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "A valid test email address is required" });
+        }
 
-        const sent = await sendEmailDetailed({
-          to: testEmail,
-          subject: "SyncBridge SMTP Test",
-          text: "This is a test email from SyncBridge. Your SMTP configuration is working.",
-          html: "<p>This is a test email from <strong>SyncBridge</strong>. Your SMTP configuration is working.</p>",
-          tenantId,
-        });
+        const existing = await storage.getEmailSettings(tenantId);
+        const smtpHost = parsed.data.smtpHost || existing?.smtpHost;
+        const smtpPort = parsed.data.smtpPort != null
+          ? Number(parsed.data.smtpPort)
+          : existing?.smtpPort;
+        const smtpSecure = parsed.data.smtpSecure || existing?.smtpSecure;
+        const smtpUser = parsed.data.smtpUser || existing?.smtpUser;
+        const emailFrom = parsed.data.emailFrom || existing?.emailFrom;
+        const smtpPass = parsed.data.smtpPass?.trim() || existing?.smtpPass;
+
+        if (!smtpHost || !smtpPort || !smtpSecure || !smtpUser || !emailFrom) {
+          return res.status(400).json({
+            message: "Complete the SMTP settings above before sending a test email.",
+          });
+        }
+
+        if (!smtpPass) {
+          return res.status(400).json({
+            message: "SMTP password is required. Enter your password (or App Password for Gmail) and try again.",
+          });
+        }
+
+        const gmailMismatch = validateGmailAccountMatch(smtpHost, smtpUser, emailFrom);
+        if (gmailMismatch) {
+          return res.status(400).json({ message: gmailMismatch });
+        }
+
+        const sent = await sendEmailWithConfig(
+          {
+            host: smtpHost,
+            port: smtpPort,
+            smtpSecure,
+            user: smtpUser,
+            pass: smtpPass,
+            from: emailFrom,
+            source: "database",
+          },
+          {
+            to: parsed.data.testEmail,
+            subject: "SyncBridge SMTP Test",
+            text: "This is a test email from SyncBridge. Your SMTP configuration is working.",
+            html: "<p>This is a test email from <strong>SyncBridge</strong>. Your SMTP configuration is working.</p>",
+          }
+        );
 
         if (!sent.success) {
           return res.status(400).json({
@@ -149,7 +220,7 @@ export function registerEmailSettingsRoutes(
           });
         }
 
-        res.json({ success: true, message: `Test email sent to ${testEmail}` });
+        res.json({ success: true, message: `Test email sent to ${parsed.data.testEmail}` });
       } catch (error) {
         console.error("POST /api/email-settings/test error:", error);
         if (error instanceof z.ZodError) {
