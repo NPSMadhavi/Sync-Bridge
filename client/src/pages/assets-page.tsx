@@ -54,6 +54,7 @@ import AssignAssetModal from "@/components/modals/AssignAssetModal";
 import { useUrlSearchParam } from "@/hooks/use-url-search-param";
 import { useOpenViewFromUrl } from "@/hooks/use-open-view-from-url";
 import { matchesTableSearch } from "@/lib/table-search";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 export default function AssetsPage() {
   const { toast } = useToast();
@@ -85,6 +86,8 @@ export default function AssetsPage() {
       asset.location
     )
   );
+
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredAssets, [searchTerm]);
   
   // Delete asset mutation
   const deleteAssetMutation = useMutation({
@@ -205,7 +208,7 @@ export default function AssetsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredAssets.map((asset) => (
+                  {paginatedItems.map((asset) => (
                     <TableRow key={asset.id}>
                       <TableCell className="font-medium">{asset.tag}</TableCell>
                       <TableCell>
@@ -267,6 +270,12 @@ export default function AssetsPage() {
                   ))}
                 </TableBody>
               </Table>
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={totalItems}
+                onPageChange={setPage}
+              />
             </div>
           ) : assets.length > 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">

@@ -20,6 +20,7 @@ import {
   Search,
 } from "lucide-react";
 import { TableRowActions } from "@/components/ui/table-row-actions";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -350,6 +351,8 @@ export default function ProductsPage() {
     product.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredProducts, [searchTerm]);
+
   const renderProductTable = () => {
     if (productsLoading || pricesLoading) {
       return (
@@ -372,6 +375,7 @@ export default function ProductsPage() {
     }
 
     return (
+      <>
       <Table>
         <TableHeader>
           <TableRow>
@@ -383,7 +387,7 @@ export default function ProductsPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filteredProducts.map((product: Product) => {
+          {paginatedItems.map((product: Product) => {
             const productPricesForProduct = productPrices?.filter((price: ProductPrice) => price.productId === product.id) || [];
             
             return (
@@ -455,6 +459,13 @@ export default function ProductsPage() {
           })}
         </TableBody>
       </Table>
+      <TablePagination
+        page={page}
+        pageSize={pageSize}
+        totalItems={totalItems}
+        onPageChange={setPage}
+      />
+      </>
     );
   };
 

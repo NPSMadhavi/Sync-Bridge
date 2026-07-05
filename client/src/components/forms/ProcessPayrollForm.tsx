@@ -242,7 +242,6 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
       toast({
         title: "Error",
         description: "Please select an employee first",
-        variant: "destructive",
       });
       return;
     }
@@ -343,7 +342,6 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
       toast({
         title: "Payroll not calculated",
         description: "Please select an employee to calculate payroll first.",
-        variant: "destructive",
       });
       return;
     }

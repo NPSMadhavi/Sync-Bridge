@@ -35,7 +35,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { exportPayrollConfigsToExcel } from "@/lib/excel-utils";
 import {
-  getCurrentPayPeriod,
   getLastCompletedPayPeriod,
   derivePayrollMonthYear,
   isPayrollProcessedForPeriod,
@@ -53,7 +52,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { TableRowActions } from "@/components/ui/table-row-actions";
-import { TablePagination, paginateItems } from "@/components/ui/table-pagination";
+import { TablePagination, paginateItems, DEFAULT_PAGE_SIZE } from "@/components/ui/table-pagination";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   EntityViewField,
@@ -66,7 +65,7 @@ import {
 } from "@/components/ui/entity-view-sheet";
 import PayslipPreviewModal from "@/components/payroll/PayslipPreviewModal";
 
-const PAYROLL_CONFIG_PAGE_SIZE = 10;
+const PAYROLL_CONFIG_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 const PAYSLIP_MONTHS_LEFT = [
   { value: 1, label: "January" },
@@ -106,14 +105,7 @@ function isNoCompanyPayslipError(
 ): boolean {
   if (data?.ineligibleMonths?.length) return true;
   if (!message) return false;
-  const lower = message.toLowerCase();
-  return lower.includes("company");
-}
-
-function getNoCompanyPayslipMessage(action: "view" | "download"): string {
-  return action === "view"
-    ? "No company is assigned for the selected month. Payslip cannot be viewed."
-    : "No company is assigned for the selected month. Payslip cannot be downloaded.";
+  return message.toLowerCase().includes("company");
 }
 
 function buildPayslipDownloadFilename(
@@ -236,7 +228,6 @@ export default function PayrollPage() {
     year: number;
     month: number;
   } | null>(null);
-  const [payslipNotice, setPayslipNotice] = useState<string | null>(null);
 
   const closePayslipViewer = () => {
     setPayslipViewerOpen(false);
@@ -245,7 +236,7 @@ export default function PayrollPage() {
     setPayslipViewerTitle("");
   };
 
-  const { payPeriodStart, payPeriodEnd } = getCurrentPayPeriod();
+  const { payPeriodStart, payPeriodEnd } = getLastCompletedPayPeriod();
 
   // Get user and tenant context
   const { user, isLoading: userLoading, error: userError } = useAuth();
@@ -412,7 +403,12 @@ export default function PayrollPage() {
   const activeConfigs = payrollConfigs.filter((config: any) => config.isActive);
 
   const isConfigProcessed = (config: any) =>
-    isPayrollProcessedForPeriod(config.employeeId, payrollRecords, payPeriodStart, payPeriodEnd);
+    isPayrollProcessedForPeriod(
+      config.employeeId,
+      getUniquePayrollRecords(payrollRecords),
+      payPeriodStart,
+      payPeriodEnd
+    );
 
   const processedRowClass = "bg-[#E3F2FD] border-l-4 border-[#90CAF9]";
 
@@ -597,7 +593,6 @@ export default function PayrollPage() {
 
     setPayslipConfig(config);
     setPayslipYear(defaultYear);
-    setPayslipNotice(null);
     setSelectedPayslipMonths(defaultMonth ? [defaultMonth] : []);
     setPayslipModalOpen(true);
   };
@@ -613,7 +608,6 @@ export default function PayrollPage() {
     if (checked && !isMonthEnabled(month)) {
       return;
     }
-    setPayslipNotice(null);
     setSelectedPayslipMonths((prev) =>
       checked ? [...prev, month].sort((a, b) => a - b) : prev.filter((m) => m !== month)
     );
@@ -632,7 +626,6 @@ export default function PayrollPage() {
       return;
     }
 
-    setPayslipNotice(null);
     setIsPayslipDownloading(true);
 
     try {
@@ -650,7 +643,6 @@ export default function PayrollPage() {
       if (!res.ok) {
         const error = await res.json().catch(() => ({ message: "Failed to download payslip" }));
         if (isNoCompanyPayslipError(error.message, error)) {
-          setPayslipNotice(getNoCompanyPayslipMessage("download"));
           return;
         }
         toast({
@@ -684,7 +676,7 @@ export default function PayrollPage() {
             : `Downloaded payslip for ${payslipConfig.employeeName}.${missingHeader ? ` Missing: ${missingHeader}.` : ""}`,
         });
       } else if (isNoCompanyPayslipError(result.message)) {
-        setPayslipNotice(getNoCompanyPayslipMessage("download"));
+        return;
       } else {
         toast({
           title: "Download failed",
@@ -775,7 +767,6 @@ export default function PayrollPage() {
       return;
     }
 
-    setPayslipNotice(null);
     setIsPayslipViewing(true);
     const month = selectedPayslipMonths[0];
 
@@ -794,7 +785,6 @@ export default function PayrollPage() {
       if (!res.ok) {
         const error = await res.json().catch(() => ({ message: "Failed to view payslip" }));
         if (isNoCompanyPayslipError(error.message, error)) {
-          setPayslipNotice(getNoCompanyPayslipMessage("view"));
           return;
         }
         toast({
@@ -1489,7 +1479,6 @@ export default function PayrollPage() {
                   onChange={(e) => {
                     const nextYear = parseInt(e.target.value, 10) || new Date().getFullYear();
                     setPayslipYear(nextYear);
-                    setPayslipNotice(null);
                     setSelectedPayslipMonths((prev) =>
                       prev.filter((month) => {
                         if (!isPayslipMonthSelectable(nextYear, month)) return false;
@@ -1552,11 +1541,6 @@ export default function PayrollPage() {
                 Only months with processed payroll can be selected. The current month and future months
                 are disabled until the pay period ends.
               </p>
-              {payslipNotice && (
-                <p className="rounded-md bg-slate-800 px-3 py-2 text-sm text-white">
-                  {payslipNotice}
-                </p>
-              )}
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">

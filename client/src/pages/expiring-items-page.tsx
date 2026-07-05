@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TablePagination, paginateItems } from "@/components/ui/table-pagination";
+import { TablePagination, paginateItems, DEFAULT_PAGE_SIZE } from "@/components/ui/table-pagination";
 import { TableRowActions } from "@/components/ui/table-row-actions";
 import {
   documentExpiryStatus,
@@ -38,7 +38,7 @@ import type { DocumentExpiryRecord } from "@shared/document-reminder-utils";
 import { AlertCircle, ExternalLink, Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 type StatusTab = "expiring" | "expired";
 type TypeFilter = "all" | "document" | "license";

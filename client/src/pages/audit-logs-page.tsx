@@ -17,8 +17,6 @@ import { AuditLog } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  ChevronLeft,
-  ChevronRight,
   Search,
   FileText,
   Laptop,
@@ -30,19 +28,10 @@ import {
   Loader2,
   ClipboardList
 } from "lucide-react";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 export default function AuditLogsPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
   const [entity, setEntity] = useState<string | null>(null);
   const { user, tenantId } = useAuth();
   
@@ -69,14 +58,8 @@ export default function AuditLogsPage() {
     
     return matchesSearch && matchesEntity;
   });
-  
-  // Pagination logic
-  const logsPerPage = 10;
-  const totalPages = Math.ceil(filteredLogs.length / logsPerPage);
-  const paginatedLogs = filteredLogs.slice(
-    (currentPage - 1) * logsPerPage,
-    currentPage * logsPerPage
-  );
+
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredLogs, [searchQuery, entity]);
   
   // Get unique entities for filtering
   const uniqueEntities = Array.from(new Set(auditLogs.map(log => log.entity)));
@@ -155,7 +138,7 @@ export default function AuditLogsPage() {
             <div className="flex justify-center items-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
             </div>
-          ) : paginatedLogs.length > 0 ? (
+          ) : filteredLogs.length > 0 ? (
             <>
               <div className="rounded-md border">
                 <Table>
@@ -169,7 +152,7 @@ export default function AuditLogsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedLogs.map((log) => (
+                    {paginatedItems.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="whitespace-nowrap">
                           {format(new Date(log.timestamp), "MMM dd, yyyy HH:mm:ss")}
@@ -201,58 +184,13 @@ export default function AuditLogsPage() {
                   </TableBody>
                 </Table>
               </div>
-              
-              {totalPages > 1 && (
-                <div className="mt-4">
-                  <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
-                        />
-                      </PaginationItem>
-                      
-                      {Array.from({ length: Math.min(5, totalPages) }).map((_, index) => {
-                        const pageNumber = index + 1;
-                        return (
-                          <PaginationItem key={pageNumber}>
-                            <PaginationLink
-                              isActive={currentPage === pageNumber}
-                              onClick={() => setCurrentPage(pageNumber)}
-                            >
-                              {pageNumber}
-                            </PaginationLink>
-                          </PaginationItem>
-                        );
-                      })}
-                      
-                      {totalPages > 5 && (
-                        <>
-                          <PaginationItem>
-                            <PaginationEllipsis />
-                          </PaginationItem>
-                          <PaginationItem>
-                            <PaginationLink
-                              isActive={currentPage === totalPages}
-                              onClick={() => setCurrentPage(totalPages)}
-                            >
-                              {totalPages}
-                            </PaginationLink>
-                          </PaginationItem>
-                        </>
-                      )}
-                      
-                      <PaginationItem>
-                        <PaginationNext
-                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                </div>
-              )}
+
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={totalItems}
+                onPageChange={setPage}
+              />
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-10 text-center">

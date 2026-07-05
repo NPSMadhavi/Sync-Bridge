@@ -24,6 +24,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { TableRowActions } from "@/components/ui/table-row-actions";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 import type { Invoice, Customer } from "@shared/schema";
 import InvoiceForm from "@/components/forms/InvoiceForm";
 import Dashboard from "@/components/layout/Dashboard";
@@ -363,6 +364,8 @@ export default function InvoicesPage() {
     );
   });
 
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredInvoices, [searchTerm]);
+
   const handleEdit = (invoice: Invoice) => {
     setEditingInvoice(invoice);
     setShowForm(true);
@@ -484,7 +487,7 @@ export default function InvoicesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredInvoices.map((invoice) => {
+                {paginatedItems.map((invoice) => {
                   const customer = customers.find(c => c.id === invoice.customerId);
                   return (
                     <TableRow key={invoice.id}>
@@ -553,6 +556,13 @@ export default function InvoicesPage() {
                 })}
               </TableBody>
             </Table>
+
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              onPageChange={setPage}
+            />
 
             {filteredInvoices.length === 0 && (
               <div className="text-center py-12">

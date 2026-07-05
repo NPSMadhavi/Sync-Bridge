@@ -32,6 +32,7 @@ import {
   type UserPermissionsMap,
 } from "@shared/permissions";
 import { formatDisplayDate } from "@shared/document-reminder-utils";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 interface User {
   id: string;
@@ -211,6 +212,8 @@ export default function UserManagementPage() {
     (roles.find(r => r.value === user.role)?.label || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredUsers, [searchTerm]);
+
   const canManageUserRow = (user: User) => {
     if (!canManageUsers) return false;
     if (isSuperAdminUser(user)) return isSuperAdmin;
@@ -373,6 +376,7 @@ export default function UserManagementPage() {
           {isLoading ? (
             <div className="text-center py-8">Loading users...</div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -385,7 +389,7 @@ export default function UserManagementPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.map((user: User) => (
+                {paginatedItems.map((user: User) => (
                   <TableRow key={user.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -442,6 +446,13 @@ export default function UserManagementPage() {
                 ))}
               </TableBody>
             </Table>
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              onPageChange={setPage}
+            />
+            </>
           )}
         </CardContent>
       </Card>

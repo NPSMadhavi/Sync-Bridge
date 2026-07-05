@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Dashboard from "@/components/layout/Dashboard";
 import { TableRowActions } from "@/components/ui/table-row-actions";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 import {
   EntityViewField,
   EntityViewFieldGrid,
@@ -319,6 +320,8 @@ export default function CustomersPage() {
     (customer.phone?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredCustomers, [searchTerm]);
+
   const industries = [
     'Technology', 'Healthcare', 'Finance', 'Manufacturing', 'Retail', 'Education',
     'Real Estate', 'Transportation', 'Energy', 'Consulting', 'Media', 'Other'
@@ -516,6 +519,7 @@ export default function CustomersPage() {
           {isLoading ? (
             <div className="text-center py-8">Loading customers...</div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -529,7 +533,7 @@ export default function CustomersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCustomers.map((customer: Customer) => (
+                {paginatedItems.map((customer: Customer) => (
                   <TableRow key={customer.id}>
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell>
@@ -585,6 +589,13 @@ export default function CustomersPage() {
                 ))}
               </TableBody>
             </Table>
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              onPageChange={setPage}
+            />
+            </>
           )}
         </CardContent>
       </Card>

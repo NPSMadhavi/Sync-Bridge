@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useUrlSearchParam } from "@/hooks/use-url-search-param";
 import { matchesTableSearch } from "@/lib/table-search";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 interface Company {
   id: number;
@@ -225,6 +226,8 @@ export default function CompaniesPage() {
     )
   );
 
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredCompanies, [searchTerm]);
+
   const renderCompanyFormFields = () => (
     <div className="space-y-4">
       <div>
@@ -327,7 +330,7 @@ export default function CompaniesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCompanies.map((company: Company) => (
+                  {paginatedItems.map((company: Company) => (
                     <TableRow key={company.id}>
                       <TableCell className="font-medium">{company.companyName}</TableCell>
                       <TableCell>{company.uenNumber}</TableCell>
@@ -396,6 +399,12 @@ export default function CompaniesPage() {
                   ))}
                 </TableBody>
               </Table>
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={totalItems}
+                onPageChange={setPage}
+              />
             </div>
           )}
         </CardContent>

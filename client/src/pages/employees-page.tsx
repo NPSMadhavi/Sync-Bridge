@@ -39,6 +39,7 @@ import { exportEmployeesToExcel, parseEmployeeImportFile, type EmployeeImportRow
 import { insertEmployeeSchema } from "@shared/schema";
 import { ZodError } from "zod";
 import { TableRowActions } from "@/components/ui/table-row-actions";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 import { CompanySearchSelect } from "@/components/ui/company-search-select";
 import { EntityViewSheet } from "@/components/ui/entity-view-sheet";
 import {
@@ -245,7 +246,6 @@ export default function EmployeesPage() {
   const [visibleNumbers, setVisibleNumbers] = useState<{
     [key: string]: { visible: boolean; timeout?: NodeJS.Timeout };
   }>({});
-  const [dobValidationAttempted, setDobValidationAttempted] = useState(false);
   const [formData, setFormData] = useState<EmployeeFormData>({
     employeeId: '',
     name: '',
@@ -577,7 +577,6 @@ export default function EmployeesPage() {
   });
 
   const resetForm = () => {
-    setDobValidationAttempted(false);
     setFormData({
       employeeId: '',
       name: '',
@@ -609,7 +608,6 @@ export default function EmployeesPage() {
 
   const handleEdit = (employee: Employee) => {
     setSelectedEmployee(employee);
-    setDobValidationAttempted(false);
     setFormData({
       employeeId: employee.employeeId,
       name: employee.name,
@@ -671,13 +669,14 @@ export default function EmployeesPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.dateOfBirth.trim()) {
-      setDobValidationAttempted(true);
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    const form = e.currentTarget;
+    if (!form.checkValidity()) {
+      e.preventDefault();
+      form.reportValidity();
       return;
     }
-    setDobValidationAttempted(false);
+    e.preventDefault();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email.trim())) {
       toast({
@@ -712,6 +711,11 @@ export default function EmployeesPage() {
       employee.designation,
       displayCompanyName(employee)
     )
+  );
+
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems<Employee>(
+    filteredEmployees,
+    [searchTerm, expiryFilter]
   );
 
   const isForeigner = formData.nationality === 'foreigner';
@@ -892,12 +896,11 @@ export default function EmployeesPage() {
           <div>
             <Label htmlFor={`${p}date_of_birth`}>Date of Birth*</Label>
             <StringDatePicker
+              id={`${p}date_of_birth`}
+              name="dateOfBirth"
+              required
               value={formData.dateOfBirth}
-              onChange={(val) => {
-                setFormData({ ...formData, dateOfBirth: val });
-                if (val) setDobValidationAttempted(false);
-              }}
-              className={dobValidationAttempted && !formData.dateOfBirth ? "border-destructive" : ""}
+              onChange={(val) => setFormData({ ...formData, dateOfBirth: val })}
             />
           </div>
 
@@ -1357,7 +1360,7 @@ export default function EmployeesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredEmployees.map((employee: Employee) => (
+                    {paginatedItems.map((employee: Employee) => (
                       <TableRow key={employee.id}>
                         <TableCell>{employee.employeeId}</TableCell>
                         <TableCell>{employee.name}</TableCell>
@@ -1402,6 +1405,12 @@ export default function EmployeesPage() {
                     ))}
                   </TableBody>
                 </Table>
+                <TablePagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={totalItems}
+                  onPageChange={setPage}
+                />
               </div>
             )}
           </CardContent>

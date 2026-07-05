@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { NestedSelect } from "@/components/ui/nested-select";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 interface Product {
   id: number;
@@ -383,6 +384,8 @@ export default function VendorOrdersPage() {
     return true;
   });
 
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredOrders, [filters.dateFrom, filters.dateTo, filters.productId, filters.customerName]);
+
   if (loading) {
     return (
       <div className="p-6">
@@ -623,7 +626,7 @@ export default function VendorOrdersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map((order) => (
+                    {paginatedItems.map((order) => (
                       <TableRow key={order.id} className="hover:bg-teal-50 transition-colors">
                         <TableCell>{formatDate(order.orderDate)}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
@@ -664,6 +667,12 @@ export default function VendorOrdersPage() {
                     ))}
                   </TableBody>
                 </Table>
+                <TablePagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={totalItems}
+                  onPageChange={setPage}
+                />
               </div>
             </CardContent>
           </Card>

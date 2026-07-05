@@ -49,6 +49,7 @@ import { exportLicensesToExcel } from "@/lib/excel-utils";
 import { useUrlSearchParam } from "@/hooks/use-url-search-param";
 import { useOpenViewFromUrl } from "@/hooks/use-open-view-from-url";
 import { matchesTableSearch } from "@/lib/table-search";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 export default function LicensesPage() {
   const { toast } = useToast();
@@ -87,6 +88,8 @@ export default function LicensesPage() {
     }
     return true;
   });
+
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredLicenses, [searchTerm, activeTab]);
 
   // Delete license mutation
   const deleteMutation = useMutation({
@@ -218,6 +221,7 @@ export default function LicensesPage() {
                 )}
               </div>
             ) : (
+              <>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -233,7 +237,7 @@ export default function LicensesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredLicenses.map((license) => (
+                  {paginatedItems.map((license) => (
                     <TableRow key={license.id}>
                       <TableCell className="font-medium">{license.name}</TableCell>
                       <TableCell>
@@ -297,6 +301,13 @@ export default function LicensesPage() {
                   ))}
                 </TableBody>
               </Table>
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={totalItems}
+                onPageChange={setPage}
+              />
+              </>
             )}
           </CardContent>
         </Card>

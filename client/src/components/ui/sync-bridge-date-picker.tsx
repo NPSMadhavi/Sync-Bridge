@@ -39,6 +39,9 @@ export interface SyncBridgeDatePickerProps {
   min?: string;
   max?: string;
   disabledDate?: (date: Date) => boolean;
+  id?: string;
+  name?: string;
+  required?: boolean;
 }
 
 function parseYmd(v?: string | null): Date | null {
@@ -385,6 +388,9 @@ export function SyncBridgeDatePicker({
   min,
   max,
   disabledDate,
+  id,
+  name,
+  required,
 }: SyncBridgeDatePickerProps) {
   const [open, setOpen] = React.useState(false);
   const selected = parseYmd(value);
@@ -419,8 +425,35 @@ export function SyncBridgeDatePicker({
     setOpen(false);
   };
 
+  const validityInputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    const input = validityInputRef.current;
+    if (!input || !required) return;
+    if (!value?.trim()) {
+      input.setCustomValidity("Please fill out this field.");
+    } else {
+      input.setCustomValidity("");
+    }
+  }, [value, required]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <div className="relative">
+      {required && (
+        <input
+          ref={validityInputRef}
+          type="text"
+          id={id}
+          name={name}
+          value={value || ""}
+          required
+          tabIndex={-1}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 h-full w-full opacity-0"
+          onChange={() => {}}
+        />
+      )}
+      <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -464,6 +497,7 @@ export function SyncBridgeDatePicker({
         />
       </PopoverContent>
     </Popover>
+    </div>
   );
 }
 

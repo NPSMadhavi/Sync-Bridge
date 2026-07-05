@@ -124,7 +124,7 @@ export function getProcessedMonthsForEmployee(
   for (let m = 1; m <= 12; m++) {
     const hasRecord = records.some(
       (record) =>
-        record.employeeId === employeeDbId &&
+        Number(record.employeeId) === Number(employeeDbId) &&
         payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, m)
     );
     if (hasRecord) months.push(m);
@@ -166,7 +166,7 @@ export function findPayrollRecordForPeriod(
   const { year, month } = derivePayrollMonthYear(start);
 
   return records
-    .filter((record) => record.employeeId === employeeDbId)
+    .filter((record) => Number(record.employeeId) === Number(employeeDbId))
     .filter(
       (record) =>
         (record.payrollYear === year && record.payrollMonth === month) ||

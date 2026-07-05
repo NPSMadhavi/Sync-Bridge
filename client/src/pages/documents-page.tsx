@@ -62,6 +62,7 @@ import {
 import { useUrlSearchParam } from "@/hooks/use-url-search-param";
 import { useOpenViewFromUrl } from "@/hooks/use-open-view-from-url";
 import { matchesTableSearch } from "@/lib/table-search";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 export default function DocumentsPage() {
   const { toast } = useToast();
@@ -165,6 +166,8 @@ export default function DocumentsPage() {
     if (activeTab === 'expired') return isDocumentExpired(doc.expiryDate);
     return true;
   });
+
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredDocuments, [searchTerm, activeTab]);
   
   // Helper function for document type formatting
   const formatDocumentType = (type: string) => {
@@ -209,7 +212,7 @@ export default function DocumentsPage() {
                 <CardTitle>All Company Documents</CardTitle>
               </CardHeader>
               <CardContent>
-                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
+                {renderDocumentTable(paginatedItems, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
               </CardContent>
             </Card>
           </TabsContent>
@@ -220,7 +223,7 @@ export default function DocumentsPage() {
                 <CardTitle>Documents Expiring Soon</CardTitle>
               </CardHeader>
               <CardContent>
-                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
+                {renderDocumentTable(paginatedItems, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
               </CardContent>
             </Card>
           </TabsContent>
@@ -231,7 +234,7 @@ export default function DocumentsPage() {
                 <CardTitle>Expired Documents</CardTitle>
               </CardHeader>
               <CardContent>
-                {renderDocumentTable(filteredDocuments, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
+                {renderDocumentTable(paginatedItems, isLoading, handleViewDocument, handleEditDocument, handleDownloadDocument, handleDeleteDocument)}
               </CardContent>
             </Card>
           </TabsContent>
@@ -450,6 +453,12 @@ export default function DocumentsPage() {
             })}
           </TableBody>
         </Table>
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={totalItems}
+          onPageChange={setPage}
+        />
       </div>
     );
   }

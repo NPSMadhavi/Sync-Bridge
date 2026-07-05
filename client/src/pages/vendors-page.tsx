@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useUrlSearchParam } from "@/hooks/use-url-search-param";
 import { matchesTableSearch } from "@/lib/table-search";
+import { TablePagination, usePaginatedItems } from "@/components/ui/table-pagination";
 
 interface Vendor {
   id: number;
@@ -468,6 +469,8 @@ export default function VendorsPage() {
     )
   );
 
+  const { page, setPage, paginatedItems, pageSize, totalItems } = usePaginatedItems(filteredVendors, [searchTerm]);
+
   return (
 <Dashboard
   title={
@@ -512,7 +515,7 @@ export default function VendorsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredVendors.map((vendor: Vendor) => (
+                  {paginatedItems.map((vendor: Vendor) => (
                     <TableRow key={vendor.id}>
                       <TableCell>
                         <div className="font-medium">{vendor.name}</div>
@@ -569,6 +572,12 @@ export default function VendorsPage() {
                   ))}
                 </TableBody>
               </Table>
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={totalItems}
+                onPageChange={setPage}
+              />
             </div>
           )}
         </CardContent>
