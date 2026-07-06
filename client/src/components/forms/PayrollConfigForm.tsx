@@ -352,7 +352,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
       onSuccess();
     },
     onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ description: error.message });
     },
   });
 

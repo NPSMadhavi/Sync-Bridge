@@ -152,9 +152,7 @@ export default function CompaniesPage() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
         description: error.message || "Failed to delete company",
-        variant: "destructive",
       });
     },
   });

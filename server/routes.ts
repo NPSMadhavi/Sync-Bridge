@@ -2,7 +2,7 @@ import type { Express } from "express";
 import express from "express";
 import path from "path";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage, CompanyDeletionBlockedError } from "./storage";
 import { setupAuth } from "./auth";
 import { setupFileServing, uploadMiddleware, handleFileUpload, processEmployeeScanFields } from "./upload";
 import { ZodError } from "zod";
@@ -1032,6 +1032,9 @@ app.use(express.static('public'));
       });
       res.json({ message: "Company deleted successfully" });
     } catch (error) {
+      if (error instanceof CompanyDeletionBlockedError) {
+        return res.status(400).json({ message: error.message });
+      }
       console.error('Error deleting company:', error);
       res.status(500).json({ message: "Failed to delete company" });
     }

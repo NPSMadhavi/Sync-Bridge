@@ -92,6 +92,15 @@ import { normalizePermissions } from '@shared/permissions';
 import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or, inArray, getTableColumns } from 'drizzle-orm';
 import { DataEncryption } from './utils/encryption';
 
+export class CompanyDeletionBlockedError extends Error {
+  statusCode = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CompanyDeletionBlockedError";
+  }
+}
+
 // Define sensitive fields for encryption
 const SENSITIVE_FIELDS = {
   users: ['email'] as const,
@@ -694,9 +703,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCompany(id: number): Promise<void> {
-    await db.update(employees).set({ companyId: null }).where(eq(employees.companyId, id));
-    await db.update(employeeCompanyHistory).set({ companyId: null }).where(eq(employeeCompanyHistory.companyId, id));
-    await db.delete(companies).where(eq(companies.id, id));
+    const blockers = await this.getCompanyDeleteBlockers(id);
+    if (blockers.length > 0) {
+      throw new CompanyDeletionBlockedError(blockers[0].message);
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.update(employees).set({ companyId: null }).where(eq(employees.companyId, id));
+      await tx
+        .update(employeeCompanyHistory)
+        .set({ companyId: null })
+        .where(eq(employeeCompanyHistory.companyId, id));
+
+      const deleted = await tx.delete(companies).where(eq(companies.id, id)).returning({ id: companies.id });
+      if (deleted.length === 0) {
+        throw new Error("Company not found");
+      }
+    });
+  }
+
+  private async getCompanyDeleteBlockers(
+    companyId: number
+  ): Promise<Array<{ table: string; count: number; message: string }>> {
+    const blockers: Array<{ table: string; count: number; message: string }> = [];
+
+    const [payrollRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(payrollRecords)
+      .where(eq(payrollRecords.companyId, companyId));
+
+    if (Number(payrollRow?.count ?? 0) > 0) {
+      blockers.push({
+        table: "payroll_records",
+        count: Number(payrollRow.count),
+        message: "This company cannot be deleted because payroll records exist.",
+      });
+    }
+
+    return blockers;
   }
 
   // Vendor operations
