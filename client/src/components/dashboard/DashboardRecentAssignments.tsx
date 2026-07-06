@@ -98,14 +98,7 @@ export default function DashboardRecentAssignments({
 
       <div className="px-5 py-2 border-t border-gray-100 flex justify-end shrink-0 bg-white">
         <Link href="/assets">
-          <span
-            className={cn(
-              "inline-flex items-center gap-0.5 text-sm font-medium cursor-pointer transition-colors",
-              displayAssignments.length > 0
-                ? "text-blue-600 hover:text-blue-700"
-                : "text-gray-300 pointer-events-none"
-            )}
-          >
+          <span className="inline-flex items-center gap-0.5 text-sm font-medium cursor-pointer transition-colors text-blue-600 hover:text-blue-700">
             View All <ChevronRight className="h-4 w-4" />
           </span>
         </Link>
