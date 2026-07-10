@@ -45,7 +45,7 @@ export function CompanySearchSelect({
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover modal={false} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -61,12 +61,21 @@ export function CompanySearchSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent
+        className="z-[200] w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+      >
         <Command>
           <CommandInput placeholder="Search company..." />
-          <CommandList>
+          <CommandList
+            className="max-h-[240px] overflow-y-auto overscroll-contain touch-pan-y"
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
             <CommandEmpty>No company found.</CommandEmpty>
-            <CommandGroup>
+            <CommandGroup className="!overflow-visible max-h-none">
               {companies.map((company) => (
                 <CommandItem
                   key={company.id}

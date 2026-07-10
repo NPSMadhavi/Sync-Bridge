@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { Loader2, Mail, Send, Hash } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { formatRunningNumber } from "@shared/schema";
+import { formatRunningNumber, formatRunningCounter, parseRunningCounterInput, resolveRunningCounterPadLength } from "@shared/schema";
 import { canManageRunningNumber } from "@/lib/running-number-access";
 import { RunningNumberSettingsCard } from "@/components/settings/RunningNumberSettingsCard";
 
@@ -92,13 +92,13 @@ const runningNumberFormSchema = z.object({
     .string()
     .trim()
     .min(1, { message: "Next Counter is required" })
-    .refine((val) => !Number.isNaN(Number(val)), {
-      message: "Next Counter must be numeric",
+    .refine((val) => /^\d+$/.test(val), {
+      message: "Next Counter must be a whole number",
     })
-    .refine((val) => Number.isInteger(Number(val)), {
-      message: "Next Counter must be numeric",
-    })
-    .refine((val) => Number(val) >= 0, {
+    .refine((val) => {
+      const parsed = parseRunningCounterInput(val);
+      return !Number.isNaN(parsed.value) && parsed.value >= 0;
+    }, {
       message: "Counter cannot be negative",
     }),
   suffix: z.string().optional(),
@@ -219,11 +219,12 @@ export default function SettingsPage() {
 
   React.useEffect(() => {
     if (runningNumberSettings?.configured) {
+      const padLength = runningNumberSettings.counterPadLength ?? 0;
       runningNumberForm.reset({
         prefix: runningNumberSettings.prefix || "",
         nextCounter:
           runningNumberSettings.nextCounter != null
-            ? String(runningNumberSettings.nextCounter)
+            ? formatRunningCounter(runningNumberSettings.nextCounter, padLength)
             : "",
         suffix: runningNumberSettings.suffix || "",
       });
@@ -236,11 +237,19 @@ export default function SettingsPage() {
   const runningNumberPreview =
     watchedCounter?.trim() === ""
       ? "—"
-      : formatRunningNumber(
-          watchedPrefix ?? "",
-          Number(watchedCounter),
-          watchedSuffix
-        );
+      : (() => {
+          const parsed = resolveRunningCounterPadLength(
+            watchedCounter ?? "",
+            watchedPrefix ?? ""
+          );
+          if (Number.isNaN(parsed.value)) return "—";
+          return formatRunningNumber(
+            watchedPrefix ?? "",
+            parsed.value,
+            watchedSuffix,
+            parsed.padLength
+          );
+        })();
   
   // Update profile
   const onProfileSubmit = async (data: ProfileFormValues) => {
@@ -376,9 +385,14 @@ export default function SettingsPage() {
 
     setIsSavingRunningNumber(true);
     try {
+      const parsed = resolveRunningCounterPadLength(
+        data.nextCounter,
+        data.prefix
+      );
       const response = await apiRequest("PUT", "/api/running-numbers/employee", {
         prefix: data.prefix,
-        nextCounter: Number(data.nextCounter),
+        nextCounter: data.nextCounter,
+        counterPadLength: parsed.padLength,
         suffix: data.suffix ?? "",
         tenantId: effectiveTenantId,
       });
@@ -386,7 +400,7 @@ export default function SettingsPage() {
       if (response.ok) {
         runningNumberForm.reset({
           prefix: data.prefix,
-          nextCounter: data.nextCounter,
+          nextCounter: formatRunningCounter(parsed.value, parsed.padLength),
           suffix: data.suffix ?? "",
         });
         toast({

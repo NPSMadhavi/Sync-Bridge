@@ -1,28 +1,95 @@
 import * as XLSX from "xlsx";
 import type { License } from "@shared/schema";
 
+function toLocalYmd(year: number, monthIndex: number, day: number): string {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    !Number.isInteger(day) ||
+    monthIndex < 0 ||
+    monthIndex > 11 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return "";
+  }
+  const d = new Date(year, monthIndex, day);
+  if (
+    d.getFullYear() !== year ||
+    d.getMonth() !== monthIndex ||
+    d.getDate() !== day
+  ) {
+    return "";
+  }
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Parse Excel/CSV date values into YYYY-MM-DD. Prefers DD/MM/YYYY (SG). Returns "" if empty/invalid. */
 function parseExcelDate(value: unknown): string {
   if (value == null || value === "") return "";
+
   if (value instanceof Date) {
-    return value.toISOString().split("T")[0];
+    if (Number.isNaN(value.getTime())) return "";
+    return toLocalYmd(value.getFullYear(), value.getMonth(), value.getDate());
   }
-  if (typeof value === "number") {
+
+  if (typeof value === "number" && Number.isFinite(value)) {
     const parsed = XLSX.SSF.parse_date_code(value);
     if (parsed) {
-      const d = new Date(parsed.y, parsed.m - 1, parsed.d);
-      return d.toISOString().split("T")[0];
+      return toLocalYmd(parsed.y, parsed.m - 1, parsed.d);
     }
   }
-  const str = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
-  const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (ddmmyyyy) {
-    const [, day, month, year] = ddmmyyyy;
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+
+  let str = String(value).trim();
+  if (!str) return "";
+
+  // Strip time portion if present
+  str = str.replace(/T.*/, "").replace(/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?$/, "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split("-").map(Number);
+    return toLocalYmd(y, m - 1, d);
   }
-  return str;
+
+  // Excel serial stored as string
+  if (/^\d{4,6}(\.\d+)?$/.test(str)) {
+    const serial = Number(str);
+    const parsed = XLSX.SSF.parse_date_code(serial);
+    if (parsed) {
+      return toLocalYmd(parsed.y, parsed.m - 1, parsed.d);
+    }
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (Singapore / common Excel export)
+  const dmy = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/);
+  if (dmy) {
+    let [, day, month, year] = dmy;
+    let y = Number(year);
+    if (year.length === 2) {
+      y += y >= 50 ? 1900 : 2000;
+    }
+    return toLocalYmd(y, Number(month) - 1, Number(day));
+  }
+
+  // YYYY/MM/DD or YYYY.MM.DD
+  const ymd = str.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if (ymd) {
+    const [, year, month, day] = ymd;
+    return toLocalYmd(Number(year), Number(month) - 1, Number(day));
+  }
+
+  // 15-Mar-1990 / 15 Mar 1990 / Mar 15, 1990
+  const named = Date.parse(str);
+  if (!Number.isNaN(named)) {
+    const d = new Date(named);
+    return toLocalYmd(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  return "";
+}
+
+function isValidYmd(value: string | null | undefined): boolean {
+  return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
@@ -99,6 +166,29 @@ function parseNationality(value: string): "citizen" | "pr" | "foreigner" {
   return "citizen";
 }
 
+function parseEmployeeStatus(value: string): "active" | "resigned" | "on_hold" | "terminated" {
+  const v = value.trim().toLowerCase().replace(/\s+/g, "_");
+  if (v === "resigned" || v === "resign") return "resigned";
+  if (v === "on_hold" || v === "onhold" || v === "hold") return "on_hold";
+  if (v === "terminated" || v === "terminate" || v === "inactive") return "terminated";
+  return "active";
+}
+
+function parseVisaType(
+  value: string
+): "s_pass" | "work_permit" | "employment_pass" | "pr" | "dependent_pass" | "ltvp" | "student_pass" | "other" {
+  const v = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!v) return "other";
+  if (v.includes("s_pass") || v === "spass" || v === "s_pass") return "s_pass";
+  if (v.includes("work_permit") || v === "wp") return "work_permit";
+  if (v.includes("employment_pass") || v === "ep") return "employment_pass";
+  if (v === "pr" || v.includes("permanent")) return "pr";
+  if (v.includes("dependent")) return "dependent_pass";
+  if (v.includes("ltvp")) return "ltvp";
+  if (v.includes("student")) return "student_pass";
+  return "other";
+}
+
 function parsePrStatus(value: string): "year_1" | "year_2" | "year_3_plus" | null {
   const v = value.trim().toLowerCase();
   if (!v) return null;
@@ -155,15 +245,19 @@ export function exportEmployeesToExcel(employees: any[]) {
   const rows = employees.map((e) => ({
     "Employee ID": e.employeeId || "",
     Name: e.name || "",
+    Email: e.email || "",
     Department: e.department || "",
     Designation: e.designation || "",
+    Company: e.companyName || "",
     "Join Date": e.joinDate ? parseExcelDate(e.joinDate) : "",
     "Date of Birth": e.dateOfBirth ? parseExcelDate(e.dateOfBirth) : "",
     "Salary (Monthly)": e.salary ?? "",
+    "Annual Salary": e.annualSalary ?? "",
     Status: e.status || "active",
     Nationality: nationalityLabel(e.nationality),
     "PR Status": prStatusLabel(e.prStatus),
     "NRIC Number": e.nricNumber || "",
+    "NRIC Expiry": e.nricExpiry ? parseExcelDate(e.nricExpiry) : "",
     "FIN Number": e.finNumber || "",
     "Passport Number": e.passportNumber || "",
     "Passport Expiry": e.passportExpiry ? parseExcelDate(e.passportExpiry) : "",
@@ -185,60 +279,207 @@ export interface EmployeeImportRow {
   errors: string[];
 }
 
+function normalizeImportHeader(header: string): string {
+  return header.replace(/^\ufeff/, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeImportRow(row: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    normalized[normalizeImportHeader(key)] = value;
+  }
+  return normalized;
+}
+
+const EMPLOYEE_IMPORT_COLUMN_ALIASES: Record<string, string[]> = {
+  employeeId: [
+    "employee id",
+    "employeeid",
+    "emp id",
+    "emp code",
+    "employee code",
+    "staff id",
+    "staff no",
+    "staff number",
+    "employee no",
+    "employee number",
+    "emp no",
+    "emp number",
+    "badge no",
+    "badge number",
+  ],
+  name: ["name", "employee name", "full name", "staff name", "worker name"],
+  email: ["email", "email address", "e-mail"],
+  department: ["department", "dept", "division", "section"],
+  designation: ["designation", "position", "job title", "title", "role", "job designation"],
+  joinDate: [
+    "join date",
+    "joining date",
+    "date of joining",
+    "doj",
+    "hire date",
+    "date joined",
+    "start date",
+    "employment date",
+    "commencement date",
+  ],
+  dateOfBirth: [
+    "date of birth",
+    "dob",
+    "birth date",
+    "birthday",
+    "date of birth (dd/mm/yyyy)",
+  ],
+  salary: ["salary (monthly)", "salary", "monthly salary", "basic salary", "basic pay"],
+  annualSalary: ["annual salary", "yearly salary", "salary (annual)", "annual pay"],
+  status: ["status", "employee status", "employment status"],
+  nationality: ["nationality", "citizenship", "residency"],
+  prStatus: ["pr status", "pr year", "permanent resident status"],
+  nricNumber: ["nric number", "nric", "nric no", "ic number", "ic no"],
+  nricExpiry: ["nric expiry", "nric expiry date", "ic expiry", "nric exp"],
+  finNumber: ["fin number", "fin", "fin no"],
+  passportNumber: ["passport number", "passport no", "passport"],
+  passportExpiry: ["passport expiry", "passport expiry date", "passport exp"],
+  visaNumber: ["visa number", "visa no", "work permit number", "wp number"],
+  visaExpiry: ["visa expiry", "visa expiry date", "work permit expiry"],
+  visaType: ["visa type", "pass type", "work permit type"],
+  visaRemarks: ["visa remarks", "visa notes", "remarks"],
+  company: [
+    "company",
+    "company name",
+    "employer",
+    "organisation",
+    "organization",
+    "current company",
+    "employer name",
+    "company / employer",
+    "working company",
+  ],
+  companyUen: ["uen", "uen number", "company uen", "registration number", "reg no"],
+};
+
+function normalizeCompanyKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pickImportField(row: Record<string, unknown>, field: keyof typeof EMPLOYEE_IMPORT_COLUMN_ALIASES): unknown {
+  const aliases = EMPLOYEE_IMPORT_COLUMN_ALIASES[field];
+  for (const alias of aliases) {
+    const value = row[alias];
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return value;
+    }
+  }
+
+  // Fuzzy header match (e.g. "Company Name *", "Employee Company")
+  if (field === "company") {
+    for (const [key, value] of Object.entries(row)) {
+      if (value === undefined || value === null || String(value).trim() === "") continue;
+      if (key.includes("company") && !key.includes("history") && !key.includes("uen")) {
+        return value;
+      }
+      if (key.includes("employer") || key.includes("organisation") || key.includes("organization")) {
+        return value;
+      }
+    }
+  }
+
+  return "";
+}
+
+function isImportRowEmpty(data: Record<string, unknown>): boolean {
+  const keys = ["employeeId", "name", "department", "designation", "email"] as const;
+  return keys.every((key) => !String(data[key] ?? "").trim());
+}
+
 export function parseEmployeeImportFile(buffer: ArrayBuffer): EmployeeImportRow[] {
   const wb = XLSX.read(buffer, { type: "array", cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   if (!sheet) return [];
 
   const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-  return rawRows.map((row, index) => {
-    const rowNumber = index + 2;
-    const errors: string[] = [];
+  const today = new Date().toISOString().split("T")[0];
 
-    const employeeId = String(row["Employee ID"] ?? row["employeeId"] ?? "").trim();
-    const name = String(row["Name"] ?? row["name"] ?? "").trim();
-    const department = String(row["Department"] ?? row["department"] ?? "").trim();
-    const designation = String(row["Designation"] ?? row["designation"] ?? "").trim();
-    const joinDate = parseExcelDate(row["Join Date"] ?? row["joinDate"] ?? "");
-    const dateOfBirth = parseExcelDate(row["Date of Birth"] ?? row["dateOfBirth"] ?? "");
-    const salaryRaw = row["Salary (Monthly)"] ?? row["salary"] ?? "";
-    const status = String(row["Status"] ?? row["status"] ?? "active").trim() || "active";
-    const nationalityRaw = String(row["Nationality"] ?? row["nationality"] ?? "Singapore Citizen");
-    const prStatusRaw = String(row["PR Status"] ?? row["prStatus"] ?? "");
-    const nationality = parseNationality(nationalityRaw);
+  return rawRows
+    .map((rawRow, index) => {
+      const row = normalizeImportRow(rawRow);
+      const rowNumber = index + 2;
+      const errors: string[] = [];
 
-    if (!employeeId) errors.push("Employee ID is required");
-    if (!name) errors.push("Name is required");
-    if (!department) errors.push("Department is required");
-    if (!designation) errors.push("Designation is required");
-    if (!joinDate) errors.push("Join Date is required");
+      const employeeId = String(pickImportField(row, "employeeId")).trim();
+      const name = String(pickImportField(row, "name")).trim();
+      const email = String(pickImportField(row, "email")).trim();
+      const department = String(pickImportField(row, "department")).trim() || "General";
+      const designation = String(pickImportField(row, "designation")).trim() || "Staff";
+      const joinDateRaw = pickImportField(row, "joinDate");
+      const joinDateParsed = parseExcelDate(joinDateRaw);
+      const joinDate = isValidYmd(joinDateParsed) ? joinDateParsed : today;
+      const dobParsed = parseExcelDate(pickImportField(row, "dateOfBirth"));
+      // DOB is optional — skip unparseable values instead of failing the row
+      const dateOfBirth = isValidYmd(dobParsed) ? dobParsed : null;
+      const salaryRaw = pickImportField(row, "salary");
+      const annualSalaryRaw = pickImportField(row, "annualSalary");
+      const status = parseEmployeeStatus(String(pickImportField(row, "status") || "active"));
+      const nationalityRaw = String(pickImportField(row, "nationality") || "Singapore Citizen");
+      const prStatusRaw = String(pickImportField(row, "prStatus"));
+      const nationality = parseNationality(nationalityRaw);
+      const companyName = String(pickImportField(row, "company")).trim();
+      const companyUen = String(pickImportField(row, "companyUen")).trim();
 
-    const salary =
-      salaryRaw === "" || salaryRaw == null
-        ? null
-        : String(salaryRaw);
+      if (!name) errors.push("Name is required");
 
-    const data: Record<string, unknown> = {
-      employeeId,
-      name,
-      department,
-      designation,
-      joinDate,
-      dateOfBirth: dateOfBirth || null,
-      salary,
-      status,
-      nationality,
-      prStatus: nationality === "pr" ? parsePrStatus(prStatusRaw) || "year_3_plus" : null,
-      nricNumber: String(row["NRIC Number"] ?? row["nricNumber"] ?? "").trim() || null,
-      finNumber: String(row["FIN Number"] ?? row["finNumber"] ?? "").trim() || null,
-      passportNumber: String(row["Passport Number"] ?? row["passportNumber"] ?? "").trim() || null,
-      passportExpiry: parseExcelDate(row["Passport Expiry"] ?? row["passportExpiry"] ?? "") || null,
-      visaNumber: String(row["Visa Number"] ?? row["visaNumber"] ?? "").trim() || null,
-      visaExpiry: parseExcelDate(row["Visa Expiry"] ?? row["visaExpiry"] ?? "") || null,
-      visaType: String(row["Visa Type"] ?? row["visaType"] ?? "").trim() || null,
-      visaRemarks: String(row["Visa Remarks"] ?? row["visaRemarks"] ?? "").trim() || null,
-    };
+      const salary =
+        salaryRaw === "" || salaryRaw == null
+          ? null
+          : String(salaryRaw);
+      const annualSalary =
+        annualSalaryRaw === "" || annualSalaryRaw == null
+          ? salary
+            ? String(Number(salary) * 12)
+            : null
+          : String(annualSalaryRaw);
 
-    return { rowNumber, data, errors };
-  });
+      const data: Record<string, unknown> = {
+        employeeId,
+        name,
+        email: email || null,
+        department,
+        designation,
+        companyName: companyName || null,
+        companyUen: companyUen || null,
+        joinDate,
+        dateOfBirth: dateOfBirth || null,
+        salary,
+        annualSalary,
+        status,
+        nationality,
+        prStatus: nationality === "pr" ? parsePrStatus(prStatusRaw) || "year_3_plus" : null,
+        nricNumber: String(pickImportField(row, "nricNumber")).trim() || null,
+        nricExpiry: (() => {
+          const v = parseExcelDate(pickImportField(row, "nricExpiry"));
+          return isValidYmd(v) ? v : null;
+        })(),
+        finNumber: String(pickImportField(row, "finNumber")).trim() || null,
+        passportNumber: String(pickImportField(row, "passportNumber")).trim() || null,
+        passportExpiry: (() => {
+          const v = parseExcelDate(pickImportField(row, "passportExpiry"));
+          return isValidYmd(v) ? v : null;
+        })(),
+        visaNumber: String(pickImportField(row, "visaNumber")).trim() || null,
+        visaExpiry: (() => {
+          const v = parseExcelDate(pickImportField(row, "visaExpiry"));
+          return isValidYmd(v) ? v : null;
+        })(),
+        visaType: parseVisaType(String(pickImportField(row, "visaType"))),
+        visaRemarks: String(pickImportField(row, "visaRemarks")).trim() || null,
+      };
+
+      return { rowNumber, data, errors };
+    })
+    .filter((row) => !isImportRowEmpty(row.data));
 }

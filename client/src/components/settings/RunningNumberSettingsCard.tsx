@@ -2,7 +2,7 @@ import { Loader2 } from "lucide-react";
 import React from "react";
 import { UseFormReturn } from "react-hook-form";
 import { Button } from "@/components/ui/button";
-import { Input, NumberInput } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import {
   Form,
   FormControl,
@@ -83,10 +83,20 @@ export function RunningNumberSettingsCard({
                   <FormItem className="space-y-2">
                     <label className="text-sm font-normal text-gray-700">Next Counter</label>
                     <FormControl>
-                      <NumberInput
+                      <Input
+                        type="text"
                         className={monoInputClass}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder="01"
                         value={field.value ?? ""}
-                        onChange={(e) => field.onChange(e.target.value)}
+                        onChange={(e) => {
+                          const next = e.target.value.replace(/[^\d]/g, "");
+                          field.onChange(next);
+                        }}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                       />
                     </FormControl>
                     <FormMessage />

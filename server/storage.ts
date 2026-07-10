@@ -162,6 +162,7 @@ export interface IStorage {
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: number, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
+  deleteAllEmployees(tenantId: number): Promise<number>;
   
   // Employee company history operations
   getEmployeeCompanyHistory(employeeId: number): Promise<EmployeeCompanyHistory[]>;
@@ -584,7 +585,8 @@ export class DatabaseStorage implements IStorage {
       const employeeId = formatRunningNumber(
         config.prefix,
         config.nextCounter,
-        config.suffix
+        config.suffix,
+        config.counterPadLength ?? 0
       );
 
       await tx
@@ -658,6 +660,18 @@ export class DatabaseStorage implements IStorage {
     await db.delete(payrollRecords).where(eq(payrollRecords.employeeId, id));
     await db.delete(employeePayroll).where(eq(employeePayroll.employeeId, id));
     await db.delete(employees).where(eq(employees.id, id));
+  }
+
+  async deleteAllEmployees(tenantId: number): Promise<number> {
+    const rows = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(eq(employees.tenantId, tenantId));
+
+    for (const row of rows) {
+      await this.deleteEmployee(row.id);
+    }
+    return rows.length;
   }
 
   async getEmployeeCompanyHistory(employeeId: number): Promise<EmployeeCompanyHistory[]> {
@@ -1005,17 +1019,155 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRunningNumber(tenantId: number, moduleName: string): Promise<RunningNumber | undefined> {
-    const [config] = await db
-      .select()
-      .from(runningNumbers)
-      .where(
-        and(
-          eq(runningNumbers.tenantId, tenantId),
-          eq(runningNumbers.moduleName, moduleName)
-        )
-      )
-      .limit(1);
-    return config;
+    const findByTenant = async () => {
+      try {
+        const [byTenant] = await db
+          .select()
+          .from(runningNumbers)
+          .where(
+            and(
+              eq(runningNumbers.tenantId, tenantId),
+              eq(runningNumbers.moduleName, moduleName)
+            )
+          )
+          .limit(1);
+        return byTenant;
+      } catch (error: any) {
+        if (!String(error?.message || "").includes("counter_pad_length")) {
+          throw error;
+        }
+        // Schema lag: column not migrated yet — read without it
+        const result = await db.execute(
+          sql`SELECT id, tenant_id, module_name, prefix, next_counter, suffix, created_at, updated_at
+              FROM running_numbers
+              WHERE tenant_id = ${tenantId} AND module_name = ${moduleName}
+              LIMIT 1`
+        );
+        const row = (result as any).rows?.[0];
+        if (!row) return undefined;
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          moduleName: row.module_name,
+          prefix: row.prefix,
+          nextCounter: row.next_counter,
+          counterPadLength: 0,
+          suffix: row.suffix ?? "",
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        } as RunningNumber;
+      }
+    };
+
+    const byTenant = await findByTenant();
+    if (byTenant) {
+      return byTenant;
+    }
+
+    // Legacy: only one Employee row existed under global module_name unique.
+    // Adopt it for the current tenant so Settings save + Employee create both work.
+    let legacy: RunningNumber | undefined;
+    try {
+      const [row] = await db
+        .select()
+        .from(runningNumbers)
+        .where(eq(runningNumbers.moduleName, moduleName))
+        .limit(1);
+      legacy = row;
+    } catch (error: any) {
+      if (!String(error?.message || "").includes("counter_pad_length")) {
+        throw error;
+      }
+      const result = await db.execute(
+        sql`SELECT id, tenant_id, module_name, prefix, next_counter, suffix, created_at, updated_at
+            FROM running_numbers
+            WHERE module_name = ${moduleName}
+            LIMIT 1`
+      );
+      const row = (result as any).rows?.[0];
+      if (row) {
+        legacy = {
+          id: row.id,
+          tenantId: row.tenant_id,
+          moduleName: row.module_name,
+          prefix: row.prefix,
+          nextCounter: row.next_counter,
+          counterPadLength: 0,
+          suffix: row.suffix ?? "",
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        } as RunningNumber;
+      }
+    }
+
+    if (!legacy) {
+      return undefined;
+    }
+
+    if (legacy.tenantId === tenantId) {
+      return legacy;
+    }
+
+    try {
+      const [adopted] = await db
+        .update(runningNumbers)
+        .set({
+          tenantId,
+          updatedAt: new Date(),
+        })
+        .where(eq(runningNumbers.id, legacy.id))
+        .returning();
+      return adopted ?? { ...legacy, tenantId };
+    } catch {
+      return { ...legacy, tenantId };
+    }
+  }
+
+  private async updateRunningNumberRecord(
+    id: number,
+    tenantId: number,
+    data: SaveRunningNumber
+  ): Promise<RunningNumber> {
+    const payload = {
+      tenantId,
+      prefix: data.prefix,
+      nextCounter: data.nextCounter,
+      counterPadLength: data.counterPadLength ?? 0,
+      suffix: data.suffix ?? "",
+      updatedAt: new Date(),
+    };
+
+    try {
+      const [updated] = await db
+        .update(runningNumbers)
+        .set(payload)
+        .where(eq(runningNumbers.id, id))
+        .returning();
+      if (!updated) {
+        throw new Error("Failed to update running number configuration");
+      }
+      return updated;
+    } catch (error: any) {
+      // Older DBs may not have counter_pad_length yet
+      if (!String(error?.message || "").includes("counter_pad_length")) {
+        throw error;
+      }
+      const [updated] = await db
+        .update(runningNumbers)
+        .set({
+          tenantId,
+          prefix: data.prefix,
+          nextCounter: data.nextCounter,
+          suffix: data.suffix ?? "",
+          updatedAt: new Date(),
+        })
+        .where(eq(runningNumbers.id, id))
+        .returning();
+      if (!updated) {
+        throw new Error("Failed to update running number configuration");
+      }
+      return { ...updated, counterPadLength: data.counterPadLength ?? 0 };
+    }
   }
 
   async upsertRunningNumber(
@@ -1025,31 +1177,59 @@ export class DatabaseStorage implements IStorage {
   ): Promise<RunningNumber> {
     const existing = await this.getRunningNumber(tenantId, moduleName);
     if (existing) {
-      const [updated] = await db
-        .update(runningNumbers)
-        .set({
+      return this.updateRunningNumberRecord(existing.id, tenantId, data);
+    }
+
+    try {
+      const [created] = await db
+        .insert(runningNumbers)
+        .values({
+          tenantId,
+          moduleName,
           prefix: data.prefix,
           nextCounter: data.nextCounter,
+          counterPadLength: data.counterPadLength ?? 0,
           suffix: data.suffix ?? "",
           updatedAt: new Date(),
         })
-        .where(eq(runningNumbers.id, existing.id))
         .returning();
-      return updated;
-    }
+      if (!created) {
+        throw new Error("Failed to create running number configuration");
+      }
+      return created;
+    } catch (error: any) {
+      // Retry without pad column on older schemas
+      if (String(error?.message || "").includes("counter_pad_length")) {
+        const [created] = await db
+          .insert(runningNumbers)
+          .values({
+            tenantId,
+            moduleName,
+            prefix: data.prefix,
+            nextCounter: data.nextCounter,
+            suffix: data.suffix ?? "",
+            updatedAt: new Date(),
+          } as any)
+          .returning();
+        if (created) {
+          return { ...created, counterPadLength: data.counterPadLength ?? 0 };
+        }
+      }
 
-    const [created] = await db
-      .insert(runningNumbers)
-      .values({
-        tenantId,
-        moduleName,
-        prefix: data.prefix,
-        nextCounter: data.nextCounter,
-        suffix: data.suffix ?? "",
-        updatedAt: new Date(),
-      })
-      .returning();
-    return created;
+      if (error?.code !== "23505") {
+        throw error;
+      }
+
+      const [legacy] = await db
+        .select()
+        .from(runningNumbers)
+        .where(eq(runningNumbers.moduleName, moduleName))
+        .limit(1);
+      if (legacy) {
+        return this.updateRunningNumberRecord(legacy.id, tenantId, data);
+      }
+      throw error;
+    }
   }
 
   // Add other placeholder methods as needed

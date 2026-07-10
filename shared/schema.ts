@@ -78,6 +78,7 @@ export const runningNumbers = pgTable("running_numbers", {
   moduleName: text("module_name").notNull(),
   prefix: text("prefix").notNull(),
   nextCounter: integer("next_counter").notNull(),
+  counterPadLength: integer("counter_pad_length").notNull().default(0),
   suffix: text("suffix").default(""),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -90,12 +91,64 @@ export const runningNumbers = pgTable("running_numbers", {
   }).onDelete("cascade"),
 }));
 
+export function parseRunningCounterInput(input: string | number): {
+  value: number;
+  padLength: number;
+} {
+  if (typeof input === "number") {
+    return { value: input, padLength: 0 };
+  }
+
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { value: NaN, padLength: 0 };
+  }
+
+  if (!/^\d+$/.test(trimmed)) {
+    return { value: NaN, padLength: 0 };
+  }
+
+  const value = Number(trimmed);
+  const padLength = /^0\d+$/.test(trimmed) ? trimmed.length : 0;
+  return { value, padLength };
+}
+
+export function resolveRunningCounterPadLength(
+  input: string | number,
+  _prefix?: string,
+  storedPadLength?: number | null
+): { value: number; padLength: number } {
+  const parsed = parseRunningCounterInput(input);
+  if (Number.isNaN(parsed.value)) {
+    return parsed;
+  }
+
+  if (storedPadLength != null && storedPadLength > 0) {
+    return { value: parsed.value, padLength: storedPadLength };
+  }
+
+  return parsed;
+}
+
+export function formatRunningCounter(
+  nextCounter: number,
+  counterPadLength = 0
+): string {
+  if (counterPadLength > 0) {
+    return String(nextCounter).padStart(counterPadLength, "0");
+  }
+  return String(nextCounter);
+}
+
+/** Simple concat: prefix + padded counter + suffix. e.g. E0 + 01 → E001 */
 export function formatRunningNumber(
   prefix: string,
   nextCounter: number,
-  suffix?: string | null
+  suffix?: string | null,
+  counterPadLength = 0
 ): string {
-  return `${prefix}${nextCounter}${suffix ?? ""}`;
+  const counterPart = formatRunningCounter(nextCounter, counterPadLength);
+  return `${prefix}${counterPart}${suffix ?? ""}`;
 }
 
 export const users = pgTable("users", {
@@ -851,7 +904,10 @@ export const insertUserPermissionSchema = createInsertSchema(userPermissions).om
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees, {
-  email: z.string().email("Valid email is required"),
+  email: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? null : val),
+    z.union([z.string().email("Valid email is required"), z.null()]).optional().nullable()
+  ),
   nationality: z.enum(['citizen', 'pr', 'foreigner', 'singaporean_pr']).optional().nullable(),
   prStatus: z.preprocess(
     (val) => (val === '' || val === null || val === undefined ? null : val),
@@ -874,20 +930,53 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
       return d;
     })
   ),
-  // dateOfBirth is mandatory and stored as YYYY-MM-DD.
+  // dateOfBirth is stored as YYYY-MM-DD when provided.
   dateOfBirth: z.preprocess(
-    (val) => (val === null || val === undefined ? '' : String(val)),
-    z.string().min(1, "Date of birth is required").transform(str => {
-      let cleanStr = str.trim();
-      if (cleanStr.includes('+05') && cleanStr.startsWith('+05')) {
-        cleanStr = cleanStr.replace(/^\+05/, '');
+    (val) => {
+      if (val === '' || val === null || val === undefined) return null;
+      const raw = String(val).trim();
+      if (!raw) return null;
+
+      // Already YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const [y, m, d] = raw.split('-').map(Number);
+        const check = new Date(y, m - 1, d);
+        if (
+          check.getFullYear() === y &&
+          check.getMonth() === m - 1 &&
+          check.getDate() === d
+        ) {
+          return raw;
+        }
+        return null;
       }
-      const d = new Date(cleanStr);
-      if (isNaN(d.getTime())) {
-        throw new Error("Invalid date of birth format");
+
+      // DD/MM/YYYY (and -, .)
+      const dmy = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/);
+      if (dmy) {
+        let y = Number(dmy[3]);
+        if (dmy[3].length === 2) y += y >= 50 ? 1900 : 2000;
+        const m = Number(dmy[2]);
+        const d = Number(dmy[1]);
+        const check = new Date(y, m - 1, d);
+        if (
+          check.getFullYear() === y &&
+          check.getMonth() === m - 1 &&
+          check.getDate() === d
+        ) {
+          return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+        return null;
       }
-      return d.toISOString().split('T')[0];
-    })
+
+      const parsed = new Date(raw);
+      if (isNaN(parsed.getTime())) return null;
+      const y = parsed.getFullYear();
+      const m = parsed.getMonth() + 1;
+      const d = parsed.getDate();
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    },
+    z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.null()]).optional().nullable()
   ),
   salary: z.union([z.string(), z.number()]).optional().nullable().transform(val => {
     if (val === null || val === undefined || val === '') return null;
@@ -1011,26 +1100,45 @@ export const insertTenantSchema = createInsertSchema(tenants)
 export const insertEmailSettingsSchema = createInsertSchema(emailSettings)
   .omit({ id: true, createdAt: true, updatedAt: true });
 
-export const saveRunningNumberSchema = z.object({
-  prefix: z.string().trim().min(1, { message: "Prefix is required" }),
-  nextCounter: z.preprocess(
-    (val) => {
-      if (val === "" || val === null || val === undefined) return undefined;
-      if (typeof val === "string") return val.trim();
-      return val;
-    },
-    z.coerce
-      .number({ invalid_type_error: "Next Counter must be numeric" })
-      .int({ message: "Next Counter must be numeric" })
-      .min(0, { message: "Counter cannot be negative" })
-  ),
-  suffix: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((val) => val ?? ""),
-  tenantId: z.coerce.number().int().positive().optional(),
-});
+export const saveRunningNumberSchema = z
+  .object({
+    prefix: z.string().trim().min(1, { message: "Prefix is required" }),
+    nextCounter: z.union([z.string(), z.number()], {
+      required_error: "Next Counter is required",
+      invalid_type_error: "Next Counter must be numeric",
+    }),
+    counterPadLength: z.coerce.number().int().min(0).max(10).optional(),
+    suffix: z
+      .string()
+      .optional()
+      .nullable()
+      .transform((val) => val ?? ""),
+    tenantId: z.coerce.number().int().positive().optional(),
+  })
+  .transform((data) => {
+    const parsed = resolveRunningCounterPadLength(
+      data.nextCounter,
+      data.prefix,
+      data.counterPadLength
+    );
+    if (Number.isNaN(parsed.value)) {
+      throw new z.ZodError([
+        {
+          code: z.ZodIssueCode.custom,
+          path: ["nextCounter"],
+          message: "Next Counter must be a whole number",
+        },
+      ]);
+    }
+
+    return {
+      prefix: data.prefix,
+      nextCounter: parsed.value,
+      counterPadLength: parsed.padLength,
+      suffix: data.suffix ?? "",
+      tenantId: data.tenantId,
+    };
+  });
 
 export const insertRunningNumberSchema = createInsertSchema(runningNumbers)
   .omit({ id: true, createdAt: true, updatedAt: true });

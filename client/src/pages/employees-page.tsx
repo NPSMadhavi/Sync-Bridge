@@ -226,6 +226,7 @@ export default function EmployeesPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleteAllDialogOpen, setIsDeleteAllDialogOpen] = useState(false);
   const [isViewDetailsModalOpen, setIsViewDetailsModalOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [historyEmployee, setHistoryEmployee] = useState<Employee | null>(null);
@@ -299,13 +300,18 @@ export default function EmployeesPage() {
     setLocation("/employees");
   };
 
-  const { data: runningNumberConfig } = useQuery({
+  const { data: runningNumberConfig, refetch: refetchRunningNumber } = useQuery({
     queryKey: ["running-number", "employee"],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/running-numbers/employee");
-      return response.json();
+      try {
+        const response = await apiRequest("GET", "/api/running-numbers/employee");
+        return await response.json();
+      } catch {
+        return { configured: false };
+      }
     },
     enabled: !!user,
+    staleTime: 0,
   });
 
   const autoEmployeeId = runningNumberConfig?.configured === true;
@@ -571,6 +577,30 @@ export default function EmployeesPage() {
       toast({
         title: "Error",
         description: error.message || "Failed to delete employee",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteAllEmployeesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("DELETE", "/api/employees");
+      return response.json();
+    },
+    onSuccess: async (data: { deletedCount?: number }) => {
+      toast({
+        title: "Success",
+        description: `${data?.deletedCount ?? 0} employee(s) deleted successfully`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["employees"] });
+      await queryClient.refetchQueries({ queryKey: ["employees", user?.tenantId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setIsDeleteAllDialogOpen(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete all employees",
         variant: "destructive",
       });
     },
@@ -1149,15 +1179,139 @@ export default function EmployeesPage() {
     setDependents(dependents.filter((_, i) => i !== index));
   };
 
+  const resolveCompanyFromImport = (
+    companyNameRaw: unknown,
+    companyUenRaw?: unknown,
+    companyList: Array<{ id: number; companyName: string; uenNumber?: string | null }> = companies
+  ): { id: string; name: string } | null => {
+    const name = String(companyNameRaw ?? "").trim();
+    const uen = String(companyUenRaw ?? "").trim();
+    if (!name && !uen) return null;
+
+    // Numeric company id in Excel
+    if (/^\d+$/.test(name)) {
+      const byId = companyList.find((c) => c.id === Number(name));
+      if (byId) return { id: String(byId.id), name: byId.companyName };
+    }
+
+    const nameKey = normalizeCompanyKey(name);
+    const uenKey = uen.toLowerCase();
+
+    if (uenKey) {
+      const byUen = companyList.find(
+        (c) => (c.uenNumber || "").trim().toLowerCase() === uenKey
+      );
+      if (byUen) return { id: String(byUen.id), name: byUen.companyName };
+    }
+
+    if (nameKey) {
+      const exact = companyList.find(
+        (c) => normalizeCompanyKey(c.companyName || "") === nameKey
+      );
+      if (exact) return { id: String(exact.id), name: exact.companyName };
+
+      const partialMatches = companyList.filter((c) => {
+        const key = normalizeCompanyKey(c.companyName || "");
+        return key.includes(nameKey) || nameKey.includes(key);
+      });
+      if (partialMatches.length === 1) {
+        return { id: String(partialMatches[0].id), name: partialMatches[0].companyName };
+      }
+    }
+
+    return null;
+  };
+
+  const normalizeCompanyKey = (value: string): string =>
+    value
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const importRowToFormData = (
+    row: EmployeeImportRow,
+    companyList: Array<{ id: number; companyName: string; uenNumber?: string | null }> = companies
+  ): EmployeeFormData => {
+    const d = row.data;
+    const employeeId = String(d.employeeId ?? "").trim();
+    const resolved =
+      d.companyId != null && String(d.companyId).trim() !== ""
+        ? { id: String(d.companyId), name: String(d.companyName ?? "") }
+        : resolveCompanyFromImport(d.companyName, d.companyUen, companyList);
+
+    return {
+      employeeId:
+        employeeId && employeeId !== "Auto-generated"
+          ? employeeId
+          : autoEmployeeId
+            ? runningNumberConfig?.preview ?? ""
+            : `EMP-${String(row.rowNumber).padStart(4, "0")}`,
+      name: String(d.name ?? ""),
+      email: d.email ? String(d.email) : "",
+      department: String(d.department ?? ""),
+      designation: String(d.designation ?? ""),
+      joinDate: String(d.joinDate ?? new Date().toISOString().split("T")[0]),
+      dateOfBirth: d.dateOfBirth ? String(d.dateOfBirth) : "",
+      salary: d.salary != null ? String(d.salary) : "",
+      annualSalary: d.annualSalary != null ? String(d.annualSalary) : "",
+      status: (d.status as EmployeeFormData["status"]) || "active",
+      nationality: (d.nationality as EmployeeFormData["nationality"]) || "citizen",
+      prStatus: (d.prStatus as EmployeeFormData["prStatus"]) || "",
+      nricNumber: String(d.nricNumber ?? ""),
+      finNumber: String(d.finNumber ?? ""),
+      nricExpiry: d.nricExpiry ? String(d.nricExpiry) : "",
+      passportNumber: String(d.passportNumber ?? ""),
+      passportExpiry: d.passportExpiry ? String(d.passportExpiry) : "",
+      visaNumber: String(d.visaNumber ?? ""),
+      visaExpiry: d.visaExpiry ? String(d.visaExpiry) : "",
+      visaType: (d.visaType as EmployeeFormData["visaType"]) || "other",
+      visaRemarks: String(d.visaRemarks ?? ""),
+      companyId: resolved?.id ?? "",
+      passportScan: "",
+      nricScan: "",
+      visaScan: "",
+    };
+  };
+
   const handleImportFile = async (file: File) => {
     const buffer = await file.arrayBuffer();
     const rows = parseEmployeeImportFile(buffer);
+    const importSchema = autoEmployeeId
+      ? insertEmployeeSchema.omit({ employeeId: true })
+      : insertEmployeeSchema;
+
+    // Ensure companies are loaded for matching
+    let companyList = companies as Array<{
+      id: number;
+      companyName: string;
+      uenNumber?: string | null;
+    }>;
+    if (!companyList.length) {
+      try {
+        const response = await apiRequest("GET", "/api/companies");
+        companyList = await response.json();
+        queryClient.setQueryData(["/api/companies"], companyList);
+      } catch {
+        companyList = [];
+      }
+    }
+
     const validated = rows.map((row) => {
       const errors = [...row.errors];
+      const formRow = importRowToFormData(row, companyList);
+      if (!autoEmployeeId && !String(row.data.employeeId ?? "").trim() && !formRow.employeeId) {
+        errors.push("Employee ID is required");
+      }
+
       if (errors.length === 0) {
         try {
-          insertEmployeeSchema.parse({
-            ...row.data,
+          const payload = buildEmployeePayload(formRow, effectiveTenantId, {
+            omitEmployeeId: autoEmployeeId,
+          });
+          importSchema.parse({
+            ...payload,
             tenantId: effectiveTenantId ?? undefined,
           });
         } catch (err: unknown) {
@@ -1170,10 +1324,66 @@ export default function EmployeesPage() {
           }
         }
       }
-      return { ...row, errors };
+      return {
+        ...row,
+        data: {
+          ...row.data,
+          employeeId: autoEmployeeId
+            ? "Auto-generated"
+            : formRow.employeeId,
+          joinDate: formRow.joinDate,
+          companyId: formRow.companyId || null,
+          companyName: row.data.companyName ?? null,
+        },
+        errors,
+      };
     });
     setImportRows(validated);
     setIsImportDialogOpen(true);
+  };
+
+  const ensureCompanyIdForImport = async (
+    row: EmployeeImportRow,
+    companyList: Array<{ id: number; companyName: string; uenNumber?: string | null }>
+  ): Promise<{ formRow: EmployeeFormData; companyList: typeof companyList }> => {
+    const formRow = importRowToFormData(row, companyList);
+    const companyName = String(row.data.companyName ?? "").trim();
+    if (formRow.companyId || !companyName) {
+      return { formRow, companyList };
+    }
+
+    // Create missing company so Excel company value is preserved
+    const uenFromExcel = String(row.data.companyUen ?? "").trim();
+    const uenNumber =
+      uenFromExcel ||
+      `IMP-${normalizeCompanyKey(companyName).replace(/\s+/g, "-").slice(0, 20)}-${Date.now().toString().slice(-6)}`;
+
+    try {
+      const res = await apiRequest("POST", "/api/companies", {
+        companyName,
+        uenNumber,
+        tenantId: effectiveTenantId ?? undefined,
+      });
+      const created = await res.json();
+      const nextList = [...companyList, created];
+      queryClient.setQueryData(["/api/companies"], nextList);
+      return {
+        formRow: { ...formRow, companyId: String(created.id) },
+        companyList: nextList,
+      };
+    } catch {
+      // If create fails (e.g. duplicate UEN), try resolve again from refreshed list
+      try {
+        const refreshed = await (await apiRequest("GET", "/api/companies")).json();
+        const resolved = resolveCompanyFromImport(companyName, uenFromExcel, refreshed);
+        return {
+          formRow: { ...formRow, companyId: resolved?.id ?? "" },
+          companyList: refreshed,
+        };
+      } catch {
+        return { formRow, companyList };
+      }
+    }
   };
 
   const handleConfirmImport = async () => {
@@ -1186,36 +1396,15 @@ export default function EmployeesPage() {
     setIsImporting(true);
     let created = 0;
     const failed: string[] = [];
+    let companyList = [...(companies as Array<{ id: number; companyName: string; uenNumber?: string | null }>)];
 
     for (const row of validRows) {
       try {
-        const d = row.data;
-        const formRow: EmployeeFormData = {
-          employeeId: String(d.employeeId ?? ""),
-          name: String(d.name ?? ""),
-          department: String(d.department ?? ""),
-          designation: String(d.designation ?? ""),
-          joinDate: String(d.joinDate ?? ""),
-          dateOfBirth: d.dateOfBirth ? String(d.dateOfBirth) : "",
-          salary: d.salary != null ? String(d.salary) : "",
-          status: (d.status as EmployeeFormData["status"]) || "active",
-          nationality: (d.nationality as EmployeeFormData["nationality"]) || "citizen",
-          prStatus: (d.prStatus as EmployeeFormData["prStatus"]) || "",
-          nricNumber: String(d.nricNumber ?? ""),
-          finNumber: String(d.finNumber ?? ""),
-          nricExpiry: "",
-          passportNumber: String(d.passportNumber ?? ""),
-          passportExpiry: d.passportExpiry ? String(d.passportExpiry) : "",
-          visaNumber: String(d.visaNumber ?? ""),
-          visaExpiry: d.visaExpiry ? String(d.visaExpiry) : "",
-          visaType: (d.visaType as EmployeeFormData["visaType"]) || "other",
-          visaRemarks: String(d.visaRemarks ?? ""),
-          companyId: "",
-          passportScan: "",
-          nricScan: "",
-          visaScan: "",
-        };
-        const payload = buildEmployeePayload(formRow, effectiveTenantId);
+        const ensured = await ensureCompanyIdForImport(row, companyList);
+        companyList = ensured.companyList;
+        const payload = buildEmployeePayload(ensured.formRow, effectiveTenantId, {
+          omitEmployeeId: autoEmployeeId,
+        });
         const res = await apiRequest("POST", "/api/employees", payload);
         if (!res.ok) {
           const errText = await res.text();
@@ -1230,6 +1419,8 @@ export default function EmployeesPage() {
 
     setIsImporting(false);
     queryClient.invalidateQueries({ queryKey: ['employees'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/companies'] });
+    queryClient.invalidateQueries({ queryKey: ['running-number', 'employee'] });
     setIsImportDialogOpen(false);
     setImportRows([]);
 
@@ -1272,7 +1463,12 @@ export default function EmployeesPage() {
               <Upload className="mr-2 h-4 w-4" />
               Import from Excel
             </Button>
-            <Button onClick={() => setIsAddModalOpen(true)}>
+            <Button
+              onClick={() => {
+                void refetchRunningNumber();
+                setIsAddModalOpen(true);
+              }}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Add Employee
             </Button>
@@ -1283,18 +1479,35 @@ export default function EmployeesPage() {
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>All Employees</CardTitle>
-              {expiryFilter && (
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">
-                    {expiryFilter === "passportExpiry"
-                      ? "Passport expiring or expired (30 days)"
-                      : "Visa expiring or expired (30 days)"}
-                  </Badge>
-                  <Button variant="ghost" size="sm" onClick={clearExpiryFilter}>
-                    Clear filter
+              <div className="flex items-center gap-2">
+                {expiryFilter && (
+                  <>
+                    <Badge variant="secondary">
+                      {expiryFilter === "passportExpiry"
+                        ? "Passport expiring or expired (30 days)"
+                        : "Visa expiring or expired (30 days)"}
+                    </Badge>
+                    <Button variant="ghost" size="sm" onClick={clearExpiryFilter}>
+                      Clear filter
+                    </Button>
+                  </>
+                )}
+                {employees.length > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setIsDeleteAllDialogOpen(true)}
+                    disabled={deleteAllEmployeesMutation.isPending}
+                  >
+                    {deleteAllEmployeesMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    Delete All
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -1324,7 +1537,12 @@ export default function EmployeesPage() {
                     'Please log in to view employees.'
                   }
                 </p>
-                <Button onClick={() => setIsAddModalOpen(true)}>
+                <Button
+              onClick={() => {
+                void refetchRunningNumber();
+                setIsAddModalOpen(true);
+              }}
+            >
                   <Plus className="mr-2 h-4 w-4" />
                   Add First Employee
                 </Button>
@@ -2189,6 +2407,30 @@ export default function EmployeesPage() {
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
                 Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={isDeleteAllDialogOpen} onOpenChange={setIsDeleteAllDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete all employees?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete all {employees.length} employee(s). This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteAllEmployeesMutation.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                disabled={deleteAllEmployeesMutation.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  deleteAllEmployeesMutation.mutate();
+                }}
+              >
+                {deleteAllEmployeesMutation.isPending ? "Deleting..." : "Delete All"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

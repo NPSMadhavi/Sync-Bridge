@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS running_numbers (
   module_name TEXT NOT NULL,
   prefix TEXT NOT NULL,
   next_counter INTEGER NOT NULL,
+  counter_pad_length INTEGER NOT NULL DEFAULT 0,
   suffix TEXT DEFAULT '',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

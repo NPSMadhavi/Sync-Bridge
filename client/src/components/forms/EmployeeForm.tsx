@@ -177,13 +177,18 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
   const { data: runningNumberConfig } = useQuery({
     queryKey: ["running-number", "employee"],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/running-numbers/employee");
-      return response.json();
+      try {
+        const response = await apiRequest("GET", "/api/running-numbers/employee");
+        return await response.json();
+      } catch {
+        return { configured: false };
+      }
     },
     enabled: !isEditMode,
+    staleTime: 0,
   });
 
-  const autoEmployeeId = !isEditMode && runningNumberConfig?.configured;
+  const autoEmployeeId = !isEditMode && runningNumberConfig?.configured === true;
 
   useEffect(() => {
     if (autoEmployeeId && runningNumberConfig?.preview) {

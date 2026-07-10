@@ -401,6 +401,34 @@ app.use(express.static('public'));
     }
   });
 
+  app.delete("/api/employees", requireRole(['admin', 'hr']), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const tenantId = await resolveRequestTenantId(req, user);
+      if (!tenantId) {
+        return res.status(400).json({ message: "Tenant context is required" });
+      }
+
+      const deletedCount = await storage.deleteAllEmployees(tenantId);
+
+      await storage.createAuditLog({
+        action: "delete",
+        entity: "employee",
+        entityId: 0,
+        userId: req.user!.id,
+        timestamp: new Date(),
+      });
+
+      res.json({ message: "All employees deleted", deletedCount });
+    } catch (error) {
+      console.error("Failed to delete all employees:", error);
+      res.status(500).json({
+        message: "Failed to delete all employees",
+        detail: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
   app.delete("/api/employees/:id", requireRole(['admin', 'hr']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -2124,8 +2152,14 @@ app.use(express.static('public'));
         moduleName: config.moduleName,
         prefix: config.prefix,
         nextCounter: config.nextCounter,
+        counterPadLength: config.counterPadLength ?? 0,
         suffix: config.suffix ?? "",
-        preview: formatRunningNumber(config.prefix, config.nextCounter, config.suffix),
+        preview: formatRunningNumber(
+          config.prefix,
+          config.nextCounter,
+          config.suffix,
+          config.counterPadLength ?? 0
+        ),
       });
     } catch (error) {
       console.error("GET /api/running-numbers/employee error:", error);
@@ -2154,18 +2188,27 @@ app.use(express.static('public'));
         moduleName: saved.moduleName,
         prefix: saved.prefix,
         nextCounter: saved.nextCounter,
+        counterPadLength: saved.counterPadLength ?? 0,
         suffix: saved.suffix ?? "",
-        preview: formatRunningNumber(saved.prefix, saved.nextCounter, saved.suffix),
+        preview: formatRunningNumber(
+          saved.prefix,
+          saved.nextCounter,
+          saved.suffix,
+          saved.counterPadLength ?? 0
+        ),
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("PUT /api/running-numbers/employee error:", error);
-      if (error instanceof ZodError) {
+      if (error instanceof ZodError || error?.name === "ZodError") {
         return res.status(400).json({
           message: "Validation error",
           errors: error.errors,
         });
       }
-      res.status(500).json({ message: "Failed to save running number configuration" });
+      res.status(500).json({
+        message: "Failed to save running number configuration",
+        detail: error?.message,
+      });
     }
   });
 

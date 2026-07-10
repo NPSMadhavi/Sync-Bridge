@@ -58,8 +58,13 @@ export function EmployeeSearchSelect({
     [employees, value]
   );
 
+  // Parent Sheet/Dialog scroll containers steal wheel events from the dropdown
+  const keepScrollInDropdown = (event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover modal={false} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -77,12 +82,21 @@ export function EmployeeSearchSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent
+        className="z-[200] w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+        onWheel={keepScrollInDropdown}
+        onTouchMove={keepScrollInDropdown}
+      >
         <Command>
           <CommandInput placeholder="Search employee..." />
-          <CommandList>
+          <CommandList
+            className="max-h-[240px] overflow-y-auto overscroll-contain touch-pan-y"
+            onWheel={keepScrollInDropdown}
+            onTouchMove={keepScrollInDropdown}
+          >
             <CommandEmpty>No employee found.</CommandEmpty>
-            <CommandGroup>
+            <CommandGroup className="!overflow-visible max-h-none">
               {employees.map((employee) => (
                 <CommandItem
                   key={employee.id}
