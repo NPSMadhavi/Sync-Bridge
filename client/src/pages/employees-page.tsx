@@ -893,7 +893,7 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* Row 3: Email | Join Date */}
+          {/* Row 3: Email | Status */}
           <div>
             <Label htmlFor={`${p}email`}>Email*</Label>
             <Input
@@ -905,11 +905,23 @@ export default function EmployeesPage() {
             />
           </div>
           <div>
-            <Label htmlFor={`${p}hire_date`}>Join Date*</Label>
-            <StringDatePicker
-              value={formData.joinDate}
-              onChange={(val) => setFormData({ ...formData, joinDate: val })}
-            />
+            <Label htmlFor={`${p}status`}>Status</Label>
+            <Select
+              value={formData.status}
+              onValueChange={(value: 'active' | 'resigned' | 'on_hold' | 'terminated') =>
+                setFormData({ ...formData, status: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="resigned">Resigned</SelectItem>
+                <SelectItem value="on_hold">On Hold</SelectItem>
+                <SelectItem value="terminated">Terminated</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Row 4: Department | Date of Birth */}
@@ -934,7 +946,7 @@ export default function EmployeesPage() {
             />
           </div>
 
-          {/* Row 5: Designation | Status */}
+          {/* Row 5: Designation | Salary + Annual Salary */}
           <div>
             <Label htmlFor={`${p}position`}>Designation*</Label>
             <Input
@@ -944,49 +956,6 @@ export default function EmployeesPage() {
               onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
               required
             />
-          </div>
-          <div>
-            <Label htmlFor={`${p}status`}>Status</Label>
-            <Select
-              value={formData.status}
-              onValueChange={(value: 'active' | 'resigned' | 'on_hold' | 'terminated') =>
-                setFormData({ ...formData, status: value })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="resigned">Resigned</SelectItem>
-                <SelectItem value="on_hold">On Hold</SelectItem>
-                <SelectItem value="terminated">Terminated</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Row 6: Company | Salary + Annual Salary */}
-          <div className="space-y-2">
-            <Label htmlFor={`${p}company`}>Company</Label>
-            <CompanySearchSelect
-              companies={companies}
-              value={formData.companyId}
-              onValueChange={(value) => setFormData({ ...formData, companyId: value })}
-              placeholder={idPrefix === 'edit' ? 'Select Company' : 'Search company...'}
-            />
-            {idPrefix === 'edit' ? (
-              <div className="flex items-center gap-2 flex-wrap pt-1">
-                <span className="text-sm text-muted-foreground">Assign Employee to a Company</span>
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto p-0 text-sm font-semibold text-gray-900 hover:text-primary active:text-primary"
-                  onClick={() => selectedEmployee && handleHistory(selectedEmployee)}
-                >
-                  (View History)
-                </Button>
-              </div>
-            ) : null}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1017,6 +986,39 @@ export default function EmployeesPage() {
                 step="0.01"
                 value={formData.annualSalary}
                 onChange={(e) => setFormData({ ...formData, annualSalary: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {/* Row 6: Company | Join Date */}
+          <div className="col-span-2 grid grid-cols-2 gap-4 items-start">
+            <div className="space-y-2">
+              <Label htmlFor={`${p}company`}>Company</Label>
+              <CompanySearchSelect
+                companies={companies}
+                value={formData.companyId}
+                onValueChange={(value) => setFormData({ ...formData, companyId: value })}
+                placeholder={idPrefix === 'edit' ? 'Select Company' : 'Search company...'}
+              />
+              {idPrefix === 'edit' ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-muted-foreground">Assign Employee to a Company</span>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0 text-sm font-semibold text-gray-900 hover:text-primary active:text-primary"
+                    onClick={() => selectedEmployee && handleHistory(selectedEmployee)}
+                  >
+                    (View History)
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${p}hire_date`}>Join Date*</Label>
+              <StringDatePicker
+                value={formData.joinDate}
+                onChange={(val) => setFormData({ ...formData, joinDate: val })}
               />
             </div>
           </div>

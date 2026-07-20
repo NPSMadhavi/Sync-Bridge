@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Define the upload directory path
-const uploadsDir = path.join(__dirname, '..', 'uploads');
+const uploadsDir = path.join(process.cwd(), 'uploads');
 const employeeDocumentsDir = path.join(uploadsDir, 'employee-documents');
 const payslipsDir = path.join(uploadsDir, 'payslips');
 const payslipZipsDir = path.join(uploadsDir, 'payslip-zips');
