@@ -527,12 +527,19 @@ export async function processPayrollForConfig(
 ) {
   const age = calculateAgeFromDob(employee.dateOfBirth);
   const { residencyType, prYear } = mapEmployeeResidency(employee);
+  const periodStart = new Date(payPeriodStart);
+  const contributionMonth = periodStart.getMonth() + 1;
+  const contributionYear = periodStart.getFullYear();
 
   const calcRes = await apiRequest("POST", "/api/payroll/calculate", {
     grossSalary: Number(config.baseSalary),
     age,
     citizenshipStatus: residencyType,
     prYear: residencyType === "pr" ? prYear : null,
+    prRateType: "GG",
+    dateOfBirth: employee.dateOfBirth,
+    contributionMonth,
+    contributionYear,
     monthlyAllowances: config.allowances || {},
     monthlyDeductions: config.deductions || {},
     overtimeHours: 0,

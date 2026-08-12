@@ -110,10 +110,12 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
+  // Use Vite when running `npm run dev` (even if .env has NODE_ENV=production),
+  // or when Express env is development. Otherwise serve the built client.
+  const useViteDev =
+    process.env.npm_lifecycle_event === "dev" ||
+    app.get("env") === "development";
+  if (useViteDev) {
     await setupVite(app, server);
   } else {
     serveStatic(app);

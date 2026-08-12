@@ -1340,7 +1340,7 @@ export default function PayrollPage() {
 
       {/* Detail Sheet for Summary Cards */}
       <Sheet open={!!openDetail} onOpenChange={open => !open && setOpenDetail(null)}>
-        <SheetContent side="right" hideClose className="p-0 flex flex-col" style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}>
+        <SheetContent side="right" hideClose className="p-0 flex flex-col overflow-hidden" style={{ width: "50vw", maxWidth: "none", minWidth: "320px" }}>
           <FormSheetHeader
             title={
               openDetail === "employees" ? "Employees with Payroll Configurations"
@@ -1350,7 +1350,7 @@ export default function PayrollPage() {
             }
             onClose={() => setOpenDetail(null)}
           />
-          <div className="flex-1 overflow-y-auto px-6 pb-24">
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-24">
             {/* Employees with Payroll Configs */}
             {openDetail === "employees" && (
               employeesLoading ? (

@@ -280,7 +280,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
   const showSearchDropdown = searchOpen && debouncedQuery.length >= 2 && !onTableSearchRoute;
 
   return (
-    <header className="bg-card border-b border-border flex items-center h-16 px-4 md:px-6">
+    <header className="sticky top-0 z-30 shrink-0 bg-card border-b border-border flex items-center h-16 px-4 md:px-6">
       <button
         className="text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 mr-4 md:hidden"
         onClick={toggleMobileSidebar}
@@ -302,8 +302,8 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
               className="w-full pl-10 pr-4 py-2 bg-background text-foreground"
               placeholder={
                 onTableSearchRoute
-                  ? "Filter table..."
-                  : "Search assets, employees, documents..."
+                  ? "Search..."
+                  : "Search..."
               }
               value={searchQuery}
               onChange={(e) => {

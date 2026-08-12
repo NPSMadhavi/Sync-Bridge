@@ -22,7 +22,7 @@ export function FormSheetHeader({
   return (
     <div
       className={cn(
-        "sticky top-0 z-10 bg-background border-b px-6 py-4 shrink-0 flex items-start justify-between gap-4",
+        "sticky top-0 z-20 shrink-0 bg-background border-b px-6 py-4 flex items-start justify-between gap-4",
         className
       )}
     >

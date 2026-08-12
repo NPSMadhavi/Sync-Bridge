@@ -3,13 +3,18 @@ import type { ResidencyType, PrYear } from "@shared/singapore-payroll";
 
 export interface PayrollCalculationPreviewInput {
   grossSalary: number;
-  age: number;
+  age?: number;
   citizenshipStatus: ResidencyType;
   prYear?: PrYear | null;
+  prRateType?: "GG" | "FG" | "FF" | null;
   monthlyAllowances?: Record<string, number>;
   monthlyDeductions?: Record<string, number>;
   overtimeHours?: number;
   overtimeRate?: number;
+  dateOfBirth?: string | Date | null;
+  contributionMonth?: number;
+  contributionYear?: number;
+  additionalWages?: number;
 }
 
 export interface PayrollCalculationPreviewResult {
@@ -25,6 +30,9 @@ export interface PayrollCalculationPreviewResult {
   employerCpfRate: number;
   annualSalary: number;
   chargeableIncome: number;
+  contributionYear?: number;
+  ageBand?: string;
+  wageBand?: string;
   breakdown?: {
     baseSalary: number;
     overtimePay: number;
@@ -36,8 +44,9 @@ export interface PayrollCalculationPreviewResult {
 function isValidPreviewInput(input: PayrollCalculationPreviewInput | null): input is PayrollCalculationPreviewInput {
   if (!input) return false;
   if (!input.grossSalary || input.grossSalary <= 0) return false;
-  if (!input.age || input.age < 16) return false;
   if (!input.citizenshipStatus) return false;
+  if (input.dateOfBirth) return true;
+  if (!input.age || input.age < 16) return false;
   return true;
 }
 

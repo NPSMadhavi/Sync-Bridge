@@ -22,6 +22,8 @@ export interface EmployeeOption {
   employeeId?: string;
   department?: string;
   designation?: string;
+  /** Optional secondary line (e.g. salary). Overrides default subtitle when set. */
+  detail?: string;
 }
 
 interface EmployeeSearchSelectProps {
@@ -35,6 +37,9 @@ interface EmployeeSearchSelectProps {
 }
 
 function getEmployeeSubtitle(employee: EmployeeOption, subtitle: "department" | "designation") {
+  if (employee.detail?.trim()) {
+    return employee.detail.trim();
+  }
   if (subtitle === "designation") {
     const code = employee.employeeId ? `(${employee.employeeId})` : "";
     const role = employee.designation ? ` — ${employee.designation}` : "";
@@ -100,7 +105,7 @@ export function EmployeeSearchSelect({
               {employees.map((employee) => (
                 <CommandItem
                   key={employee.id}
-                  value={`${employee.name} ${employee.employeeId || ""} ${employee.department || ""} ${employee.designation || ""}`}
+                  value={`${employee.name} ${employee.employeeId || ""} ${employee.department || ""} ${employee.designation || ""} ${employee.detail || ""}`}
                   onSelect={() => {
                     onValueChange(employee.id.toString());
                     setOpen(false);

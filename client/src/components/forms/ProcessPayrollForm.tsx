@@ -20,17 +20,11 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input, NumberInput } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
+import { EmployeeSearchSelect } from "@/components/ui/employee-search-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { processIndividualPayrollForConfig, getLastCompletedPayPeriod, findPayrollRecordForPeriod, hasPayrollDataChanged, derivePayrollMonthYear, resolveEffectiveMonthlySalary, isPayPeriodEligibleForProcessing, PAYROLL_CURRENT_MONTH_ERROR } from "@/lib/payroll-batch-utils";
@@ -271,12 +265,21 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
 
       const age = calculateAgeFromDob(employee.dateOfBirth);
       const { residencyType, prYear } = mapEmployeeResidency(employee);
+      const periodStart = formData.payPeriodStart
+        ? new Date(formData.payPeriodStart)
+        : new Date();
+      const contributionMonth = periodStart.getMonth() + 1;
+      const contributionYear = periodStart.getFullYear();
 
       const calculationInput = {
         grossSalary: effectiveSalary,
         age,
         citizenshipStatus: residencyType,
         prYear: residencyType === "pr" ? prYear : null,
+        prRateType: "GG" as const,
+        dateOfBirth: employee.dateOfBirth,
+        contributionMonth,
+        contributionYear,
         monthlyAllowances: payrollConfig.allowances || {},
         monthlyDeductions: payrollConfig.deductions || {},
         overtimeHours: Number(formData.overtimeHours) || 0,
@@ -400,7 +403,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
   return (
     <>
     <div className="h-full flex flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-6 py-6">
         <div className="lg:col-span-2">
           <Form {...form}>
@@ -414,47 +417,49 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
                   <FormField
                     control={form.control}
                     name="employeeId"
-                    render={({ field }) => (
+                    render={({ field }) => {
+                      const payrollEmployeeOptions = payrollConfigs
+                        .filter((config: any) => config.isActive)
+                        .map((config: any) => {
+                          const employee = employees.find((emp: any) => emp.id === config.employeeId);
+                          if (!employee) return null;
+                          return {
+                            id: employee.id,
+                            name: employee.name,
+                            employeeId: employee.employeeId,
+                            designation: employee.designation,
+                            department: employee.department,
+                            detail: `${employee.designation || "—"} (${formatCurrency(resolveEffectiveMonthlySalary(employee, config))}/month)`,
+                          };
+                        })
+                        .filter(Boolean) as Array<{
+                          id: number;
+                          name: string;
+                          employeeId?: string;
+                          designation?: string;
+                          department?: string;
+                          detail: string;
+                        }>;
+
+                      return (
                       <FormItem>
                         <FormLabel>Employee *</FormLabel>
-                        <Select
-                          value={field.value?.toString()}
-                          onValueChange={(value) => {
-                            field.onChange(parseInt(value));
-                            setPayrollCalculation(null); // Reset calculation when employee changes
-                          }}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select employee to process payroll" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {employeesLoading ? (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">Loading employees...</div>
-                            ) : employeesError ? (
-                              <div className="px-2 py-1.5 text-sm text-red-600">Error loading employees.</div>
-                            ) : employees.length === 0 ? (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">No employees available.</div>
-                            ) : (
-                              payrollConfigs
-                              .filter((config: any) => config.isActive)
-                              .map((config: any) => {
-                                const employee = employees.find((emp: any) => emp.id === config.employeeId);
-                                  // Use a truly unique key for each SelectItem
-                                  const uniqueKey = employee ? `${config.id}-${employee.id}-${employee.email || employee.name}` : `${config.id}-${config.employeeId}`;
-                                return employee ? (
-                                    <SelectItem key={uniqueKey} value={config.employeeId.toString()}>
-                                    {employee.name} - {employee.designation} ({formatCurrency(resolveEffectiveMonthlySalary(employee, config))}/month)
-                                  </SelectItem>
-                                ) : null;
-                                })
-                            )}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <EmployeeSearchSelect
+                            employees={payrollEmployeeOptions}
+                            value={field.value ? field.value.toString() : ""}
+                            onValueChange={(value) => {
+                              field.onChange(parseInt(value, 10));
+                              setPayrollCalculation(null);
+                            }}
+                            placeholder="Select employee to process payroll"
+                            subtitle="designation"
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
-                    )}
+                      );
+                    }}
                   />
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

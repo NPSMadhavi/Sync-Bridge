@@ -261,20 +261,38 @@ export function hasPayrollInputsChanged(
 export function buildPayrollCalculationInput(
   config: typeof employeePayroll.$inferSelect,
   employee: typeof employees.$inferSelect,
-  overtimeHours = 0
+  overtimeHours = 0,
+  options?: {
+    contributionMonth?: number;
+    contributionYear?: number;
+    prRateType?: "GG" | "FG" | "FF" | null;
+    ordinaryWagesSubjectYtd?: number;
+    additionalWagesSubjectYtd?: number;
+    totalCpfPaidYtd?: number;
+    additionalWages?: number;
+  }
 ) {
   const age = calculateAgeFromDob(employee.dateOfBirth) ?? 25;
   const { residencyType, prYear } = mapEmployeeResidency(employee);
+  const now = new Date();
 
   return {
     grossSalary: Number(config.baseSalary),
     age,
     citizenshipStatus: residencyType,
     prYear: residencyType === "pr" ? prYear : null,
+    prRateType: options?.prRateType ?? "GG",
     monthlyAllowances: (config.allowances as Record<string, number>) || {},
     monthlyDeductions: (config.deductions as Record<string, number>) || {},
     overtimeHours: Number(overtimeHours) || 0,
     overtimeRate: Number(config.overtimeRate) || 0,
+    additionalWages: options?.additionalWages,
+    dateOfBirth: employee.dateOfBirth,
+    contributionMonth: options?.contributionMonth ?? now.getMonth() + 1,
+    contributionYear: options?.contributionYear ?? now.getFullYear(),
+    ordinaryWagesSubjectYtd: options?.ordinaryWagesSubjectYtd,
+    additionalWagesSubjectYtd: options?.additionalWagesSubjectYtd,
+    totalCpfPaidYtd: options?.totalCpfPaidYtd,
   };
 }
 
@@ -289,12 +307,16 @@ export function buildPayrollRecordPayload(
   overtimeHours = 0,
   companyId: number | null = null
 ) {
-  const calculationInput = buildPayrollCalculationInput(config, employee, overtimeHours);
-  const calculation = calculateSingaporePayroll(calculationInput);
-  const breakdown = calculation.breakdown || {};
   const normalizedStart = normalizePayPeriodDate(payPeriodStart);
   const normalizedEnd = normalizePayPeriodDate(payPeriodEnd);
   const { month: payrollMonth, year: payrollYear } = derivePayrollMonthYear(normalizedStart);
+
+  const calculationInput = buildPayrollCalculationInput(config, employee, overtimeHours, {
+    contributionMonth: payrollMonth,
+    contributionYear: payrollYear,
+  });
+  const calculation = calculateSingaporePayroll(calculationInput);
+  const breakdown = calculation.breakdown || {};
 
   const allowances = breakdown.allowances
     ? Object.fromEntries(

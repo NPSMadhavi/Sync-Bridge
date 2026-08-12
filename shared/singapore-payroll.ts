@@ -1,13 +1,25 @@
 /**
  * Singapore CPF + IRAS resident income tax calculator.
+ * CPF engine: Board-aligned calculator in ./cpf (official CPF Board rules).
  * Chargeable income = annual salary − annual employee CPF (extensible for reliefs later).
  */
 import { calculateSingaporeAnnualTax } from "./singapore-tax";
+import {
+  birthMonthYearFromDob,
+  calculateCpfContributions,
+  getCpfYearConfig,
+  LATEST_CPF_YEAR,
+  type CpfCalculationResult,
+  type PrRateType,
+  type PrYear,
+  type ResidencyType,
+} from "./cpf";
 
-export const CPF_WAGE_CEILING = 8000;
+export type { ResidencyType, PrYear, PrRateType };
+export { LATEST_CPF_YEAR };
 
-export type ResidencyType = "citizen" | "pr" | "foreigner";
-export type PrYear = 1 | 2 | 3;
+/** @deprecated Prefer contribution-year OW ceiling via getCpfYearConfig */
+export const CPF_WAGE_CEILING = getCpfYearConfig(LATEST_CPF_YEAR).ordinaryWageCeiling;
 
 export interface TaxSlabBreakdownRow {
   slabLabel: string;
@@ -20,6 +32,10 @@ export interface SingaporePayrollSnapshot {
   monthlySalary: number;
   annualSalary: number;
   cpfApplicableSalary: number;
+  ordinaryWages: number;
+  additionalWages: number;
+  ordinaryWagesSubject: number;
+  additionalWagesSubject: number;
   employeeCpfRate: number;
   employerCpfRate: number;
   monthlyEmployeeCpf: number;
@@ -34,33 +50,44 @@ export interface SingaporePayrollSnapshot {
   effectiveTaxRate: number;
   netSalary: number;
   taxBreakdown: TaxSlabBreakdownRow[];
+  contributionYear: number;
+  ageBand: string;
+  wageBand: string;
+  cpfDetail?: CpfCalculationResult;
 }
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Employer rate, employee rate (decimals e.g. 0.20 = 20%) */
+/**
+ * Legacy helper — returns headline % rates for TW > $750 full-wage band.
+ * Prefer calculateCpfContributions for payable amounts.
+ */
 export function getCpfRates(
   age: number,
   residencyType: ResidencyType,
-  prYear?: PrYear | null
+  prYear?: PrYear | null,
+  contributionYear: number = LATEST_CPF_YEAR,
+  prRateType: PrRateType | null = "GG"
 ): { employerRate: number; employeeRate: number } {
-  if (residencyType === "foreigner") {
-    return { employerRate: 0, employeeRate: 0 };
-  }
-  if (residencyType === "pr" && prYear === 1) {
-    return { employerRate: 0.04, employeeRate: 0.05 };
-  }
-  if (residencyType === "pr" && prYear === 2) {
-    return { employerRate: 0.09, employeeRate: 0.15 };
-  }
-  // Citizen and PR 3rd year onwards
-  if (age <= 55) return { employerRate: 0.17, employeeRate: 0.2 };
-  if (age <= 60) return { employerRate: 0.16, employeeRate: 0.18 };
-  if (age <= 65) return { employerRate: 0.125, employeeRate: 0.125 };
-  if (age <= 70) return { employerRate: 0.09, employeeRate: 0.075 };
-  return { employerRate: 0.075, employeeRate: 0.05 };
+  // Approximate using a synthetic calc at high wage so low-wage formulas are not used
+  const birthYear = contributionYear - Math.max(16, age) - 1;
+  const result = calculateCpfContributions({
+    ordinaryWages: 3000,
+    additionalWages: 0,
+    birthMonth: 1,
+    birthYear,
+    contributionMonth: 6,
+    contributionYear,
+    residencyType,
+    prYear,
+    prRateType,
+  });
+  return {
+    employerRate: result.employerRatePercent / 100,
+    employeeRate: result.employeeRatePercent / 100,
+  };
 }
 
 const TAX_BRACKET_LIMITS: { limit: number; rate: number }[] = [
@@ -148,25 +175,69 @@ export function mapEmployeeResidency(employee: {
   return { residencyType: "citizen", prYear: null };
 }
 
-export function calculateAgeFromDob(dateOfBirth?: string | Date | null): number {
+/**
+ * Calendar age helper (legacy). Prefer getEffectiveCpfAge via contribution month/year.
+ */
+export function calculateAgeFromDob(
+  dateOfBirth?: string | Date | null,
+  asOf: Date = new Date()
+): number {
   if (!dateOfBirth) return 30;
   const birth = new Date(dateOfBirth);
   if (isNaN(birth.getTime())) return 30;
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  let age = asOf.getFullYear() - birth.getFullYear();
+  const m = asOf.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && asOf.getDate() < birth.getDate())) age--;
   return Math.max(16, age);
 }
 
 export interface CalculatePayrollParams {
   monthlySalary: number;
-  age: number;
+  /** @deprecated Prefer dateOfBirth + contributionMonth/Year for Board age */
+  age?: number;
   residencyType: ResidencyType;
   prYear?: PrYear | null;
+  prRateType?: PrRateType | null;
   monthlyAllowances?: number;
+  /**
+   * Non-CPF payroll deductions (loans, etc.).
+   * Do NOT reduce CPF-liable wages — only reduce net pay after employee CPF.
+   */
   monthlyDeductions?: number;
   overtimePay?: number;
+  /** Explicit Additional Wages (bonus, etc.). Defaults to overtimePay. */
+  additionalWages?: number;
+  dateOfBirth?: string | Date | null;
+  contributionMonth?: number;
+  contributionYear?: number;
+  ordinaryWagesSubjectYtd?: number;
+  additionalWagesSubjectYtd?: number;
+  totalCpfPaidYtd?: number;
+}
+
+function resolveBirthAndContribution(params: CalculatePayrollParams): {
+  birthMonth: number;
+  birthYear: number;
+  contributionMonth: number;
+  contributionYear: number;
+} {
+  const now = new Date();
+  const contributionMonth = params.contributionMonth ?? now.getMonth() + 1;
+  const contributionYear = params.contributionYear ?? now.getFullYear();
+
+  const fromDob = birthMonthYearFromDob(params.dateOfBirth);
+  if (fromDob) {
+    return { ...fromDob, contributionMonth, contributionYear };
+  }
+
+  // Fall back from legacy `age` parameter
+  const age = params.age ?? 30;
+  return {
+    birthMonth: 1,
+    birthYear: contributionYear - Math.max(16, age) - 1,
+    contributionMonth,
+    contributionYear,
+  };
 }
 
 export function calculateSingaporePayrollSnapshot(
@@ -177,22 +248,37 @@ export function calculateSingaporePayrollSnapshot(
   const deductions = round2(params.monthlyDeductions ?? 0);
   const overtimePay = round2(params.overtimePay ?? 0);
 
+  // OW = monthly salary + recurring allowances; AW = overtime / explicit AW
+  const ordinaryWages = round2(monthlySalary + allowances);
+  const additionalWages = round2(
+    params.additionalWages != null ? params.additionalWages : overtimePay
+  );
+
   const annualSalary = round2(monthlySalary * 12);
-  // Gross Salary = Monthly Salary + Allowance - Deductions (+ overtime)
-  const grossSalary = round2(
-    Math.max(0, monthlySalary + allowances + overtimePay - deductions)
-  );
-  const cpfApplicableSalary = round2(Math.min(grossSalary, CPF_WAGE_CEILING));
+  // Gross for net-pay: salary + allowances + OT − non-CPF deductions
+  const grossForNet = round2(Math.max(0, monthlySalary + allowances + overtimePay - deductions));
 
-  const { employerRate, employeeRate } = getCpfRates(
-    params.age,
-    params.residencyType,
-    params.prYear
-  );
+  const { birthMonth, birthYear, contributionMonth, contributionYear } =
+    resolveBirthAndContribution(params);
 
-  const monthlyEmployeeCpf = round2(cpfApplicableSalary * employeeRate);
-  const monthlyEmployerCpf = round2(cpfApplicableSalary * employerRate);
-  const monthlyTotalCpf = round2(monthlyEmployeeCpf + monthlyEmployerCpf);
+  const cpf = calculateCpfContributions({
+    ordinaryWages,
+    additionalWages,
+    birthMonth,
+    birthYear,
+    contributionMonth,
+    contributionYear,
+    residencyType: params.residencyType,
+    prYear: params.prYear,
+    prRateType: params.prRateType ?? "GG",
+    ordinaryWagesSubjectYtd: params.ordinaryWagesSubjectYtd,
+    additionalWagesSubjectYtd: params.additionalWagesSubjectYtd,
+    totalCpfPaidYtd: params.totalCpfPaidYtd,
+  });
+
+  const monthlyEmployeeCpf = cpf.employeeCpf;
+  const monthlyEmployerCpf = cpf.employerCpf;
+  const monthlyTotalCpf = cpf.totalCpf;
   const annualEmployeeCpf = round2(monthlyEmployeeCpf * 12);
   const annualEmployerCpf = round2(monthlyEmployerCpf * 12);
   const annualTotalCpf = round2(monthlyTotalCpf * 12);
@@ -203,14 +289,22 @@ export function calculateSingaporePayrollSnapshot(
   const taxBreakdown: TaxSlabBreakdownRow[] = [];
   const effectiveTaxRate = 0;
 
-  const netSalary = round2(grossSalary - monthlyEmployeeCpf);
+  const netSalary = round2(grossForNet - monthlyEmployeeCpf);
+  const cpfApplicableSalary =
+    cpf.wageBand === "above_750"
+      ? round2(cpf.ordinaryWagesSubject + cpf.additionalWagesSubject)
+      : round2(ordinaryWages + additionalWages);
 
   return {
     monthlySalary,
     annualSalary,
     cpfApplicableSalary,
-    employeeCpfRate: round2(employeeRate * 100),
-    employerCpfRate: round2(employerRate * 100),
+    ordinaryWages,
+    additionalWages,
+    ordinaryWagesSubject: cpf.ordinaryWagesSubject,
+    additionalWagesSubject: cpf.additionalWagesSubject,
+    employeeCpfRate: cpf.employeeRatePercent,
+    employerCpfRate: cpf.employerRatePercent,
     monthlyEmployeeCpf,
     monthlyEmployerCpf,
     monthlyTotalCpf,
@@ -223,14 +317,20 @@ export function calculateSingaporePayrollSnapshot(
     effectiveTaxRate,
     netSalary,
     taxBreakdown,
+    contributionYear: cpf.contributionYear,
+    ageBand: cpf.ageBand,
+    wageBand: cpf.wageBand,
+    cpfDetail: cpf,
   };
 }
 
 /** Process-payroll gross line items */
-export function calculateProcessPayroll(params: CalculatePayrollParams & {
-  overtimeHours?: number;
-  overtimeRate?: number;
-}) {
+export function calculateProcessPayroll(
+  params: CalculatePayrollParams & {
+    overtimeHours?: number;
+    overtimeRate?: number;
+  }
+) {
   const overtimePay =
     params.overtimePay ??
     round2((params.overtimeHours ?? 0) * (params.overtimeRate ?? 0));
@@ -274,5 +374,13 @@ export function residencyLabel(nationality?: string | null, prStatus?: string | 
   }
   return "Singapore Citizen";
 }
+
+export {
+  calculateCpfContributions,
+  getCpfYearConfig,
+  birthMonthYearFromDob,
+  getEffectiveCpfAge,
+  getCpfAgeBand,
+} from "./cpf";
 
 export { calculateSingaporeAnnualTax };

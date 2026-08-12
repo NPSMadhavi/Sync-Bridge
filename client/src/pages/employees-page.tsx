@@ -472,6 +472,9 @@ export default function EmployeesPage() {
       if (!data.joinDate?.trim()) {
         throw new Error('Join date is required.');
       }
+      if (!data.companyId?.trim()) {
+        throw new Error('Company is required.');
+      }
       const payload = buildEmployeePayload(data, effectiveTenantId, {
         omitEmployeeId: autoEmployeeId,
       });
@@ -514,6 +517,10 @@ export default function EmployeesPage() {
       console.log('Updating employee with data:', data);
       console.log('Selected employee ID:', selectedEmployee?.id);
       console.log('Form data being sent:', JSON.stringify(data, null, 2));
+
+      if (!data.companyId?.trim()) {
+        throw new Error('Company is required.');
+      }
       
       const updateData = buildEmployeePayload(
         data,
@@ -713,6 +720,13 @@ export default function EmployeesPage() {
         title: "Invalid email",
         description: "Please enter a valid email address.",
         variant: "destructive",
+      });
+      return;
+    }
+    if (!formData.companyId?.trim()) {
+      toast({
+        title: "Company required",
+        description: "Please select a company for this employee.",
       });
       return;
     }
@@ -993,7 +1007,7 @@ export default function EmployeesPage() {
           {/* Row 6: Company | Join Date */}
           <div className="col-span-2 grid grid-cols-2 gap-4 items-start">
             <div className="space-y-2">
-              <Label htmlFor={`${p}company`}>Company</Label>
+              <Label htmlFor={`${p}company`}>Company*</Label>
               <CompanySearchSelect
                 companies={companies}
                 value={formData.companyId}
@@ -1305,6 +1319,9 @@ export default function EmployeesPage() {
       const formRow = importRowToFormData(row, companyList);
       if (!autoEmployeeId && !String(row.data.employeeId ?? "").trim() && !formRow.employeeId) {
         errors.push("Employee ID is required");
+      }
+      if (!formRow.companyId?.trim()) {
+        errors.push("Company is required");
       }
 
       if (errors.length === 0) {

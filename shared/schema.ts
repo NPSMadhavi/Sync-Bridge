@@ -1018,11 +1018,14 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
   }),
   companyId: z.preprocess(
     (val) => {
-      if (val === '' || val === null || val === undefined) return null;
+      if (val === '' || val === null || val === undefined) return undefined;
       const n = Number(val);
-      return Number.isNaN(n) ? null : n;
+      return Number.isNaN(n) ? undefined : n;
     },
-    z.number().nullable().optional()
+    z.number({
+      required_error: "Company is required",
+      invalid_type_error: "Company is required",
+    })
   ),
 }).omit({ id: true, createdAt: true });
 

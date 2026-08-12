@@ -1,5 +1,5 @@
 /**
- * Client payroll calculations — re-exports shared Singapore payroll engine.
+ * Client payroll calculations — re-exports shared Singapore payroll / CPF engine.
  */
 export {
   calculateSingaporePayrollSnapshot,
@@ -12,6 +12,9 @@ export {
   mapPrStatusToYear,
   residencyLabel,
   CPF_WAGE_CEILING,
+  calculateCpfContributions,
+  getCpfYearConfig,
+  LATEST_CPF_YEAR,
 } from "@shared/singapore-payroll";
 
 import { calculateResidentIncomeTax as calcTax } from "@shared/singapore-payroll";

@@ -6,6 +6,7 @@ import { insertEmployeePayrollSchema, insertPayrollRecordSchema } from '@shared/
 import { sendEmail } from './email';
 import dayjs from 'dayjs';
 import { calculateSingaporePayroll } from './singapore-payroll-calculator';
+import { mapEmployeeResidency } from '@shared/singapore-payroll';
 import {
   generatePayslipPdf,
   savePayslipPdf,
@@ -517,13 +518,21 @@ export async function createPayrollRecord(req: Request, res: Response) {
       return res.status(400).json({ message: 'Tenant context not found' });
     }
 
-    // Use Singapore payroll calculator (CPF only — tax not deducted)
+    // Use Singapore payroll calculator (Board-aligned CPF — tax not deducted)
+    const normalizedStart = normalizePayPeriodDate(payPeriodStart);
+    const normalizedEnd = normalizePayPeriodDate(payPeriodEnd);
+    const { month: payrollMonth, year: payrollYear } = derivePayrollMonthYear(normalizedStart);
+    const { residencyType, prYear } = mapEmployeeResidency(employee);
+
     const calculationResult = calculateSingaporePayroll({
       grossSalary: Number(baseSalary),
-      age: employee.age || 25,
-      citizenshipStatus: employee.nationality?.toLowerCase().includes('singapore') ? 'citizen' : 
-                        employee.nationality?.toLowerCase().includes('pr') ? 'pr' : 'foreigner',
-      cpfStatus: 'ordinary',
+      dateOfBirth: employee.dateOfBirth,
+      contributionMonth: payrollMonth,
+      contributionYear: payrollYear,
+      citizenshipStatus: residencyType,
+      prYear: residencyType === "pr" ? prYear : null,
+      prRateType: "GG",
+      cpfStatus: "ordinary",
       monthlyAllowances: allowances || {},
       monthlyDeductions: deductions || {},
       overtimeHours: Number(overtimeHours) || 0,
@@ -535,10 +544,6 @@ export async function createPayrollRecord(req: Request, res: Response) {
     const calculatedCpfDeduction = calculationResult.employeeCpf;
 
     // Ensure all numeric fields are properly converted to numbers
-    const normalizedStart = normalizePayPeriodDate(payPeriodStart);
-    const normalizedEnd = normalizePayPeriodDate(payPeriodEnd);
-    const { month: payrollMonth, year: payrollYear } = derivePayrollMonthYear(normalizedStart);
-
     const payload = {
       tenantId: resolvedTenantId,
       employeeId: Number(employeeId),
@@ -814,13 +819,21 @@ export async function previewPayrollCalculation(req: Request, res: Response) {
     // Use Singapore payroll calculator for accurate calculations
     const calculationResult = calculateSingaporePayroll({
       grossSalary: Number(grossSalary),
-      age: Number(age) || 25,
-      citizenshipStatus: citizenshipStatus || 'citizen',
+      age: Number(age) || undefined,
+      citizenshipStatus: citizenshipStatus || "citizen",
       prYear: req.body.prYear ?? null,
+      prRateType: req.body.prRateType ?? "GG",
+      dateOfBirth: req.body.dateOfBirth,
+      contributionMonth: req.body.contributionMonth,
+      contributionYear: req.body.contributionYear,
       monthlyAllowances: monthlyAllowances || {},
       monthlyDeductions: monthlyDeductions || {},
       overtimeHours: Number(overtimeHours) || 0,
       overtimeRate: Number(overtimeRate) || 0,
+      additionalWages: req.body.additionalWages,
+      ordinaryWagesSubjectYtd: req.body.ordinaryWagesSubjectYtd,
+      additionalWagesSubjectYtd: req.body.additionalWagesSubjectYtd,
+      totalCpfPaidYtd: req.body.totalCpfPaidYtd,
     });
 
     res.json(calculationResult);
@@ -1150,6 +1163,8 @@ async function resolvePayslipContext(
     return { error: { status: 404, body: { message: 'Employee not found' } } };
   }
 
+  // Only use the company assigned to this employee — never fall back to a
+  // tenant default / first company (that incorrectly labels unassigned employees).
   let company: { companyName: string | null; address: string | null } | null = null;
   if (employee.companyId) {
     [company] = await db
@@ -1159,36 +1174,6 @@ async function resolvePayslipContext(
       })
       .from(companies)
       .where(eq(companies.id, employee.companyId));
-  }
-
-  if (!company?.companyName) {
-    const tenantIdForLookup = config.tenantId || employee.tenantId;
-    if (tenantIdForLookup) {
-      const [tenantCompany] = await db
-        .select({
-          companyName: companies.companyName,
-          address: companies.address,
-        })
-        .from(companies)
-        .where(eq(companies.tenantId, tenantIdForLookup))
-        .limit(1);
-      if (tenantCompany) {
-        company = tenantCompany;
-      }
-    }
-  }
-
-  if (!company?.companyName) {
-    const tenantIdForLookup = config.tenantId || employee.tenantId;
-    if (tenantIdForLookup) {
-      const [tenantRow] = await db
-        .select({ name: tenants.name })
-        .from(tenants)
-        .where(eq(tenants.id, tenantIdForLookup));
-      if (tenantRow) {
-        company = { companyName: tenantRow.name, address: company?.address || '' };
-      }
-    }
   }
 
   return { config, employee, company };

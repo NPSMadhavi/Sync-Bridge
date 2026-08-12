@@ -22,7 +22,7 @@ export default function Dashboard({ children, title, description }: DashboardLay
   };
 
   return (
-    <div className="bg-background min-h-screen">
+    <div className="bg-background h-screen overflow-hidden">
       {/* Fixed Sidebar - desktop only */}
       <div className="hidden md:block">
         <Sidebar
@@ -58,13 +58,13 @@ export default function Dashboard({ children, title, description }: DashboardLay
       {/* Main content — offset by sidebar width */}
       <div
         className={cn(
-          "flex flex-col min-h-screen transition-all duration-300",
+          "flex flex-col h-screen overflow-hidden transition-all duration-300",
           isSidebarCollapsed ? "md:ml-16" : "md:ml-64"
         )}
       >
         <Navbar toggleMobileSidebar={toggleMobileSidebar} />
 
-        <main className="flex-1 bg-background p-4 md:p-6 overflow-y-auto overflow-x-hidden">
+        <main className="flex-1 min-h-0 bg-background p-4 md:p-6 overflow-y-auto overflow-x-hidden">
           {(title || description) && (
             <div className={description ? "mb-6" : "mb-3"}>
               {title && <h1 className="text-2xl font-bold text-foreground">{title}</h1>}

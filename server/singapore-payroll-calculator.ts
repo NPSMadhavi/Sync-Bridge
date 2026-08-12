@@ -1,5 +1,5 @@
 /**
- * Singapore Payroll Calculator — server adapter using shared logic.
+ * Singapore Payroll Calculator — server adapter using Board-aligned CPF engine.
  */
 import {
   calculateProcessPayroll,
@@ -7,18 +7,28 @@ import {
   mapEmployeeResidency,
   type ResidencyType,
   type PrYear,
+  type PrRateType,
 } from "@shared/singapore-payroll";
 
 export interface PayrollCalculationInput {
   grossSalary: number;
-  age: number;
+  age?: number;
   citizenshipStatus: ResidencyType;
   prYear?: PrYear | null;
+  prRateType?: PrRateType | null;
   cpfStatus?: string;
   monthlyAllowances?: Record<string, number>;
   monthlyDeductions?: Record<string, number>;
   overtimeHours?: number;
   overtimeRate?: number;
+  /** Explicit Additional Wages; defaults to overtime pay */
+  additionalWages?: number;
+  dateOfBirth?: string | Date | null;
+  contributionMonth?: number;
+  contributionYear?: number;
+  ordinaryWagesSubjectYtd?: number;
+  additionalWagesSubjectYtd?: number;
+  totalCpfPaidYtd?: number;
 }
 
 export interface PayrollCalculationResult {
@@ -45,6 +55,11 @@ export interface PayrollCalculationResult {
   employerCpfRate: number;
   annualSalary: number;
   taxBreakdown: { slabLabel: string; ratePercent: number; taxableAmount: number; tax: number }[];
+  contributionYear?: number;
+  ageBand?: string;
+  wageBand?: string;
+  ordinaryWages?: number;
+  additionalWages?: number;
   breakdown: {
     baseSalary: number;
     overtimePay: number;
@@ -71,10 +86,18 @@ export function calculateSingaporePayroll(
     age: input.age,
     residencyType: input.citizenshipStatus,
     prYear: input.prYear ?? null,
+    prRateType: input.prRateType ?? "GG",
     monthlyAllowances: allowancesTotal,
     monthlyDeductions: deductionsTotal,
     overtimeHours: input.overtimeHours,
     overtimeRate: input.overtimeRate,
+    additionalWages: input.additionalWages,
+    dateOfBirth: input.dateOfBirth,
+    contributionMonth: input.contributionMonth,
+    contributionYear: input.contributionYear,
+    ordinaryWagesSubjectYtd: input.ordinaryWagesSubjectYtd,
+    additionalWagesSubjectYtd: input.additionalWagesSubjectYtd,
+    totalCpfPaidYtd: input.totalCpfPaidYtd,
   });
 
   const grossPay = calc.grossSalary;
@@ -103,6 +126,11 @@ export function calculateSingaporePayroll(
     employerCpfRate: calc.employerCpfRate,
     annualSalary: calc.annualSalary,
     taxBreakdown: calc.taxBreakdown,
+    contributionYear: calc.contributionYear,
+    ageBand: calc.ageBand,
+    wageBand: calc.wageBand,
+    ordinaryWages: calc.ordinaryWages,
+    additionalWages: calc.additionalWages,
     breakdown: {
       baseSalary: calc.monthlySalary,
       overtimePay: calc.overtimePay,
@@ -116,7 +144,9 @@ export function calculateSingaporePayroll(
 export function validatePayrollInput(input: PayrollCalculationInput): string[] {
   const errors: string[] = [];
   if (input.grossSalary < 0) errors.push("Gross salary cannot be negative");
-  if (input.age < 16) errors.push("Employee must be at least 16 years old");
+  if (input.age != null && input.age < 16) {
+    errors.push("Employee must be at least 16 years old");
+  }
   if (input.overtimeHours && input.overtimeHours > 72) {
     errors.push("Overtime hours exceed MOM limit of 72 hours per month");
   }

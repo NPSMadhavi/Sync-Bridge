@@ -8,7 +8,7 @@ interface FormSheetFooterProps {
 
 export function FormSheetFooter({ children, className }: FormSheetFooterProps) {
   return (
-    <div className={cn("flex-shrink-0 bg-background border-t px-6 py-4 sm:px-8", className)}>
+    <div className={cn("sticky bottom-0 z-20 flex-shrink-0 bg-background border-t px-6 py-4 sm:px-8", className)}>
       <div className="flex flex-col sm:flex-row justify-end gap-3">{children}</div>
     </div>
   );

@@ -11,7 +11,6 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StringDatePicker } from "@/components/ui/string-date-picker";
@@ -242,6 +241,9 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
       age,
       citizenshipStatus: residencyType,
       prYear: residencyType === "pr" ? prYear : null,
+      prRateType: "GG" as const,
+      contributionMonth: new Date().getMonth() + 1,
+      contributionYear: new Date().getFullYear(),
       monthlyAllowances: {
         transport: Number(watchedAllowanceTransport) || 0,
         meal: Number(watchedAllowanceMeal) || 0,
@@ -369,7 +371,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-6 py-6">
         <div className="lg:col-span-2">
           <Form {...form}>
@@ -435,9 +437,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                       name="baseSalary"
                       render={({ field }) => (
                         <FormItem>
-                       <FormLabel>
-  Base Salary / Monthly Salary (SGD) *
-</FormLabel>
+                          <FormLabel>Base Salary / Monthly Salary</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -465,7 +465,6 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                         className="bg-muted"
                         value={watchedSalary > 0 ? formatCurrency(Number(watchedSalary) * 12) : "—"}
                       />
-                      <FormDescription className="text-xs">Salary × 12</FormDescription>
                     </FormItem>
                     <FormField
                       control={form.control}
@@ -554,22 +553,28 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
 
               <Card>
                 <CardHeader><CardTitle>Employee Details (CPF)</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
                   <FormField
                     control={form.control}
                     name="citizenshipStatus"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem className="space-y-2">
                         <FormLabel>Citizenship Status</FormLabel>
-                        <div className="px-3 py-2 bg-muted rounded-md border text-sm min-h-[40px] flex items-center">
-                          {field.value === "foreigner"
-                            ? "Foreigner"
-                            : field.value === "pr"
-                            ? `PR — ${form.watch("prStatus")?.replace("year_", "").replace("_plus", "+") || "3+"}`
-                            : field.value === "citizen"
-                            ? "Singapore Citizen"
-                            : "Select employee"}
-                        </div>
+                        <FormControl>
+                          <Input
+                            readOnly
+                            className="h-10 bg-muted cursor-default"
+                            value={
+                              field.value === "foreigner"
+                                ? "Foreigner"
+                                : field.value === "pr"
+                                ? `PR — ${form.watch("prStatus")?.replace("year_", "").replace("_plus", "+") || "3+"}`
+                                : field.value === "citizen"
+                                ? "Singapore Citizen"
+                                : "Select employee"
+                            }
+                          />
+                        </FormControl>
                       </FormItem>
                     )}
                   />
@@ -577,9 +582,16 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                     control={form.control}
                     name="dateOfBirth"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem className="space-y-2">
                         <FormLabel>Date of Birth</FormLabel>
-                        <StringDatePicker value={field.value || ""} onChange={field.onChange} disabled />
+                        <FormControl>
+                          <StringDatePicker
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            disabled
+                            className="h-10 w-full"
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -588,21 +600,21 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                     control={form.control}
                     name="age"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem className="space-y-2">
                         <FormLabel>Age</FormLabel>
-                        <Input type="number" {...field} value={field.value ?? ""} readOnly className="bg-muted" />
+                        <FormControl>
+                          <Input
+                            type="number"
+                            {...field}
+                            value={field.value ?? ""}
+                            readOnly
+                            className="h-10 w-full bg-muted"
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                  {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
-                    <div className="flex items-start gap-2">
-                   
-                      <p className="text-xs text-blue-800">
-                        
-                      </p>
-                    </div>
-                  </div> */}
                 </CardContent>
               </Card>
 
