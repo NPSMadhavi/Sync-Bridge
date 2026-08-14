@@ -45,8 +45,6 @@ function isValidPreviewInput(input: PayrollCalculationPreviewInput | null): inpu
   if (!input) return false;
   if (!input.grossSalary || input.grossSalary <= 0) return false;
   if (!input.citizenshipStatus) return false;
-  if (input.dateOfBirth) return true;
-  if (!input.age || input.age < 16) return false;
   return true;
 }
 

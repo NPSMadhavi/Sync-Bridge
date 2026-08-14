@@ -51,7 +51,7 @@ const payrollConfigFormSchema = z.object({
   ),
   citizenshipStatus: z.enum(["citizen", "pr", "foreigner"]),
   prStatus: z.string().optional(),
-  age: z.coerce.number().min(16).max(100),
+  age: z.coerce.number().optional(),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
   allowanceTransport: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
   allowanceMeal: z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().min(0).optional()),
@@ -228,8 +228,8 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
 
   const calculationInput = useMemo(() => {
     const salary = Number(watchedSalary);
-    const age = Number(watchedAge);
-    if (!salary || salary <= 0 || !age || age < 16) return null;
+    if (!salary || salary <= 0) return null;
+    const age = Number(watchedAge) || undefined;
 
     const { residencyType, prYear } = mapEmployeeResidency({
       residencyType: watchedCitizenship,
@@ -279,7 +279,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
     usePayrollCalculationPreview(calculationInput);
 
   const buildPayload = (data: PayrollConfigFormData) => {
-    if (!calculation) throw new Error("Unable to calculate payroll — check salary and age");
+    if (!calculation) throw new Error("Unable to calculate payroll — check salary and date of birth");
 
     const {
       age,

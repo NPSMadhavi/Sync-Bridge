@@ -73,7 +73,7 @@ export function getCpfRates(
 ): { employerRate: number; employeeRate: number } {
   // Keep the displayed age in its birthday month so 54/59/64/69/70 are not
   // pushed into the next CPF band (rates change the month AFTER the birthday).
-  const safeAge = Math.max(16, age);
+  const safeAge = Math.max(0, age);
   const result = calculateCpfContributions({
     ordinaryWages: 3000,
     additionalWages: 0,
@@ -189,7 +189,7 @@ export function calculateAgeFromDob(
   let age = asOf.getFullYear() - birth.getFullYear();
   const m = asOf.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && asOf.getDate() < birth.getDate())) age--;
-  return Math.max(16, age);
+  return Math.max(0, age);
 }
 
 export interface CalculatePayrollParams {
@@ -235,7 +235,7 @@ function resolveBirthAndContribution(params: CalculatePayrollParams): {
   // birthday month so the employee stays in the current band (Board: new rates
   // start the month AFTER 55/60/65/70). Using January as birth month incorrectly
   // bumped 54→55-60, 59→60-65, 64→65-70, 69→70+.
-  const age = Math.max(16, params.age ?? 30);
+  const age = Math.max(0, params.age ?? 30);
   return {
     birthMonth: contributionMonth,
     birthYear: contributionYear - age - 1,

@@ -144,9 +144,6 @@ export function calculateSingaporePayroll(
 export function validatePayrollInput(input: PayrollCalculationInput): string[] {
   const errors: string[] = [];
   if (input.grossSalary < 0) errors.push("Gross salary cannot be negative");
-  if (input.age != null && input.age < 16) {
-    errors.push("Employee must be at least 16 years old");
-  }
   if (input.overtimeHours && input.overtimeHours > 72) {
     errors.push("Overtime hours exceed MOM limit of 72 hours per month");
   }
