@@ -71,13 +71,14 @@ export function getCpfRates(
   contributionYear: number = LATEST_CPF_YEAR,
   prRateType: PrRateType | null = "GG"
 ): { employerRate: number; employeeRate: number } {
-  // Approximate using a synthetic calc at high wage so low-wage formulas are not used
-  const birthYear = contributionYear - Math.max(16, age) - 1;
+  // Keep the displayed age in its birthday month so 54/59/64/69/70 are not
+  // pushed into the next CPF band (rates change the month AFTER the birthday).
+  const safeAge = Math.max(16, age);
   const result = calculateCpfContributions({
     ordinaryWages: 3000,
     additionalWages: 0,
-    birthMonth: 1,
-    birthYear,
+    birthMonth: 6,
+    birthYear: contributionYear - safeAge - 1,
     contributionMonth: 6,
     contributionYear,
     residencyType,
@@ -230,11 +231,14 @@ function resolveBirthAndContribution(params: CalculatePayrollParams): {
     return { ...fromDob, contributionMonth, contributionYear };
   }
 
-  // Fall back from legacy `age` parameter
-  const age = params.age ?? 30;
+  // Fall back from displayed calendar age. Treat contribution month as the
+  // birthday month so the employee stays in the current band (Board: new rates
+  // start the month AFTER 55/60/65/70). Using January as birth month incorrectly
+  // bumped 54→55-60, 59→60-65, 64→65-70, 69→70+.
+  const age = Math.max(16, params.age ?? 30);
   return {
-    birthMonth: 1,
-    birthYear: contributionYear - Math.max(16, age) - 1,
+    birthMonth: contributionMonth,
+    birthYear: contributionYear - age - 1,
     contributionMonth,
     contributionYear,
   };

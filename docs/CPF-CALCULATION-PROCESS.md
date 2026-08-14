@@ -150,6 +150,13 @@ All cases below are asserted in `shared/cpf/cpf-calculator.test.ts`.
 | 15 | PR Y3+, OW $3,000 | 600 | 510 | 1,110 |
 | 16 | Foreigner, OW $5,000 | 0 | 0 | 0 |
 | 17 | Citizen 2025, OW $8,000 → ceiling $7,400 | 1,480 | 1,258 | 2,738 |
+| 18 | Citizen age 54, OW $1,600, Aug 2026 | 320 | 272 | 592 |
+| 19 | Citizen age 59, OW $1,600, Aug 2026 | 288 | 256 | 544 |
+| 20 | Citizen age 64 (DOB Nov 1961), OW $1,600 | 200 | 200 | 400 |
+| 21 | Citizen age 69 (DOB Apr 1957), OW $1,600 | 120 | 144 | 264 |
+| 22 | Citizen age 70 in birthday month, OW $1,600 | 120 | 144 | 264 |
+
+**Age-band rule (CPF Board):** new rates apply from the **month after** the 55th / 60th / 65th / 70th birthday. Age 64 is **Above 60 to 65** (12.5% / 12.5%), not 65–70. Age 69 is **Above 65 to 70** (7.5% / 9%). Age 70 in the birthday month stays on 65–70 rates.
 
 ### Manual Board calculator cross-check
 Re-verify any row on the official calculator with matching:

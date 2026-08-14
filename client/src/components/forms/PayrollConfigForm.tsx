@@ -239,6 +239,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
     return {
       grossSalary: salary,
       age,
+      dateOfBirth: watchedDOB || null,
       citizenshipStatus: residencyType,
       prYear: residencyType === "pr" ? prYear : null,
       prRateType: "GG" as const,
@@ -261,6 +262,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
   }, [
     watchedSalary,
     watchedAge,
+    watchedDOB,
     watchedCitizenship,
     watchedPrStatus,
     watchedAllowanceTransport,

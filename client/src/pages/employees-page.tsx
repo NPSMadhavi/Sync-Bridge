@@ -641,6 +641,34 @@ export default function EmployeesPage() {
       nricScan: '',
       visaScan: '',
     });
+    setDependents([]);
+    setShowDependentForm(false);
+    setDependentFormData({
+      name: '',
+      relationship: 'spouse',
+      passportNumber: '',
+      passportExpiry: '',
+      visaNumber: '',
+      visaExpiry: '',
+      visaType: 'other',
+    });
+  };
+
+  const openAddEmployee = () => {
+    resetForm();
+    setSelectedEmployee(null);
+    void refetchRunningNumber();
+    setIsAddModalOpen(true);
+  };
+
+  const closeAddEmployee = (open?: boolean) => {
+    if (open === true) {
+      setIsAddModalOpen(true);
+      return;
+    }
+    setIsAddModalOpen(false);
+    resetForm();
+    setSelectedEmployee(null);
   };
 
   const handleEdit = (employee: Employee) => {
@@ -1482,12 +1510,7 @@ export default function EmployeesPage() {
               <Upload className="mr-2 h-4 w-4" />
               Import from Excel
             </Button>
-            <Button
-              onClick={() => {
-                void refetchRunningNumber();
-                setIsAddModalOpen(true);
-              }}
-            >
+            <Button onClick={openAddEmployee}>
               <Plus className="mr-2 h-4 w-4" />
               Add Employee
             </Button>
@@ -1556,12 +1579,7 @@ export default function EmployeesPage() {
                     'Please log in to view employees.'
                   }
                 </p>
-                <Button
-              onClick={() => {
-                void refetchRunningNumber();
-                setIsAddModalOpen(true);
-              }}
-            >
+                <Button onClick={openAddEmployee}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add First Employee
                 </Button>
@@ -1655,7 +1673,7 @@ export default function EmployeesPage() {
 
         {/* Add Employee Modal */}
         {isAddModalOpen && (
-          <Sheet open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+          <Sheet open={isAddModalOpen} onOpenChange={closeAddEmployee}>
             <SheetContent 
               side="right" 
               hideClose
@@ -1665,7 +1683,7 @@ export default function EmployeesPage() {
               <FormSheetHeader
                 title="Add New Employee"
                 description="Add a new employee to your organization"
-                onClose={() => setIsAddModalOpen(false)}
+                onClose={() => closeAddEmployee(false)}
               />
               <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
               <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -1988,7 +2006,7 @@ export default function EmployeesPage() {
                   type="button"
                   variant="outline"
                   className={formSheetCancelClass}
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={() => closeAddEmployee(false)}
                 >
                   Cancel
                 </Button>

@@ -64,6 +64,8 @@ import {
   formatViewValue,
 } from "@/components/ui/entity-view-sheet";
 import PayslipPreviewModal from "@/components/payroll/PayslipPreviewModal";
+import { useUrlSearchParam } from "@/hooks/use-url-search-param";
+import { matchesTableSearch } from "@/lib/table-search";
 
 const PAYROLL_CONFIG_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -201,6 +203,7 @@ export default function PayrollPage() {
   const [detailsMode, setDetailsMode] = useState<"config" | "record" | null>(null);
   const [openDetail, setOpenDetail] = useState<null | "employees" | "gross" | "net" | "records">(null);
   const { toast } = useToast();
+  const searchTerm = useUrlSearchParam();
   const [forceDeleteId, setForceDeleteId] = useState<number | null>(null);
   const [showForceDeleteDialog, setShowForceDeleteDialog] = useState(false);
   const [configPage, setConfigPage] = useState(1);
@@ -396,9 +399,31 @@ export default function PayrollPage() {
     });
   }
 
-  const totalConfigPages = Math.max(1, Math.ceil(payrollConfigs.length / PAYROLL_CONFIG_PAGE_SIZE));
+  const filteredPayrollConfigs = payrollConfigs.filter((config: any) =>
+    matchesTableSearch(
+      searchTerm,
+      config.employeeName,
+      config.employeeId,
+      config.employeeCode,
+      config.department,
+      config.designation,
+      config.payrollPeriod,
+      config.baseSalary,
+      config.annualSalary,
+      config.cpfRate,
+      config.cpfAmount,
+      config.employerCpfRate,
+      config.employerCpfAmount
+    )
+  );
+
+  useEffect(() => {
+    setConfigPage(1);
+  }, [searchTerm]);
+
+  const totalConfigPages = Math.max(1, Math.ceil(filteredPayrollConfigs.length / PAYROLL_CONFIG_PAGE_SIZE));
   const currentConfigPage = Math.min(configPage, totalConfigPages);
-  const paginatedPayrollConfigs = paginateItems(payrollConfigs, currentConfigPage, PAYROLL_CONFIG_PAGE_SIZE);
+  const paginatedPayrollConfigs = paginateItems(filteredPayrollConfigs, currentConfigPage, PAYROLL_CONFIG_PAGE_SIZE);
 
   const activeConfigs = payrollConfigs.filter((config: any) => config.isActive);
 
@@ -965,6 +990,13 @@ export default function PayrollPage() {
                 Add First Configuration
               </Button>
             </div>
+          ) : filteredPayrollConfigs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <h3 className="text-lg font-semibold mb-2">No matching configurations</h3>
+              <p className="text-muted-foreground">
+                No payroll configurations match &quot;{searchTerm}&quot;. Try a different search.
+              </p>
+            </div>
           ) : (
           <>
           <Table>
@@ -1091,7 +1123,7 @@ export default function PayrollPage() {
           <TablePagination
             page={currentConfigPage}
             pageSize={PAYROLL_CONFIG_PAGE_SIZE}
-            totalItems={payrollConfigs.length}
+            totalItems={filteredPayrollConfigs.length}
             onPageChange={setConfigPage}
           />
           </>

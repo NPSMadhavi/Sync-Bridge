@@ -40,6 +40,26 @@ describe("CPF effective age (month after birthday)", () => {
     assert.equal(getEffectiveCpfAge(1, 1971, 2, 2026), 55);
     assert.equal(getCpfAgeBand(55), "above_55_to_60");
   });
+
+  it("age 64 in Aug (birthday Nov) stays Above 60 to 65", () => {
+    assert.equal(getEffectiveCpfAge(11, 1961, 8, 2026), 64);
+    assert.equal(getCpfAgeBand(64), "above_60_to_65");
+  });
+
+  it("age 69 in Aug (birthday Apr) is Above 65 to 70", () => {
+    assert.equal(getEffectiveCpfAge(4, 1957, 8, 2026), 69);
+    assert.equal(getCpfAgeBand(69), "above_65_to_70");
+  });
+
+  it("age 70 in birthday month stays Above 65 to 70", () => {
+    assert.equal(getEffectiveCpfAge(8, 1956, 8, 2026), 69);
+    assert.equal(getCpfAgeBand(69), "above_65_to_70");
+  });
+
+  it("age 70 the month after birthday is Above 70", () => {
+    assert.equal(getEffectiveCpfAge(8, 1956, 9, 2026), 70);
+    assert.equal(getCpfAgeBand(70), "above_70");
+  });
 });
 
 describe("2026 citizen / PR3+ full rates (TW > $750)", () => {
@@ -255,5 +275,50 @@ describe("Foreigner and contribution year", () => {
 
   it("2026 uses $8,000 OW ceiling", () => {
     assert.equal(getCpfYearConfig(2026).ordinaryWageCeiling, 8000);
+  });
+});
+
+describe("Board calculator parity — $1,600 citizen (Aug 2026)", () => {
+  const wage = 1600;
+  const contrib = { contributionMonth: 8, contributionYear: 2026, residencyType: "citizen" as const, ordinaryWages: wage };
+
+  it("age 54 — 20% / 17% (55 & below)", () => {
+    const r = calculateCpfContributions({ ...contrib, birthMonth: 10, birthYear: 1971 });
+    assert.equal(r.ageBand, "55_and_below");
+    assert.equal(r.employeeCpf, 320);
+    assert.equal(r.employerCpf, 272);
+    assert.equal(r.totalCpf, 592);
+  });
+
+  it("age 59 — 18% / 16% (Above 55 to 60)", () => {
+    const r = calculateCpfContributions({ ...contrib, birthMonth: 10, birthYear: 1966 });
+    assert.equal(r.ageBand, "above_55_to_60");
+    assert.equal(r.employeeCpf, 288);
+    assert.equal(r.employerCpf, 256);
+    assert.equal(r.totalCpf, 544);
+  });
+
+  it("age 64 DOB Nov 1961 — 12.5% / 12.5% (Above 60 to 65)", () => {
+    const r = calculateCpfContributions({ ...contrib, birthMonth: 11, birthYear: 1961 });
+    assert.equal(r.ageBand, "above_60_to_65");
+    assert.equal(r.employeeCpf, 200);
+    assert.equal(r.employerCpf, 200);
+    assert.equal(r.totalCpf, 400);
+  });
+
+  it("age 69 DOB Apr 1957 — 7.5% / 9% (Above 65 to 70)", () => {
+    const r = calculateCpfContributions({ ...contrib, birthMonth: 4, birthYear: 1957 });
+    assert.equal(r.ageBand, "above_65_to_70");
+    assert.equal(r.employeeCpf, 120);
+    assert.equal(r.employerCpf, 144);
+    assert.equal(r.totalCpf, 264);
+  });
+
+  it("age 70 in birthday month Aug 1956 — still 7.5% / 9%", () => {
+    const r = calculateCpfContributions({ ...contrib, birthMonth: 8, birthYear: 1956 });
+    assert.equal(r.ageBand, "above_65_to_70");
+    assert.equal(r.employeeCpf, 120);
+    assert.equal(r.employerCpf, 144);
+    assert.equal(r.totalCpf, 264);
   });
 });

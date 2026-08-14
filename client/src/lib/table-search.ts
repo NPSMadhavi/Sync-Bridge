@@ -15,6 +15,7 @@ export const TABLE_SEARCH_ROUTES = [
   "/company",
   "/vendors",
   "/customers",
+  "/payroll",
 ] as const;
 
 export function isTableSearchRoute(path: string): boolean {

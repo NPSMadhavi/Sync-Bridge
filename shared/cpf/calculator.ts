@@ -274,12 +274,19 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Parse DOB into birth month/year for Board-style age. */
+/** Parse DOB into birth month/year for Board-style age (calendar month/year, no TZ shift). */
 export function birthMonthYearFromDob(
   dateOfBirth?: string | Date | null
 ): { birthMonth: number; birthYear: number } | null {
   if (!dateOfBirth) return null;
-  const d = dateOfBirth instanceof Date ? dateOfBirth : new Date(dateOfBirth);
+  const raw = dateOfBirth instanceof Date
+    ? `${dateOfBirth.getFullYear()}-${String(dateOfBirth.getMonth() + 1).padStart(2, "0")}-${String(dateOfBirth.getDate()).padStart(2, "0")}`
+    : String(dateOfBirth).trim();
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) {
+    return { birthYear: Number(ymd[1]), birthMonth: Number(ymd[2]) };
+  }
+  const d = new Date(raw);
   if (isNaN(d.getTime())) return null;
   return { birthMonth: d.getMonth() + 1, birthYear: d.getFullYear() };
 }
