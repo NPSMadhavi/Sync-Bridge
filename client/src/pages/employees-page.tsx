@@ -185,11 +185,17 @@ function buildEmployeePayload(
       data.nationality === 'pr'
         ? data.prStatus || 'year_3_plus'
         : null,
-    nricNumber: data.nricNumber?.trim() || null,
-    finNumber: data.finNumber?.trim() || null,
-    nricExpiry: data.nricExpiry?.trim()
-      ? new Date(data.nricExpiry).toISOString()
-      : null,
+    nricNumber: data.nationality === 'foreigner' ? null : data.nricNumber?.trim() || null,
+    finNumber:
+      data.nationality === 'foreigner'
+        ? data.visaNumber?.trim() || null
+        : data.finNumber?.trim() || null,
+    nricExpiry:
+      data.nationality === 'foreigner'
+        ? null
+        : data.nricExpiry?.trim()
+          ? new Date(data.nricExpiry).toISOString()
+          : null,
     passportNumber: data.passportNumber?.trim() || null,
     passportExpiry: data.passportExpiry?.trim()
       ? new Date(data.passportExpiry).toISOString()
@@ -317,7 +323,7 @@ export default function EmployeesPage() {
   const autoEmployeeId = runningNumberConfig?.configured === true;
 
   // Function to toggle number visibility
-  const toggleNumberVisibility = (key: string, number: string) => {
+  const toggleNumberVisibility = (key: string, number: string, defaultVisible = false) => {
     if (!number) return;
     
     // Clear existing timeout if any
@@ -325,7 +331,7 @@ export default function EmployeesPage() {
       clearTimeout(visibleNumbers[key].timeout);
     }
     
-    const isVisible = visibleNumbers[key]?.visible || false;
+    const isVisible = visibleNumbers[key]?.visible ?? defaultVisible;
     
     if (!isVisible) {
       // Show the number and set timeout to hide after 30 seconds
@@ -360,15 +366,17 @@ export default function EmployeesPage() {
   const getDisplayValue = (key: string, number: string) => {
     if (!number) return '';
     
-    // Check if user has permission to view unmasked data by default
-    const canViewUnmasked =
-      user?.isSuperAdmin ||
-      ["super_admin", "admin", "hr_manager"].includes(user?.role || "");
-    
-    // If user has permission, show full number by default, otherwise show masked
-    const shouldShowMasked = !canViewUnmasked && !visibleNumbers[key]?.visible;
+    const shouldShowMasked = !visibleNumbers[key]?.visible;
     
     return shouldShowMasked ? maskNumber(number) : number;
+  };
+
+  const isNumberVisible = (key: string) => {
+    return visibleNumbers[key]?.visible ?? false;
+  };
+
+  const isFormNumberVisible = (key: string) => {
+    return visibleNumbers[key]?.visible ?? true;
   };
 
   // Show loading state while checking authentication
@@ -695,7 +703,7 @@ export default function EmployeesPage() {
       nricExpiry: employee.nricExpiry ? String(employee.nricExpiry).split('T')[0] : '',
       passportNumber: employee.passportNumber || '',
       passportExpiry: employee.passportExpiry || '',
-      visaNumber: employee.visaNumber || '',
+      visaNumber: employee.visaNumber || employee.finNumber || '',
       visaExpiry: employee.visaExpiry || '',
       visaType: employee.visaType || 'other',
       visaRemarks: employee.visaRemarks || '',
@@ -800,8 +808,6 @@ export default function EmployeesPage() {
 
   const renderEmployeeFormDetailsGrid = (idPrefix: 'add' | 'edit') => {
     const p = idPrefix === 'edit' ? 'edit_' : '';
-    const passportVisKey =
-      idPrefix === 'edit' ? 'edit_passport' : isForeigner ? 'add_passport_foreigner' : 'add_passport';
     const employeeIdDisplayOnly = autoEmployeeId || idPrefix === 'edit';
     const employeeIdValue =
       idPrefix === 'add' && autoEmployeeId
@@ -812,7 +818,7 @@ export default function EmployeesPage() {
       <div className="space-y-6">
         <h3 className="text-lg font-semibold border-b pb-2">Personal Information</h3>
         <div className="grid grid-cols-2 gap-4">
-          {/* Row 1: Employee ID | NRIC / ID Number + NRIC Expiry */}
+          {/* Row 1: Employee ID | NRIC Number + NRIC Expiry */}
           <div>
             <Label htmlFor={`${p}employee_id`}>
               Employee ID{!employeeIdDisplayOnly ? '*' : ''}
@@ -825,11 +831,6 @@ export default function EmployeesPage() {
                   readOnly
                   className="bg-muted/50 cursor-default"
                 />
-                <p className="text-sm text-muted-foreground mt-1">
-                  {idPrefix === 'add' && autoEmployeeId
-                    ? 'Automatically assigned from Running Number settings'
-                    : 'Unique identifier for the employee'}
-                </p>
               </>
             ) : (
               <>
@@ -840,7 +841,6 @@ export default function EmployeesPage() {
                   onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
                   required
                 />
-                <p className="text-sm text-muted-foreground mt-1">Unique identifier for the employee</p>
               </>
             )}
           </div>
@@ -848,35 +848,35 @@ export default function EmployeesPage() {
             <div>
               {!isForeigner ? (
                 <>
-                  <Label htmlFor={`${p}nric_number`}>NRIC / ID Number</Label>
+                  <Label htmlFor={`${p}nric_number`}>NRIC Number*</Label>
                   <Input
                     id={`${p}nric_number`}
                     placeholder="e.g. S1234567A"
                     value={formData.nricNumber || ''}
                     onChange={(e) => setFormData({ ...formData, nricNumber: e.target.value })}
+                    required
                   />
-                  <p className="text-sm text-muted-foreground mt-1">Singapore NRIC or ID number</p>
                 </>
               ) : (
                 <>
-                  <Label htmlFor={`${p}fin_number`}>NRIC / ID Number</Label>
+                  <Label htmlFor={`${p}nric_number`}>NRIC Number</Label>
                   <Input
-                    id={`${p}fin_number`}
-                    placeholder="e.g. G1234567X"
-                    value={formData.finNumber || ''}
-                    onChange={(e) => setFormData({ ...formData, finNumber: e.target.value })}
+                    id={`${p}nric_number`}
+                    value=""
+                    disabled
+                    className="bg-muted cursor-not-allowed"
                   />
-                  <p className="text-sm text-muted-foreground mt-1">Foreigner Identification Number</p>
                 </>
               )}
             </div>
             <div>
-              <Label htmlFor={`${p}nric_expiry`}>NRIC Expiry Date</Label>
+              <Label htmlFor={`${p}nric_expiry`}>NRIC Expiry Date{!isForeigner ? '*' : ''}</Label>
               <StringDatePicker
                 value={formData.nricExpiry || ''}
                 onChange={(val) => setFormData({ ...formData, nricExpiry: val })}
+                disabled={isForeigner}
+                required={!isForeigner}
               />
-              <p className="text-sm text-muted-foreground mt-1">When does the NRIC or ID expire</p>
             </div>
           </div>
 
@@ -889,7 +889,6 @@ export default function EmployeesPage() {
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
             />
-            <p className="text-sm text-muted-foreground mt-1">Employee&apos;s full legal name</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -901,29 +900,7 @@ export default function EmployeesPage() {
                   value={formData.passportNumber || ''}
                   onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
                 />
-                {formData.passportNumber && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                    onClick={() => toggleNumberVisibility(passportVisKey, formData.passportNumber || '')}
-                  >
-                    {visibleNumbers[passportVisKey]?.visible ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
               </div>
-              {formData.passportNumber && (
-                <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                  <span className="font-medium">Display Value: </span>
-                  {getDisplayValue(passportVisKey, formData.passportNumber)}
-                </div>
-              )}
-              
             </div>
             <div>
               <Label htmlFor={`${p}passport_expiry`}>Passport Expiry</Label>
@@ -1075,6 +1052,10 @@ export default function EmployeesPage() {
                   ...formData,
                   nationality: value,
                   prStatus: value === 'pr' ? formData.prStatus || 'year_3_plus' : '',
+                  nricNumber: value === 'foreigner' ? '' : formData.nricNumber,
+                  finNumber: value === 'foreigner' ? '' : formData.finNumber,
+                  nricExpiry: value === 'foreigner' ? '' : formData.nricExpiry,
+                  visaNumber: '',
                 })
               }
             >
@@ -1148,13 +1129,17 @@ export default function EmployeesPage() {
             <p className="text-sm text-muted-foreground mt-1">Type of work visa or permit</p>
           </div>
           <div>
-            <Label htmlFor={`${p}work_permit_number`}>Work Permit Number</Label>
+            <Label htmlFor={`${p}work_permit_number`}>Work Permit Number*</Label>
             <div className="relative">
               <Input
                 id={`${p}work_permit_number`}
+                name={`${p}workPermitNumber`}
+                type={isFormNumberVisible(visaVisKey) ? 'text' : 'password'}
+                autoComplete="new-password"
                 placeholder="e.g. G1234567X (will be masked in display)"
-                value={formData.visaNumber || ''}
-                onChange={(e) => setFormData({ ...formData, visaNumber: e.target.value })}
+                value={formData.visaNumber || formData.finNumber || ''}
+                onChange={(e) => setFormData({ ...formData, visaNumber: e.target.value, finNumber: '' })}
+                required
               />
               {formData.visaNumber && (
                 <Button
@@ -1162,9 +1147,9 @@ export default function EmployeesPage() {
                   variant="ghost"
                   size="sm"
                   className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                  onClick={() => toggleNumberVisibility(visaVisKey, formData.visaNumber || '')}
+                  onClick={() => toggleNumberVisibility(visaVisKey, formData.visaNumber || '', true)}
                 >
-                  {visibleNumbers[visaVisKey]?.visible ? (
+                  {isFormNumberVisible(visaVisKey) ? (
                     <EyeOff className="h-4 w-4" />
                   ) : (
                     <Eye className="h-4 w-4" />
@@ -1172,19 +1157,13 @@ export default function EmployeesPage() {
                 </Button>
               )}
             </div>
-            {formData.visaNumber && (
-              <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-                <span className="font-medium">Display Value: </span>
-                {getDisplayValue(visaVisKey, formData.visaNumber)}
-              </div>
-            )}
-            <p className="text-sm text-muted-foreground mt-1">Visa number will be displayed as **** 1234 for security</p>
           </div>
           <div>
-            <Label htmlFor={`${p}visa_expiry`}>Visa Expiry</Label>
+              <Label htmlFor={`${p}visa_expiry`}>Visa Expiry{isForeigner ? '*' : ''}</Label>
             <StringDatePicker
               value={formData.visaExpiry || ''}
               onChange={(val) => setFormData({ ...formData, visaExpiry: val })}
+                required={isForeigner}
             />
             <p className="text-sm text-muted-foreground mt-1">When does the visa expire</p>
           </div>

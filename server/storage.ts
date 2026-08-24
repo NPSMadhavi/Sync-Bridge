@@ -470,9 +470,11 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(companies, eq(employees.companyId, companies.id));
 
     if (tenantId) {
-      return await query.where(eq(employees.tenantId, tenantId));
+      return await query
+        .where(eq(employees.tenantId, tenantId))
+        .orderBy(desc(employees.createdAt), desc(employees.id));
     }
-    return await query;
+    return await query.orderBy(desc(employees.createdAt), desc(employees.id));
   }
 
   private normalizeEmployeeDates(employee: Partial<InsertEmployee> & Record<string, any>) {
