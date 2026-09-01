@@ -51,17 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Store tenant ID in local storage if available
       if (user.tenantId) {
         localStorage.setItem("tenantId", user.tenantId.toString());
-        console.log('Auth: Stored tenant ID in localStorage:', user.tenantId);
       } else if (user.isSuperAdmin || user.role === 'super_admin') {
         // Clear tenant ID for super admin (global access)
         localStorage.removeItem("tenantId");
-        console.log('Auth: Cleared tenant ID for super admin');
       }
-      
-      console.log('Auth: Login successful for user:', user.name);
-      console.log('Auth: User role:', user.role);
-      console.log('Auth: User tenant ID:', user.tenantId);
-      console.log('Auth: Is super admin:', user.isSuperAdmin);
       
       queryClient.setQueryData(["/api/user"], {
         ...user,
@@ -90,7 +83,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       // Clear tenant ID from local storage
       localStorage.removeItem("tenantId");
-      console.log('Auth: Cleared tenant ID on logout');
     },
     onError: (error: Error) => {
       toast({

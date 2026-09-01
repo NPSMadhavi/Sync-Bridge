@@ -518,10 +518,6 @@ export class DatabaseStorage implements IStorage {
   async createEmployee(employee: InsertEmployee): Promise<Employee> {
     try {
       const normalizedEmployee = this.normalizeEmployeeDates(employee);
-      console.log("Employee Payload:", normalizedEmployee);
-      console.log("DOB Type:", typeof normalizedEmployee.dateOfBirth);
-      console.log("DOB Value:", normalizedEmployee.dateOfBirth);
-      console.log("DOB instanceof Date:", normalizedEmployee.dateOfBirth instanceof Date);
       // Encrypt sensitive data
       const encryptedEmployee = await DataEncryption.encryptObject(normalizedEmployee, SENSITIVE_FIELDS.employees);
       const [newEmployee] = await db.insert(employees).values(encryptedEmployee).returning();
@@ -531,10 +527,6 @@ export class DatabaseStorage implements IStorage {
       // Fallback: insert without encryption if encryption fails
       try {
         const fallbackEmployee = this.normalizeEmployeeDates(employee);
-        console.log("Employee Payload:", fallbackEmployee);
-        console.log("DOB Type:", typeof fallbackEmployee.dateOfBirth);
-        console.log("DOB Value:", fallbackEmployee.dateOfBirth);
-        console.log("DOB instanceof Date:", fallbackEmployee.dateOfBirth instanceof Date);
         const [newEmployee] = await db.insert(employees).values(fallbackEmployee).returning();
         return newEmployee;
       } catch (fallbackError) {
@@ -610,10 +602,6 @@ export class DatabaseStorage implements IStorage {
   async updateEmployee(id: number, employeeData: Partial<InsertEmployee>): Promise<Employee | undefined> {
     try {
       const normalizedEmployeeData = this.normalizeEmployeeDates(employeeData);
-      console.log("Employee Update Payload:", normalizedEmployeeData);
-      console.log("DOB Type:", typeof normalizedEmployeeData.dateOfBirth);
-      console.log("DOB Value:", normalizedEmployeeData.dateOfBirth);
-      console.log("DOB instanceof Date:", normalizedEmployeeData.dateOfBirth instanceof Date);
       const encryptedData = await DataEncryption.encryptObject(normalizedEmployeeData, SENSITIVE_FIELDS.employees);
       const [updatedEmployee] = await db.update(employees).set(encryptedData).where(eq(employees.id, id)).returning();
       return updatedEmployee;
@@ -622,10 +610,6 @@ export class DatabaseStorage implements IStorage {
       // Fallback: update without encryption
       try {
         const fallbackEmployeeData = this.normalizeEmployeeDates(employeeData);
-        console.log("Employee Update Payload:", fallbackEmployeeData);
-        console.log("DOB Type:", typeof fallbackEmployeeData.dateOfBirth);
-        console.log("DOB Value:", fallbackEmployeeData.dateOfBirth);
-        console.log("DOB instanceof Date:", fallbackEmployeeData.dateOfBirth instanceof Date);
         const [updatedEmployee] = await db.update(employees).set(fallbackEmployeeData).where(eq(employees.id, id)).returning();
         return updatedEmployee;
       } catch (fallbackError) {

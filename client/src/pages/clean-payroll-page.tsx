@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import Dashboard from "@/components/layout/Dashboard";
@@ -108,6 +108,68 @@ function isNoCompanyPayslipError(
   if (data?.ineligibleMonths?.length) return true;
   if (!message) return false;
   return message.toLowerCase().includes("company");
+}
+
+type GroupedCompanyConfig = {
+  configId: number;
+  companyId?: number | null;
+  companyName: string;
+  baseSalary: string | number;
+  cpfAmount: string | number;
+  employerCpfAmount: string | number;
+  netSalary: string | number;
+  isActive: boolean;
+  config: any;
+};
+
+type GroupedPayrollConfigRow = {
+  employeeId: number;
+  employeeName: string;
+  department: string;
+  designation: string;
+  nationality: string;
+  payrollPeriod: string;
+  companies: GroupedCompanyConfig[];
+  configIds: number[];
+  primaryConfig: any;
+};
+
+function groupPayrollConfigsByEmployee(configs: any[]): GroupedPayrollConfigRow[] {
+  const byEmployee = new Map<number, any[]>();
+  for (const config of configs) {
+    if (config.isActive === false) continue;
+    const list = byEmployee.get(config.employeeId) ?? [];
+    list.push(config);
+    byEmployee.set(config.employeeId, list);
+  }
+
+  return Array.from(byEmployee.entries()).map(([, companyConfigs]) => {
+    const sorted = [...companyConfigs].sort((a, b) =>
+      String(a.companyName || "").localeCompare(String(b.companyName || ""))
+    );
+    const first = sorted[0];
+    return {
+      employeeId: first.employeeId,
+      employeeName: first.employeeName,
+      department: first.department,
+      designation: first.designation,
+      nationality: first.nationality,
+      payrollPeriod: first.payrollPeriod || "monthly",
+      companies: sorted.map((config, index) => ({
+        configId: config.id,
+        companyId: config.companyId,
+        companyName: config.companyName || `Company ${index + 1}`,
+        baseSalary: config.baseSalary,
+        cpfAmount: config.cpfAmount,
+        employerCpfAmount: config.employerCpfAmount,
+        netSalary: config.netSalary,
+        isActive: config.isActive,
+        config,
+      })),
+      configIds: sorted.map((config) => config.id),
+      primaryConfig: first,
+    };
+  });
 }
 
 function buildPayslipDownloadFilename(
@@ -345,6 +407,20 @@ export default function PayrollPage() {
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 
+  const configDetailsEmployeeId =
+    showDetailsSheet && detailsMode === "config" && selectedConfig?.employeeId
+      ? selectedConfig.employeeId
+      : null;
+
+  const { data: configCompanySalaries = [] } = useQuery<any[]>({
+    queryKey: ["/api/employees", configDetailsEmployeeId, "company-salaries"],
+    queryFn: () =>
+      apiRequest("GET", `/api/employees/${configDetailsEmployeeId}/company-salaries`).then(
+        (res) => res.json()
+      ),
+    enabled: !!configDetailsEmployeeId,
+  });
+
   const formatCurrency = (amount: string | number) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
     return new Intl.NumberFormat('en-SG', {
@@ -399,7 +475,9 @@ export default function PayrollPage() {
     });
   }
 
-  const filteredPayrollConfigs = payrollConfigs.filter((config: any) =>
+  const filteredPayrollConfigs = payrollConfigs
+    .filter((config: any) => config.isActive !== false)
+    .filter((config: any) =>
     matchesTableSearch(
       searchTerm,
       config.employeeName,
@@ -408,22 +486,34 @@ export default function PayrollPage() {
       config.department,
       config.designation,
       config.payrollPeriod,
+      config.companyName,
       config.baseSalary,
-      config.annualSalary,
-      config.cpfRate,
       config.cpfAmount,
-      config.employerCpfRate,
-      config.employerCpfAmount
+      config.employerCpfAmount,
+      config.netSalary
     )
+  );
+
+  const groupedPayrollConfigs = groupPayrollConfigsByEmployee(filteredPayrollConfigs);
+  const maxCompanyColumns = Math.max(
+    1,
+    ...groupedPayrollConfigs.map((row) => row.companies.length)
   );
 
   useEffect(() => {
     setConfigPage(1);
   }, [searchTerm]);
 
-  const totalConfigPages = Math.max(1, Math.ceil(filteredPayrollConfigs.length / PAYROLL_CONFIG_PAGE_SIZE));
+  const totalConfigPages = Math.max(
+    1,
+    Math.ceil(groupedPayrollConfigs.length / PAYROLL_CONFIG_PAGE_SIZE)
+  );
   const currentConfigPage = Math.min(configPage, totalConfigPages);
-  const paginatedPayrollConfigs = paginateItems(filteredPayrollConfigs, currentConfigPage, PAYROLL_CONFIG_PAGE_SIZE);
+  const paginatedGroupedPayrollConfigs = paginateItems(
+    groupedPayrollConfigs,
+    currentConfigPage,
+    PAYROLL_CONFIG_PAGE_SIZE
+  );
 
   const activeConfigs = payrollConfigs.filter((config: any) => config.isActive);
 
@@ -595,7 +685,8 @@ export default function PayrollPage() {
     );
   };
 
-  const openPayslipModal = async (config: any) => {
+  const openPayslipModal = async (row: GroupedPayrollConfigRow) => {
+    const config = row.primaryConfig;
     const year = new Date().getFullYear();
 
     const findLatestSelectableMonth = (targetYear: number) => {
@@ -616,7 +707,10 @@ export default function PayrollPage() {
       }
     }
 
-    setPayslipConfig(config);
+    setPayslipConfig({
+      ...config,
+      companyNames: row.companies.map((company) => company.companyName),
+    });
     setPayslipYear(defaultYear);
     setSelectedPayslipMonths(defaultMonth ? [defaultMonth] : []);
     setPayslipModalOpen(true);
@@ -1023,69 +1117,117 @@ export default function PayrollPage() {
                 <TableHead>Department</TableHead>
                 <TableHead>Designation</TableHead>
                 <TableHead>Payroll Period</TableHead>
-                <TableHead>Base Salary</TableHead>
-                <TableHead>Annual Salary</TableHead>
-                <TableHead>CPF Rate (Employee)</TableHead>
-                <TableHead>CPF Amount (Employee)</TableHead>
-                <TableHead>CPF Rate (Employer)</TableHead>
-                <TableHead>CPF Amount (Employer)</TableHead>
+                {Array.from({ length: maxCompanyColumns }, (_, index) => (
+                  <TableHead key={`company-group-${index + 1}`} colSpan={4} className="text-center border-l">
+                    Company {index + 1}
+                  </TableHead>
+                ))}
                 <TableHead>Payslip</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
+              <TableRow>
+                <TableHead className="w-10" />
+                <TableHead />
+                <TableHead />
+                <TableHead />
+                <TableHead />
+                {Array.from({ length: maxCompanyColumns }, (_, index) => (
+                  <Fragment key={`company-subheads-${index + 1}`}>
+                    <TableHead className="border-l text-xs">Base Salary</TableHead>
+                    <TableHead className="text-xs">Employee CPF</TableHead>
+                    <TableHead className="text-xs">Employer CPF</TableHead>
+                    <TableHead className="text-xs">Net Salary</TableHead>
+                  </Fragment>
+                ))}
+                <TableHead />
+                <TableHead />
+              </TableRow>
             </TableHeader>
             <TableBody>
-                {paginatedPayrollConfigs.map((config: any) => {
-                  const processed = isConfigProcessed(config);
+                {paginatedGroupedPayrollConfigs.map((row) => {
+                  const processed = row.companies.every((company) =>
+                    isConfigProcessed(company.config)
+                  );
+                  const rowActive = row.companies.every((company) => company.isActive);
                   return (
                 <TableRow
-                  key={config.id}
+                  key={row.employeeId}
                   className={processed ? processedRowClass : undefined}
                 >
                   <TableCell>
                     <Checkbox
-                      checked={selectedConfigIds.includes(config.id)}
+                      checked={row.configIds.every((id) => selectedConfigIds.includes(id))}
                       onCheckedChange={(checked) =>
-                        toggleConfigSelection(config.id, checked === true)
+                        setSelectedConfigIds((prev) => {
+                          if (checked) {
+                            return [...new Set([...prev, ...row.configIds])];
+                          }
+                          return prev.filter((id) => !row.configIds.includes(id));
+                        })
                       }
-                      disabled={!config.isActive || isBatchProcessing}
-                      aria-label={`Select ${config.employeeName}`}
+                      disabled={!rowActive || isBatchProcessing}
+                      aria-label={`Select ${row.employeeName}`}
                     />
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="font-medium">{config.employeeName}</div>
+                      <div className="font-medium">{row.employeeName}</div>
                       <div className="text-sm text-muted-foreground">
-                        ID: {config.employeeId}
+                        ID: {row.employeeId}
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>{config.department}</TableCell>
-                  <TableCell>{config.designation || '-'}</TableCell>
-                  <TableCell className="capitalize">{(config.payrollPeriod || 'monthly').replace('_', ' ')}</TableCell>
-                  <TableCell>{formatCurrency(config.baseSalary)}</TableCell>
-                  <TableCell>{formatCurrency(parseFloat(config.baseSalary || 0) * 12)}</TableCell>
-                  <TableCell>
-                    {config.nationality === 'foreigner'
-                      ? '—'
-                      : `${parseFloat(config.cpfRate || 0).toFixed(2)}%`}
+                  <TableCell>{row.department}</TableCell>
+                  <TableCell>{row.designation || "-"}</TableCell>
+                  <TableCell className="capitalize">
+                    {(row.payrollPeriod || "monthly").replace("_", " ")}
                   </TableCell>
-                  <TableCell>{formatCurrency(config.cpfAmount || 0)}</TableCell>
-                  <TableCell>
-                    {config.nationality === 'foreigner'
-                      ? '—'
-                      : `${parseFloat(config.employerCpfRate || 0).toFixed(2)}%`}
-                  </TableCell>
-                  <TableCell>{formatCurrency(config.employerCpfAmount || 0)}</TableCell>
+                  {Array.from({ length: maxCompanyColumns }, (_, index) => {
+                    const company = row.companies[index];
+                    if (!company) {
+                      return (
+                        <Fragment key={`empty-${row.employeeId}-${index}`}>
+                          <TableCell className="border-l">—</TableCell>
+                          <TableCell>—</TableCell>
+                          <TableCell>—</TableCell>
+                          <TableCell>—</TableCell>
+                        </Fragment>
+                      );
+                    }
+                    return (
+                      <Fragment key={company.configId}>
+                        <TableCell className="border-l">
+                          <div className="font-medium text-xs text-muted-foreground mb-1">
+                            {company.companyName}
+                          </div>
+                          {formatCurrency(company.baseSalary)}
+                        </TableCell>
+                        <TableCell>
+                          {row.nationality === "foreigner"
+                            ? "—"
+                            : formatCurrency(company.cpfAmount || 0)}
+                        </TableCell>
+                        <TableCell>
+                          {row.nationality === "foreigner"
+                            ? "—"
+                            : formatCurrency(company.employerCpfAmount || 0)}
+                        </TableCell>
+                        <TableCell>
+                          {formatCurrency(company.netSalary || 0)}
+                        </TableCell>
+                      </Fragment>
+                    );
+                  })}
                   <TableCell>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-teal-700 hover:text-teal-800 hover:bg-teal-50 disabled:opacity-40 disabled:pointer-events-none"
-                      onClick={() => openPayslipModal(config)}
+                      onClick={() => openPayslipModal(row)}
                       disabled={isBatchProcessing}
-                      title={`Download payslip for ${config.employeeName}`}
-                      aria-label={`Download payslip for ${config.employeeName}`}
+                      title={`Download payslip for ${row.employeeName}`}
+                      aria-label={`Download payslip for ${row.employeeName}`}
                     >
                       <Download className="h-4 w-4" />
                     </Button>
@@ -1097,20 +1239,22 @@ export default function PayrollPage() {
                           icon: Edit,
                           label: "Edit",
                           variant: "edit",
-                          onClick: () => openConfigForm(config),
+                          onClick: () => openConfigForm(row.primaryConfig),
                         },
                         {
                           icon: Eye,
                           label: "View",
                           variant: "view",
-                          onClick: () => openConfigDetails(config),
+                          onClick: () => openConfigDetails(row.primaryConfig),
                         },
                         {
                           icon: Trash2,
                           label: "Delete",
                           variant: "delete",
                           disabled: deleteMutation.status === "pending",
-                          onClick: () => deleteMutation.mutate(config.id),
+                          onClick: () => {
+                            row.configIds.forEach((id) => deleteMutation.mutate(id));
+                          },
                         },
                       ]}
                     />
@@ -1123,7 +1267,7 @@ export default function PayrollPage() {
           <TablePagination
             page={currentConfigPage}
             pageSize={PAYROLL_CONFIG_PAGE_SIZE}
-            totalItems={filteredPayrollConfigs.length}
+            totalItems={groupedPayrollConfigs.length}
             onPageChange={setConfigPage}
           />
           </>
@@ -1266,20 +1410,61 @@ export default function PayrollPage() {
               </EntityViewFieldGrid>
             </EntityViewSection>
 
+            <EntityViewSection title="Companies & Salaries">
+              {configCompanySalaries.length > 0 ? (
+                <div className="space-y-3">
+                  {configCompanySalaries.map((entry: any, index: number) => {
+                    const monthly =
+                      entry.salary != null && entry.salary !== ""
+                        ? parseFloat(String(entry.salary))
+                        : NaN;
+                    const annual =
+                      entry.annualSalary != null && entry.annualSalary !== ""
+                        ? parseFloat(String(entry.annualSalary))
+                        : Number.isFinite(monthly)
+                          ? monthly * 12
+                          : NaN;
+
+                    return (
+                      <div key={`${entry.companyId}-${index}`} className="rounded-lg border bg-muted/20 p-4">
+                        <p className="mb-3 text-sm font-semibold">
+                          Company {index + 1}: {entry.companyName}
+                        </p>
+                        <EntityViewFieldGrid>
+                          <EntityViewField label="Company Name" value={entry.companyName} />
+                          <EntityViewField
+                            label="Salary (Monthly)"
+                            value={Number.isFinite(monthly) ? formatCurrency(monthly) : "—"}
+                          />
+                          <EntityViewField
+                            label="Annual Salary"
+                            value={Number.isFinite(annual) ? formatCurrency(annual) : "—"}
+                          />
+                        </EntityViewFieldGrid>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EntityViewFieldGrid>
+                  <EntityViewField
+                    label="Annual Salary"
+                    value={
+                      selectedConfig.annualSalary
+                        ? formatCurrency(selectedConfig.annualSalary)
+                        : formatCurrency(parseFloat(selectedConfig.baseSalary || 0) * 12)
+                    }
+                  />
+                  <EntityViewField
+                    label="Monthly Base Salary"
+                    value={formatCurrency(selectedConfig.baseSalary)}
+                  />
+                </EntityViewFieldGrid>
+              )}
+            </EntityViewSection>
+
             <EntityViewSection title="Salary & CPF Details">
               <EntityViewFieldGrid>
-                <EntityViewField
-                  label="Annual Salary"
-                  value={
-                    selectedConfig.annualSalary
-                      ? formatCurrency(selectedConfig.annualSalary)
-                      : formatCurrency(parseFloat(selectedConfig.baseSalary || 0) * 12)
-                  }
-                />
-                <EntityViewField
-                  label="Monthly Base Salary"
-                  value={formatCurrency(selectedConfig.baseSalary)}
-                />
                 <EntityViewField label="Net Salary" value={formatCurrency(selectedConfig.netSalary || 0)} />
                 <EntityViewField
                   label="CPF Rate (Employee)"
@@ -1497,6 +1682,11 @@ export default function PayrollPage() {
                 Select one or more months for{" "}
                 <span className="font-medium text-foreground">{payslipConfig.employeeName}</span>{" "}
                 (ID: {payslipConfig.employeeId}) to view or download payslips.
+                {Array.isArray(payslipConfig.companyNames) && payslipConfig.companyNames.length > 1 && (
+                  <span className="block mt-1">
+                    Includes all companies: {payslipConfig.companyNames.join(", ")}
+                  </span>
+                )}
               </p>
               <div className="flex items-center gap-3">
                 <label htmlFor="payslip-year" className="text-sm font-medium">

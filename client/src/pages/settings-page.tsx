@@ -122,11 +122,6 @@ export default function SettingsPage() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testEmail, setTestEmail] = useState("");
-  
-  // DEBUG: Print user object to console
-  React.useEffect(() => {
-    console.log('[DEBUG] Current user in SettingsPage:', user);
-  }, [user]);
 
   // Profile form
   const profileForm = useForm<ProfileFormValues>({

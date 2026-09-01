@@ -38,9 +38,6 @@ export const getQueryFn: <T>(options: {
     };
 
     const apiUrl = buildApiUrl(queryKey[0] as string);
-    console.log('QueryClient: Making request to:', apiUrl);
-    console.log('QueryClient: Tenant ID:', tenantId);
-    console.log('QueryClient: Headers:', headers);
 
     const res = await fetch(apiUrl, {
       headers,
@@ -78,10 +75,6 @@ export const apiRequest = async (
   };
 
   const apiUrl = buildApiUrl(url);
-  console.log('QueryClient: API request to:', apiUrl);
-  console.log('QueryClient: Method:', method);
-  console.log('QueryClient: Tenant ID:', tenantId);
-  console.log('QueryClient: Headers:', headers);
 
   const res = await fetch(apiUrl, {
     method,

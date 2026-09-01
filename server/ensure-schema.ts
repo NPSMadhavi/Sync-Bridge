@@ -31,6 +31,8 @@ export async function runAllSchemaPatches(pool: {
     await ensurePayrollSchema(queryPool);
     await ensureCompaniesSchema(queryPool);
     await ensureEmployeeCompanySchema(queryPool);
+    await ensureEmployeeCompanySalariesSchema(queryPool);
+    await ensurePayrollSnapshotSchema(queryPool);
     await ensureRunningNumbersSchema(queryPool);
     await ensureUserPermissionsSchema(queryPool);
     await ensureAssetTenantSchema(queryPool);
@@ -55,6 +57,7 @@ export async function ensurePayrollSchema(pool: QueryPool) {
     `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS employer_cpf_rate DECIMAL(5,2) DEFAULT 0.00`,
     `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS employer_cpf_amount DECIMAL(12,2)`,
     `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS no_of_working_days INTEGER`,
+    `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id)`,
     `ALTER TABLE payroll_configurations ADD COLUMN IF NOT EXISTS no_of_working_days INTEGER`,
     `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS payroll_month INTEGER`,
     `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS payroll_year INTEGER`,
@@ -207,6 +210,101 @@ export async function ensureEmployeeCompanySchema(pool: { query: (sql: string) =
       await pool.query(sql);
     } catch (err: any) {
       console.warn("[ensure-schema] employee company:", err.message);
+    }
+  }
+}
+
+export async function ensureEmployeeCompanySalariesSchema(pool: { query: (sql: string) => Promise<unknown> }) {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS employee_company_salaries (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER REFERENCES tenants(id),
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      company_id INTEGER NOT NULL REFERENCES companies(id),
+      company_name TEXT NOT NULL,
+      salary DECIMAL(12,2),
+      annual_salary DECIMAL(12,2),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS employee_company_salaries_employee_company_unique
+      ON employee_company_salaries(employee_id, company_id)`,
+    `INSERT INTO employee_company_salaries (
+      tenant_id, employee_id, company_id, company_name, salary, annual_salary, created_at, updated_at
+    )
+    SELECT
+      e.tenant_id, e.id, e.company_id, c.company_name, e.salary, e.annual_salary, NOW(), NOW()
+    FROM employees e
+    INNER JOIN companies c ON c.id = e.company_id
+    WHERE e.company_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM employee_company_salaries ecs WHERE ecs.employee_id = e.id
+      )`,
+  ];
+
+  for (const sql of statements) {
+    try {
+      await pool.query(sql);
+    } catch (err: any) {
+      console.warn("[ensure-schema] employee company salaries:", err.message);
+    }
+  }
+}
+
+export async function ensurePayrollSnapshotSchema(pool: { query: (sql: string) => Promise<unknown> }) {
+  const statements = [
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS employee_code TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS employee_name TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS employee_email TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS designation TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS department TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS annual_salary DECIMAL(12,2)`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS monthly_salary DECIMAL(12,2)`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS company_name TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS company_address TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS ic_no TEXT`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS employer_cpf_amount DECIMAL(12,2)`,
+    `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS no_of_working_days INTEGER`,
+    `UPDATE payroll_records pr
+      SET
+        employee_code = COALESCE(pr.employee_code, e.employee_id),
+        employee_name = COALESCE(pr.employee_name, e.name),
+        employee_email = COALESCE(pr.employee_email, e.email),
+        designation = COALESCE(pr.designation, e.designation),
+        department = COALESCE(pr.department, e.department),
+        annual_salary = COALESCE(pr.annual_salary, pr.base_salary * 12),
+        monthly_salary = COALESCE(pr.monthly_salary, pr.base_salary),
+        company_name = COALESCE(pr.company_name, c.company_name),
+        company_address = COALESCE(pr.company_address, c.address)
+      FROM employees e
+      LEFT JOIN companies c ON c.id = COALESCE(pr.company_id, e.company_id)
+      WHERE pr.employee_id = e.id
+        AND pr.employee_name IS NULL
+        AND pr.gross_pay IS NOT NULL`,
+    `UPDATE payroll_records pr
+      SET
+        employer_cpf_amount = COALESCE(pr.employer_cpf_amount, ep.employer_cpf_amount),
+        no_of_working_days = COALESCE(pr.no_of_working_days, ep.no_of_working_days)
+      FROM employee_payroll ep
+      WHERE pr.payroll_config_id = ep.id
+        AND (pr.employer_cpf_amount IS NULL OR pr.no_of_working_days IS NULL)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS payroll_records_employee_company_month_year_unique
+      ON payroll_records (employee_id, company_id, payroll_month, payroll_year)
+      WHERE payroll_month IS NOT NULL
+        AND payroll_year IS NOT NULL
+        AND company_id IS NOT NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS payroll_records_employee_month_year_no_company_unique
+      ON payroll_records (employee_id, payroll_month, payroll_year)
+      WHERE payroll_month IS NOT NULL
+        AND payroll_year IS NOT NULL
+        AND company_id IS NULL`,
+  ];
+
+  for (const sql of statements) {
+    try {
+      await pool.query(sql);
+    } catch (err: any) {
+      console.warn("[ensure-schema] payroll snapshot:", err.message);
     }
   }
 }

@@ -233,7 +233,6 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
       await apiRequest("PUT", `/api/notifications/${id}/seen`);
       await refreshNotificationQueries();
     } catch (error) {
-      console.error("Failed to mark notification as seen", error);
     }
   };
 
@@ -242,7 +241,6 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
       await apiRequest("PUT", "/api/notifications/mark-all-seen");
       await refreshNotificationQueries();
     } catch (error) {
-      console.error("Failed to mark all notifications as read", error);
     }
   };
 

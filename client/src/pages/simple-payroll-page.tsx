@@ -88,7 +88,6 @@ export default function PayrollPage() {
   };
 
   const formatCpfRate = (cpfRate: string | number, nationality?: string) => {
-    console.log("formatCpfRate called with:", cpfRate, nationality);
     if (!nationality) {
       const rate = typeof cpfRate === 'string' ? parseFloat(cpfRate) : cpfRate;
       return `${rate.toFixed(2)}%`;
@@ -260,9 +259,7 @@ export default function PayrollPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  payrollConfigs.map((config: any) => {
-                    console.log("Row nationality/cpfRate:", config.nationality, config.cpfRate);
-                    return (
+                  payrollConfigs.map((config: any) => (
                       <TableRow key={config.id}>
                         <TableCell>
                           <div>
@@ -299,8 +296,7 @@ export default function PayrollPage() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    );
-                  })
+                  ))
                 )}
               </TableBody>
             </Table>

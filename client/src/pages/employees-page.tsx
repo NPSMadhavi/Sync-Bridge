@@ -84,6 +84,8 @@ interface Employee {
   nricScan?: string;
   companyId?: number | null;
   companyName?: string | null;
+  /** All assigned company names (from company salaries). */
+  companyNames?: string[];
   createdAt: string;
 }
 
@@ -97,6 +99,13 @@ interface EmployeeCompanyHistoryRecord {
   dateChanged: string;
   effectiveFrom?: string | null;
   effectiveTo?: string | null;
+}
+
+interface CompanySalaryEntry {
+  companyId: string;
+  companyName: string;
+  salary: string;
+  annualSalary: string;
 }
 
 interface EmployeeFormData {
@@ -148,10 +157,34 @@ function normalizeNationality(n?: string | null): 'citizen' | 'pr' | 'foreigner'
   return 'citizen';
 }
 
+function normalizeCompanySalariesForSubmit(
+  entries: CompanySalaryEntry[],
+  companiesList: Array<{ id: number; companyName: string }>
+): CompanySalaryEntry[] {
+  const seen = new Set<string>();
+
+  return entries
+    .filter((entry) => entry.companyId?.trim())
+    .filter((entry) => {
+      const key = String(entry.companyId);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((entry) => {
+      const company = companiesList.find((c) => String(c.id) === String(entry.companyId));
+      return {
+        ...entry,
+        companyName: entry.companyName?.trim() || company?.companyName || '',
+      };
+    })
+    .filter((entry) => entry.companyName.trim() !== '');
+}
+
 function buildEmployeePayload(
   data: EmployeeFormData,
   tenantId?: number | null,
-  options?: { omitEmployeeId?: boolean }
+  options?: { omitEmployeeId?: boolean; companySalaries?: CompanySalaryEntry[] }
 ) {
   const joinDateRaw = data.joinDate?.trim();
   const joinDate = joinDateRaw
@@ -159,6 +192,9 @@ function buildEmployeePayload(
       ? new Date(`${joinDateRaw}T12:00:00`).toISOString()
       : new Date(joinDateRaw).toISOString()
     : new Date().toISOString();
+
+  const salaries = options?.companySalaries ?? [];
+  const primary = salaries[0];
 
   return {
     ...(options?.omitEmployeeId ? {} : { employeeId: data.employeeId?.trim() || '' }),
@@ -172,13 +208,22 @@ function buildEmployeePayload(
         ? data.dateOfBirth.split('T')[0]
         : data.dateOfBirth
       : null,
-    salary: data.salary === '' || data.salary == null ? null : String(data.salary),
+    salary:
+      primary?.salary
+        ? String(primary.salary)
+        : data.salary === '' || data.salary == null
+          ? null
+          : String(data.salary),
     annualSalary:
-      data.annualSalary === '' || data.annualSalary == null
-        ? data.salary
-          ? String(Number(data.salary) * 12)
-          : null
-        : String(data.annualSalary),
+      primary?.annualSalary
+        ? String(primary.annualSalary)
+        : data.annualSalary === '' || data.annualSalary == null
+          ? primary?.salary
+            ? String(Number(primary.salary) * 12)
+            : data.salary
+              ? String(Number(data.salary) * 12)
+              : null
+          : String(data.annualSalary),
     status: data.status || 'active',
     nationality: data.nationality || 'citizen',
     prStatus:
@@ -206,7 +251,24 @@ function buildEmployeePayload(
       : null,
     visaType: data.visaType || null,
     visaRemarks: data.visaRemarks?.trim() || null,
-    companyId: data.companyId ? Number(data.companyId) : null,
+    companyId: primary?.companyId
+      ? Number(primary.companyId)
+      : data.companyId
+        ? Number(data.companyId)
+        : null,
+    companySalaries: salaries
+      .filter((entry) => entry.companyId?.trim())
+      .map((entry) => ({
+        companyId: Number(entry.companyId),
+        companyName: entry.companyName,
+        salary: entry.salary === '' ? null : String(entry.salary),
+        annualSalary:
+          entry.annualSalary === ''
+            ? entry.salary
+              ? String(Number(entry.salary) * 12)
+              : null
+            : String(entry.annualSalary),
+      })),
     passportScan: data.passportScan || null,
     nricScan: data.nricScan || null,
     visaScan: data.visaScan || null,
@@ -237,6 +299,8 @@ export default function EmployeesPage() {
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [historyEmployee, setHistoryEmployee] = useState<Employee | null>(null);
   const [dependents, setDependents] = useState<Dependent[]>([]);
+  const [companySalaries, setCompanySalaries] = useState<CompanySalaryEntry[]>([]);
+  const [viewCompanySalaries, setViewCompanySalaries] = useState<CompanySalaryEntry[]>([]);
   const [dependentFormData, setDependentFormData] = useState<Dependent>({
     name: '',
     relationship: 'spouse',
@@ -412,18 +476,14 @@ export default function EmployeesPage() {
   const { data: employees = [], isLoading, error } = useQuery({
     queryKey: ['employees', user?.tenantId],
     queryFn: async () => {
-      console.log('Fetching employees for tenant:', user?.tenantId);
       const response = await apiRequest('GET', '/api/employees');
-      console.log('Employee API response:', response);
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Employee API error:', errorText);
         throw new Error(`Failed to fetch employees: ${errorText}`);
       }
       
       const data = await response.json();
-      console.log('Employee data received:', data);
       return data;
     },
     enabled: !!user && ((Boolean(user?.tenantId) || user?.role === 'super_admin' || user?.isSuperAdmin) ?? false),
@@ -457,20 +517,22 @@ export default function EmployeesPage() {
   };
 
   const displayCompanyName = (employee: Employee) => {
+    if (employee.companyNames?.length) {
+      return employee.companyNames.join(", ");
+    }
     if (employee.companyName?.trim()) return employee.companyName;
     return getCompanyName(employee.companyId);
   };
 
-  console.log('Current employees state:', employees);
-  console.log('Loading state:', isLoading);
-  console.log('Error state:', error);
-  console.log('User state:', user);
-  console.log('Tenant ID from user:', user?.tenantId);
-  console.log('Tenant ID from localStorage:', localStorage.getItem('tenantId'));
-
   // Add employee mutation
   const addEmployeeMutation = useMutation({
-    mutationFn: async (data: EmployeeFormData) => {
+    mutationFn: async ({
+      data,
+      salaries,
+    }: {
+      data: EmployeeFormData;
+      salaries: CompanySalaryEntry[];
+    }) => {
       if (!autoEmployeeId && !data.employeeId?.trim()) {
         throw new Error('Please fill in Employee ID, Name, Department, and Designation.');
       }
@@ -480,19 +542,20 @@ export default function EmployeesPage() {
       if (!data.joinDate?.trim()) {
         throw new Error('Join date is required.');
       }
-      if (!data.companyId?.trim()) {
-        throw new Error('Company is required.');
+      if (!salaries.length) {
+        throw new Error('At least one company is required.');
+      }
+      if (salaries.some((entry) => !entry.salary?.trim())) {
+        throw new Error('Salary is required for each selected company.');
       }
       const payload = buildEmployeePayload(data, effectiveTenantId, {
         omitEmployeeId: autoEmployeeId,
+        companySalaries: salaries,
       });
-      console.log('Adding employee with data:', payload);
       const response = await apiRequest('POST', '/api/employees', payload);
-      console.log('Add employee response:', response);
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Add employee error:', errorText);
         throw new Error(`Failed to add employee: ${errorText}`);
       }
       
@@ -510,7 +573,6 @@ export default function EmployeesPage() {
       resetForm();
     },
     onError: (error: any) => {
-      console.error('Add employee mutation error:', error);
       toast({
         title: "Error",
         description: error.message || error.detail || "Failed to add employee",
@@ -521,28 +583,30 @@ export default function EmployeesPage() {
 
   // Update employee mutation
   const updateEmployeeMutation = useMutation({
-    mutationFn: async (data: EmployeeFormData) => {
-      console.log('Updating employee with data:', data);
-      console.log('Selected employee ID:', selectedEmployee?.id);
-      console.log('Form data being sent:', JSON.stringify(data, null, 2));
-
-      if (!data.companyId?.trim()) {
-        throw new Error('Company is required.');
+    mutationFn: async ({
+      data,
+      salaries,
+    }: {
+      data: EmployeeFormData;
+      salaries: CompanySalaryEntry[];
+    }) => {
+      if (!salaries.length) {
+        throw new Error('At least one company is required.');
       }
-      
+      if (salaries.some((entry) => !entry.salary?.trim())) {
+        throw new Error('Salary is required for each selected company.');
+      }
+
       const updateData = buildEmployeePayload(
         data,
-        effectiveTenantId || selectedEmployee?.tenantId
+        effectiveTenantId || selectedEmployee?.tenantId,
+        { companySalaries: salaries }
       );
       
-      console.log('Update data with tenantId:', JSON.stringify(updateData, null, 2));
-      
       const response = await apiRequest('PUT', `/api/employees/${selectedEmployee?.id}`, updateData);
-      console.log('Update employee response:', response);
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Update employee error:', errorText);
         throw new Error(`Failed to update employee: ${errorText}`);
       }
       
@@ -561,8 +625,6 @@ export default function EmployeesPage() {
       resetForm();
     },
     onError: (error: any) => {
-      console.error('Update employee mutation error:', error);
-      console.error('Error details:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to update employee",
@@ -588,7 +650,6 @@ export default function EmployeesPage() {
       setIsDeleteDialogOpen(false);
     },
     onError: (error: any) => {
-      console.error('Delete employee mutation error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to delete employee",
@@ -650,6 +711,8 @@ export default function EmployeesPage() {
       visaScan: '',
     });
     setDependents([]);
+    setCompanySalaries([]);
+    setViewCompanySalaries([]);
     setShowDependentForm(false);
     setDependentFormData({
       name: '',
@@ -679,7 +742,48 @@ export default function EmployeesPage() {
     setSelectedEmployee(null);
   };
 
-  const handleEdit = (employee: Employee) => {
+  const loadEmployeeCompanySalaries = async (employee: Employee) => {
+    try {
+      const response = await apiRequest('GET', `/api/employees/${employee.id}/company-salaries`);
+      if (response.ok) {
+        const salaries = await response.json();
+        if (Array.isArray(salaries) && salaries.length > 0) {
+          return salaries.map((entry: any) => ({
+            companyId: String(entry.companyId),
+            companyName: entry.companyName || getCompanyName(entry.companyId),
+            salary: entry.salary != null ? String(entry.salary) : '',
+            annualSalary:
+              entry.annualSalary != null
+                ? String(entry.annualSalary)
+                : entry.salary
+                  ? String(Number(entry.salary) * 12)
+                  : '',
+          }));
+        }
+      }
+    } catch {
+      // fall through to legacy single-company data
+    }
+
+    if (employee.companyId) {
+      return [
+        {
+          companyId: String(employee.companyId),
+          companyName: employee.companyName || getCompanyName(employee.companyId),
+          salary: employee.salary ? String(employee.salary) : '',
+          annualSalary: employee.salary
+            ? String(Number(employee.salary) * 12)
+            : (employee as any).annualSalary
+              ? String((employee as any).annualSalary)
+              : '',
+        },
+      ];
+    }
+
+    return [];
+  };
+
+  const handleEdit = async (employee: Employee) => {
     setSelectedEmployee(employee);
     setFormData({
       employeeId: employee.employeeId,
@@ -712,11 +816,25 @@ export default function EmployeesPage() {
       nricScan: employee.nricScan || '',
       visaScan: employee.visaScan || '',
     });
+
+    try {
+      const salaries = await loadEmployeeCompanySalaries(employee);
+      setCompanySalaries(salaries);
+    } catch {
+      setCompanySalaries([]);
+    }
+
     setIsEditModalOpen(true);
   };
 
-  const handleViewDetails = (employee: Employee) => {
+  const handleViewDetails = async (employee: Employee) => {
     setSelectedEmployee(employee);
+    try {
+      const salaries = await loadEmployeeCompanySalaries(employee);
+      setViewCompanySalaries(salaries);
+    } catch {
+      setViewCompanySalaries([]);
+    }
     setIsViewDetailsModalOpen(true);
   };
 
@@ -759,17 +877,37 @@ export default function EmployeesPage() {
       });
       return;
     }
-    if (!formData.companyId?.trim()) {
+    if (!companySalaries.length || !companySalaries.some((entry) => entry.companyId?.trim())) {
       toast({
         title: "Company required",
-        description: "Please select a company for this employee.",
+        description: "Please add at least one company for this employee.",
+        variant: "destructive",
       });
       return;
     }
+    if (companySalaries.some((entry) => entry.companyId?.trim() && !entry.salary?.trim())) {
+      toast({
+        title: "Salary required",
+        description: "Please enter salary for each selected company.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const normalizedSalaries = normalizeCompanySalariesForSubmit(companySalaries, companies);
+    if (normalizedSalaries.length === 0) {
+      toast({
+        title: "Company required",
+        description: "Please add at least one company with salary details.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (isEditModalOpen) {
-      updateEmployeeMutation.mutate(formData);
+      updateEmployeeMutation.mutate({ data: formData, salaries: normalizedSalaries });
     } else {
-      addEmployeeMutation.mutate(formData);
+      addEmployeeMutation.mutate({ data: formData, salaries: normalizedSalaries });
     }
   };
 
@@ -800,11 +938,34 @@ export default function EmployeesPage() {
 
   const isForeigner = formData.nationality === 'foreigner';
   const isPr = formData.nationality === 'pr';
-  const computedAnnualSalary = formData.annualSalary
-    ? Number(formData.annualSalary).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : formData.salary
-      ? (parseFloat(formData.salary) * 12).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : '—';
+
+  const addCompanySalaryEntry = () => {
+    setCompanySalaries((prev) => [
+      ...prev,
+      { companyId: '', companyName: '', salary: '', annualSalary: '' },
+    ]);
+  };
+
+  const updateCompanySalaryEntry = (
+    index: number,
+    updates: Partial<CompanySalaryEntry>
+  ) => {
+    setCompanySalaries((prev) =>
+      prev.map((entry, i) => (i === index ? { ...entry, ...updates } : entry))
+    );
+  };
+
+  const removeCompanySalaryEntry = (index: number) => {
+    setCompanySalaries((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleCompanySelect = (index: number, companyId: string) => {
+    const company = companies.find((c: { id: number }) => c.id.toString() === companyId);
+    updateCompanySalaryEntry(index, {
+      companyId,
+      companyName: company?.companyName || '',
+    });
+  };
 
   const renderEmployeeFormDetailsGrid = (idPrefix: 'add' | 'edit') => {
     const p = idPrefix === 'edit' ? 'edit_' : '';
@@ -965,7 +1126,7 @@ export default function EmployeesPage() {
             />
           </div>
 
-          {/* Row 5: Designation | Salary + Annual Salary */}
+          {/* Row 5: Designation | Join Date */}
           <div>
             <Label htmlFor={`${p}position`}>Designation*</Label>
             <Input
@@ -976,70 +1137,130 @@ export default function EmployeesPage() {
               required
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor={`${p}salary`}>Salary*</Label>
-              <Input
-                id={`${p}salary`}
-                type="number"
-                min="1"
-                step="0.01"
-                value={formData.salary}
-                onChange={(e) => {
-                  const salary = e.target.value;
-                  setFormData({
-                    ...formData,
-                    salary,
-                    annualSalary: salary ? String(Number(salary) * 12) : '',
-                  });
-                }}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor={`${p}annual_salary`}>Annual Salary</Label>
-              <Input
-                id={`${p}annual_salary`}
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.annualSalary}
-                onChange={(e) => setFormData({ ...formData, annualSalary: e.target.value })}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor={`${p}hire_date`}>Join Date*</Label>
+            <StringDatePicker
+              value={formData.joinDate}
+              onChange={(val) => setFormData({ ...formData, joinDate: val })}
+            />
           </div>
 
-          {/* Row 6: Company | Join Date */}
-          <div className="col-span-2 grid grid-cols-2 gap-4 items-start">
-            <div className="space-y-2">
-              <Label htmlFor={`${p}company`}>Company*</Label>
-              <CompanySearchSelect
-                companies={companies}
-                value={formData.companyId}
-                onValueChange={(value) => setFormData({ ...formData, companyId: value })}
-                placeholder={idPrefix === 'edit' ? 'Select Company' : 'Search company...'}
-              />
-              {idPrefix === 'edit' ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm text-muted-foreground">Assign Employee to a Company</span>
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="h-auto p-0 text-sm font-semibold text-gray-900 hover:text-primary active:text-primary"
-                    onClick={() => selectedEmployee && handleHistory(selectedEmployee)}
-                  >
-                    (View History)
-                  </Button>
-                </div>
-              ) : null}
+          {/* Companies & Salaries */}
+          <div className="col-span-2 space-y-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div>
+                <h4 className="text-base font-semibold">Companies & Salaries*</h4>
+                <p className="text-sm text-muted-foreground">
+                  Add one or more companies and enter salary details for each.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={addCompanySalaryEntry}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Company
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor={`${p}hire_date`}>Join Date*</Label>
-              <StringDatePicker
-                value={formData.joinDate}
-                onChange={(val) => setFormData({ ...formData, joinDate: val })}
-              />
-            </div>
+
+            {companySalaries.length > 0 ? (
+              <div className="space-y-4">
+                {companySalaries.map((entry, index) => {
+                  const usedCompanyIds = companySalaries
+                    .filter((_, i) => i !== index)
+                    .map((item) => item.companyId)
+                    .filter(Boolean);
+                  const availableCompanies = companies.filter(
+                    (c: { id: number }) =>
+                      !usedCompanyIds.includes(String(c.id)) ||
+                      String(c.id) === entry.companyId
+                  );
+
+                  return (
+                    <div
+                      key={`${idPrefix}-company-${index}`}
+                      className="rounded-lg border p-4 space-y-4 bg-muted/20"
+                    >
+                      <div className="flex items-center justify-between">
+                        <h5 className="font-medium">
+                          Company {index + 1}
+                          {entry.companyName ? `: ${entry.companyName}` : ''}
+                        </h5>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeCompanySalaryEntry(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label>Company Name*</Label>
+                          <CompanySearchSelect
+                            companies={availableCompanies}
+                            value={entry.companyId}
+                            onValueChange={(value) => handleCompanySelect(index, value)}
+                            placeholder="Search company..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Salary*</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            value={entry.salary}
+                            onChange={(e) => {
+                              const salary = e.target.value;
+                              updateCompanySalaryEntry(index, {
+                                salary,
+                                annualSalary: salary ? String(Number(salary) * 12) : '',
+                              });
+                            }}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Annual Salary</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={entry.annualSalary}
+                            onChange={(e) =>
+                              updateCompanySalaryEntry(index, { annualSalary: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No companies added yet. Click &quot;Add Company&quot; to start.
+              </p>
+            )}
+
+            {idPrefix === 'edit' ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-muted-foreground">Assign Employee to a Company</span>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-sm font-semibold text-gray-900 hover:text-primary active:text-primary"
+                  onClick={() => selectedEmployee && handleHistory(selectedEmployee)}
+                >
+                  (View History)
+                </Button>
+              </div>
+            ) : null}
           </div>
 
           {/* Row 7: Nationality | PR Status — below */}
@@ -1333,8 +1554,24 @@ export default function EmployeesPage() {
 
       if (errors.length === 0) {
         try {
+          const importCompany = companyList.find(
+            (c) => String(c.id) === formRow.companyId
+          );
+          const importCompanySalaries: CompanySalaryEntry[] = formRow.companyId
+            ? [
+                {
+                  companyId: formRow.companyId,
+                  companyName: importCompany?.companyName || '',
+                  salary: formRow.salary,
+                  annualSalary:
+                    formRow.annualSalary ||
+                    (formRow.salary ? String(Number(formRow.salary) * 12) : ''),
+                },
+              ]
+            : [];
           const payload = buildEmployeePayload(formRow, effectiveTenantId, {
             omitEmployeeId: autoEmployeeId,
+            companySalaries: importCompanySalaries,
           });
           importSchema.parse({
             ...payload,
@@ -1428,8 +1665,26 @@ export default function EmployeesPage() {
       try {
         const ensured = await ensureCompanyIdForImport(row, companyList);
         companyList = ensured.companyList;
+        const importCompany = companyList.find(
+          (c) => String(c.id) === ensured.formRow.companyId
+        );
+        const importCompanySalaries: CompanySalaryEntry[] = ensured.formRow.companyId
+          ? [
+              {
+                companyId: ensured.formRow.companyId,
+                companyName: importCompany?.companyName || '',
+                salary: ensured.formRow.salary,
+                annualSalary:
+                  ensured.formRow.annualSalary ||
+                  (ensured.formRow.salary
+                    ? String(Number(ensured.formRow.salary) * 12)
+                    : ''),
+              },
+            ]
+          : [];
         const payload = buildEmployeePayload(ensured.formRow, effectiveTenantId, {
           omitEmployeeId: autoEmployeeId,
+          companySalaries: importCompanySalaries,
         });
         const res = await apiRequest("POST", "/api/employees", payload);
         if (!res.ok) {
@@ -1600,7 +1855,9 @@ export default function EmployeesPage() {
                         <TableCell>{employee.name}</TableCell>
                         <TableCell>{employee.email || '—'}</TableCell>
                         <TableCell>{employee.department}</TableCell>
-                        <TableCell>{displayCompanyName(employee)}</TableCell>
+                        <TableCell className="max-w-[220px] whitespace-normal">
+                          {displayCompanyName(employee)}
+                        </TableCell>
                         <TableCell>
                           {employee.passportExpiry
                             ? new Date(employee.passportExpiry).toLocaleDateString('en-GB')
@@ -2466,6 +2723,7 @@ export default function EmployeesPage() {
             <EmployeeViewContent
               employee={selectedEmployee}
               companyDisplay={displayCompanyName(selectedEmployee)}
+              companySalaries={viewCompanySalaries}
               nationalityLabel={residencyLabel(selectedEmployee.nationality, selectedEmployee.prStatus)}
               prStatusLabel={getPrStatusLabel(selectedEmployee.nationality, selectedEmployee.prStatus)}
               visaTypeLabel={getVisaTypeLabel(selectedEmployee.visaType)}

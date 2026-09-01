@@ -28,14 +28,84 @@ import {
 } from "@shared/permissions";
 import { assertCanManageUser, requireModuleAccess, enforceApiModuleAccess } from "./permission-guard";
 import type { DocumentExpiryRecord } from "@shared/document-reminder-utils";
-import { syncPayrollConfigFromEmployee } from "./payroll-process-service";
+import { syncAllPayrollConfigsFromEmployee } from "./payroll-process-service";
 import {
   assignEmployeeCompany,
   seedInitialEmployeeCompanyHistory,
   toDateOnly,
 } from "./employee-company-history-service";
+import {
+  getEmployeeCompanySalaries,
+  getCompanyNamesByEmployeeIds,
+  saveEmployeeCompanySalaries,
+  syncEmployeeCompanyHistoryForSalaries,
+  type CompanySalaryInput,
+} from "./employee-company-salary-service";
 import { performGlobalSearch } from "./global-search";
 import { canViewModule } from "@shared/permissions";
+
+function parseCompanySalariesFromBody(body: Record<string, unknown>): CompanySalaryInput[] {
+  let raw = body.companySalaries;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const entry = item as Record<string, unknown>;
+      const companyId = Number(entry.companyId);
+      if (!companyId || Number.isNaN(companyId)) return null;
+      return {
+        companyId,
+        companyName: String(entry.companyName ?? "").trim(),
+        salary: entry.salary as string | number | null,
+        annualSalary: entry.annualSalary as string | number | null,
+      };
+    })
+    .filter((item): item is CompanySalaryInput => item !== null);
+}
+
+async function enrichCompanySalariesWithNames(
+  entries: CompanySalaryInput[]
+): Promise<CompanySalaryInput[]> {
+  const enriched: CompanySalaryInput[] = [];
+
+  for (const entry of entries) {
+    if (entry.companyName?.trim()) {
+      enriched.push({
+        ...entry,
+        companyName: entry.companyName.trim(),
+      });
+      continue;
+    }
+
+    const company = await storage.getCompany(entry.companyId);
+    if (!company) continue;
+
+    enriched.push({
+      ...entry,
+      companyName: company.companyName,
+    });
+  }
+
+  return enriched;
+}
+
+function derivePrimaryCompanyFromSalaries(entries: CompanySalaryInput[]) {
+  if (entries.length === 0) return null;
+  const primary = entries[0];
+  return {
+    companyId: primary.companyId,
+    salary: primary.salary,
+    annualSalary: primary.annualSalary,
+  };
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
@@ -199,7 +269,21 @@ app.use(express.static('public'));
     try {
       const scopedTenantId = await resolveListScopedTenantId(req);
       const employees = await storage.getEmployees(scopedTenantId);
-      res.json(employees);
+      const companyNamesByEmployee = await getCompanyNamesByEmployeeIds(
+        employees.map((employee) => employee.id)
+      );
+      const enriched = employees.map((employee) => {
+        const fromSalaries = companyNamesByEmployee.get(employee.id) ?? [];
+        const fallback =
+          employee.companyName?.trim()
+            ? [employee.companyName.trim()]
+            : [];
+        return {
+          ...employee,
+          companyNames: fromSalaries.length > 0 ? fromSalaries : fallback,
+        };
+      });
+      res.json(enriched);
     } catch (error: any) {
       console.error("GET /api/employees error:", error?.message || error);
       res.status(500).json({ message: "Failed to fetch employees" });
@@ -236,14 +320,35 @@ app.use(express.static('public'));
     }
   });
 
+  app.get("/api/employees/:id/company-salaries", requireRole(['admin', 'hr', 'it_manager']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ message: "Invalid employee id" });
+      }
+      const salaries = await getEmployeeCompanySalaries(id);
+      res.json(salaries);
+    } catch (error) {
+      console.error("GET /api/employees/:id/company-salaries error:", error);
+      res.status(500).json({ message: "Failed to fetch employee company salaries" });
+    }
+  });
+
   app.post("/api/employees", requireRole(['admin', 'hr']), uploadMiddleware, async (req, res) => {
     try {
-      console.log("Employee Create Request Body:", req.body);
-      console.log("Employee Create Request DOB:", req.body?.dateOfBirth);
-      console.log("Employee Create Request DOB Type:", typeof req.body?.dateOfBirth);
-      console.log("Employee Create Request DOB instanceof Date:", req.body?.dateOfBirth instanceof Date);
       const user = req.user as any;
       const bodyWithSavedScans = await processEmployeeScanFields(req.body);
+      const companySalaries = await enrichCompanySalariesWithNames(
+        parseCompanySalariesFromBody(bodyWithSavedScans)
+      );
+      const primaryCompany = derivePrimaryCompanyFromSalaries(companySalaries);
+      const employeeBody = { ...bodyWithSavedScans };
+      delete employeeBody.companySalaries;
+      if (primaryCompany) {
+        employeeBody.companyId = primaryCompany.companyId;
+        employeeBody.salary = primaryCompany.salary;
+        employeeBody.annualSalary = primaryCompany.annualSalary;
+      }
       const tenantId = await resolveRequestTenantId(req, user);
       const runningConfig = tenantId
         ? await storage.getRunningNumber(tenantId, RUNNING_NUMBER_MODULE_EMPLOYEE)
@@ -251,18 +356,13 @@ app.use(express.static('public'));
 
       const employeeData = runningConfig
         ? insertEmployeeSchema.omit({ employeeId: true }).parse({
-            ...bodyWithSavedScans,
+            ...employeeBody,
             tenantId,
           })
         : insertEmployeeSchema.parse({
-            ...bodyWithSavedScans,
+            ...employeeBody,
             tenantId,
           });
-      console.log("Employee Payload:", employeeData);
-      console.log("DOB Type:", typeof (employeeData as any).dateOfBirth);
-      console.log("DOB Value:", (employeeData as any).dateOfBirth);
-      console.log("DOB instanceof Date:", (employeeData as any).dateOfBirth instanceof Date);
-
       const employee = runningConfig && tenantId
         ? await storage.createEmployeeWithRunningNumber(tenantId, employeeData)
         : await storage.createEmployee(employeeData as any);
@@ -281,6 +381,24 @@ app.use(express.static('public'));
           });
         }
       }
+
+      if (companySalaries.length > 0) {
+        await saveEmployeeCompanySalaries(
+          employee.id,
+          employee.tenantId ?? null,
+          companySalaries
+        );
+        await syncEmployeeCompanyHistoryForSalaries({
+          tenantId: employee.tenantId ?? null,
+          employeeId: employee.id,
+          employeeCode: employee.employeeId,
+          employeeName: employee.name,
+          companyIds: companySalaries.map((entry) => entry.companyId),
+          effectiveFrom: employee.joinDate,
+        });
+      }
+      
+      const savedCompanySalaries = await getEmployeeCompanySalaries(employee.id);
       
       // Create audit log
       await storage.createAuditLog({
@@ -299,7 +417,7 @@ app.use(express.static('public'));
         seen: false
       });
       
-      res.status(201).json(employee);
+      res.status(201).json({ ...employee, companySalaries: savedCompanySalaries });
     } catch (error) {
       console.error('POST /api/employees error:', error);
       if (error instanceof ZodError) {
@@ -320,22 +438,25 @@ app.use(express.static('public'));
 
   app.put("/api/employees/:id", requireRole(['admin', 'hr']), uploadMiddleware, async (req, res) => {
     try {
-      console.log("Employee Update Request Body:", req.body);
-      console.log("Employee Update Request DOB:", req.body?.dateOfBirth);
-      console.log("Employee Update Request DOB Type:", typeof req.body?.dateOfBirth);
-      console.log("Employee Update Request DOB instanceof Date:", req.body?.dateOfBirth instanceof Date);
       const id = parseInt(req.params.id);
       const user = req.user as any;
       const tenant = await getTenantFromRequest(req);
       const bodyWithSavedScans = await processEmployeeScanFields(req.body);
+      const companySalaries = await enrichCompanySalariesWithNames(
+        parseCompanySalariesFromBody(bodyWithSavedScans)
+      );
+      const primaryCompany = derivePrimaryCompanyFromSalaries(companySalaries);
+      const employeeBody = { ...bodyWithSavedScans };
+      delete employeeBody.companySalaries;
+      if (primaryCompany) {
+        employeeBody.companyId = primaryCompany.companyId;
+        employeeBody.salary = primaryCompany.salary;
+        employeeBody.annualSalary = primaryCompany.annualSalary;
+      }
       const employeeData = insertEmployeeSchema.partial().parse({
-        ...bodyWithSavedScans,
-        tenantId: tenant?.id ?? bodyWithSavedScans.tenantId ?? user?.tenantId ?? undefined,
+        ...employeeBody,
+        tenantId: tenant?.id ?? employeeBody.tenantId ?? user?.tenantId ?? undefined,
       });
-      console.log("Employee Update Payload:", employeeData);
-      console.log("DOB Type:", typeof employeeData.dateOfBirth);
-      console.log("DOB Value:", employeeData.dateOfBirth);
-      console.log("DOB instanceof Date:", employeeData.dateOfBirth instanceof Date);
       
       const existingEmployee = await storage.getEmployee(id);
       if (!existingEmployee) {
@@ -348,18 +469,26 @@ app.use(express.static('public'));
         return res.status(404).json({ message: "Employee not found" });
       }
 
-      try {
-        const freshEmployee = await storage.getEmployee(id);
-        if (freshEmployee) {
-          await syncPayrollConfigFromEmployee(freshEmployee);
-        }
-      } catch (syncError) {
-        console.error("Failed to sync employee payroll config:", syncError);
-      }
-
       const newCompanyId = updatedEmployee.companyId ?? null;
       const previousCompanyId = existingEmployee.companyId ?? null;
-      if (newCompanyId && newCompanyId !== previousCompanyId) {
+      if (companySalaries.length > 0) {
+        await saveEmployeeCompanySalaries(
+          updatedEmployee.id,
+          updatedEmployee.tenantId ?? null,
+          companySalaries
+        );
+        await syncEmployeeCompanyHistoryForSalaries({
+          tenantId: updatedEmployee.tenantId ?? null,
+          employeeId: updatedEmployee.id,
+          employeeCode: updatedEmployee.employeeId,
+          employeeName: updatedEmployee.name,
+          companyIds: companySalaries.map((entry) => entry.companyId),
+          effectiveFrom:
+            bodyWithSavedScans.companyEffectiveFrom ||
+            bodyWithSavedScans.companyAssignmentDate ||
+            toDateOnly(new Date()),
+        });
+      } else if (newCompanyId && newCompanyId !== previousCompanyId) {
         const company = await storage.getCompany(newCompanyId);
         if (company) {
           const effectiveFrom =
@@ -377,6 +506,17 @@ app.use(express.static('public'));
           });
         }
       }
+
+      try {
+        const freshEmployee = await storage.getEmployee(id);
+        if (freshEmployee) {
+          await syncAllPayrollConfigsFromEmployee(freshEmployee, req.user!.id);
+        }
+      } catch (syncError) {
+        console.error("Failed to sync employee payroll config:", syncError);
+      }
+      
+      const savedCompanySalaries = await getEmployeeCompanySalaries(updatedEmployee.id);
       
       // Create audit log
       await storage.createAuditLog({
@@ -387,7 +527,7 @@ app.use(express.static('public'));
         timestamp: new Date()
       });
       
-      res.json(updatedEmployee);
+      res.json({ ...updatedEmployee, companySalaries: savedCompanySalaries });
     } catch (error) {
       console.error('PUT /api/employees error:', error);
       if (error instanceof ZodError) return handleZodError(error, res);

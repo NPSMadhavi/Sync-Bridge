@@ -56,8 +56,6 @@ export default function RecentActivity({ activities, className }: RecentActivity
           textColor: "text-teal-500"
         };
       default:
-        // Default icon for unknown types
-        console.warn(`Unknown activity type: ${type}`);
         return {
           icon: <Settings size={16} />,
           bgColor: "bg-gray-200",

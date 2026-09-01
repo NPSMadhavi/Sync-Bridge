@@ -1,16 +1,22 @@
 import dayjs from "dayjs";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "./db";
-import { employeePayroll, employees, payrollRecords } from "@shared/schema";
+import { employeeCompanySalaries, employeePayroll, employees, payrollRecords } from "@shared/schema";
 import {
   calculateAgeFromDob,
   mapEmployeeResidency,
 } from "@shared/singapore-payroll";
 import { calculateSingaporePayroll } from "./singapore-payroll-calculator";
+import { getEmployeeCompanySalaries } from "./employee-company-salary-service";
 import {
   resolveCompanyIdForDate,
   resolveReferenceDateFromPayPeriod,
+  toDateOnly,
 } from "./employee-company-history-service";
+import {
+  buildPayrollEmployeeSnapshot,
+  type PayrollEmployeeSnapshot,
+} from "./payroll-snapshot-service";
 
 export type PayrollProcessAction = "created" | "updated" | "skipped";
 
@@ -146,11 +152,26 @@ export function resolvePayrollMonthYearFromRecord(record: {
 export async function findPayrollRecordForPeriod(
   employeeId: number,
   payPeriodStart: string,
-  payPeriodEnd: string
+  payPeriodEnd: string,
+  companyId?: number | null
 ) {
   const start = normalizePayPeriodDate(payPeriodStart);
   const end = normalizePayPeriodDate(payPeriodEnd);
   const { year, month } = derivePayrollMonthYear(start);
+
+  const periodMatch = sql`(
+    (${payrollRecords.payrollYear} = ${year} AND ${payrollRecords.payrollMonth} = ${month})
+    OR (
+      (${payrollRecords.payrollYear} IS NULL OR ${payrollRecords.payrollMonth} IS NULL)
+      AND EXTRACT(YEAR FROM ${payrollRecords.payPeriodStart}::date) = ${year}
+      AND EXTRACT(MONTH FROM ${payrollRecords.payPeriodStart}::date) = ${month}
+    )
+  )`;
+
+  const companyMatch =
+    companyId != null
+      ? eq(payrollRecords.companyId, companyId)
+      : undefined;
 
   const [record] = await db
     .select()
@@ -158,14 +179,8 @@ export async function findPayrollRecordForPeriod(
     .where(
       and(
         eq(payrollRecords.employeeId, employeeId),
-        sql`(
-          (${payrollRecords.payrollYear} = ${year} AND ${payrollRecords.payrollMonth} = ${month})
-          OR (
-            (${payrollRecords.payrollYear} IS NULL OR ${payrollRecords.payrollMonth} IS NULL)
-            AND EXTRACT(YEAR FROM ${payrollRecords.payPeriodStart}::date) = ${year}
-            AND EXTRACT(MONTH FROM ${payrollRecords.payPeriodStart}::date) = ${month}
-          )
-        )`
+        periodMatch,
+        companyMatch
       )
     )
     .orderBy(desc(payrollRecords.updatedAt), desc(payrollRecords.createdAt))
@@ -182,7 +197,8 @@ export async function findPayrollRecordForPeriod(
       and(
         eq(payrollRecords.employeeId, employeeId),
         sql`${payrollRecords.payPeriodStart}::date <= ${end}::date`,
-        sql`${payrollRecords.payPeriodEnd}::date >= ${start}::date`
+        sql`${payrollRecords.payPeriodEnd}::date >= ${start}::date`,
+        companyMatch
       )
     )
     .orderBy(desc(payrollRecords.updatedAt), desc(payrollRecords.createdAt))
@@ -216,15 +232,45 @@ export function hasPayrollConfigChanged(
     return true;
   }
 
-  if (config.updatedAt && record.updatedAt) {
-    return new Date(config.updatedAt).getTime() > new Date(record.updatedAt).getTime();
-  }
-
   return false;
 }
 
 function amountsNearlyEqual(a: number, b: number) {
   return Math.abs(a - b) < 0.01;
+}
+
+/** Compare stored payroll snapshot vs what would be saved now. */
+export function hasPayrollSnapshotChanged(
+  existing: typeof payrollRecords.$inferSelect,
+  snapshot: PayrollEmployeeSnapshot,
+  payload: {
+    baseSalary: number | string;
+    grossPay: number | string;
+    netPay: number | string;
+    cpfDeduction?: number | string | null;
+  }
+): boolean {
+  if ((existing.employeeName ?? "") !== (snapshot.employeeName ?? "")) return true;
+  if ((existing.designation ?? "") !== (snapshot.designation ?? "")) return true;
+  if ((existing.department ?? "") !== (snapshot.department ?? "")) return true;
+  if ((existing.companyName ?? "") !== (snapshot.companyName ?? "")) return true;
+  if (existing.monthlySalary != null && snapshot.monthlySalary != null) {
+    if (!amountsNearlyEqual(Number(existing.monthlySalary), Number(snapshot.monthlySalary))) {
+      return true;
+    }
+  }
+  if (!amountsNearlyEqual(Number(payload.baseSalary), Number(existing.baseSalary))) return true;
+  if (!amountsNearlyEqual(Number(payload.grossPay), Number(existing.grossPay))) return true;
+  if (!amountsNearlyEqual(Number(payload.netPay), Number(existing.netPay))) return true;
+  if (
+    !amountsNearlyEqual(
+      Number(payload.cpfDeduction ?? 0),
+      Number(existing.cpfDeduction ?? 0)
+    )
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Detects payroll config, employee profile, or calculated amount changes vs an existing record. */
@@ -294,6 +340,42 @@ export function buildPayrollCalculationInput(
     additionalWagesSubjectYtd: options?.additionalWagesSubjectYtd,
     totalCpfPaidYtd: options?.totalCpfPaidYtd,
   };
+}
+
+function resolveMonthlySalaryFromEmployee(employee: typeof employees.$inferSelect): number | null {
+  if (employee.salary != null && String(employee.salary).trim() !== "") {
+    const monthly = Number(employee.salary);
+    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+  }
+  if (employee.annualSalary != null && String(employee.annualSalary).trim() !== "") {
+    const monthly = Number(employee.annualSalary) / 12;
+    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+  }
+  return null;
+}
+
+/** Resolve monthly salary for a payroll config — prefers per-company salary when configured. */
+export async function resolveMonthlySalaryForConfig(
+  employee: typeof employees.$inferSelect,
+  config: typeof employeePayroll.$inferSelect
+): Promise<number> {
+  if (config.companyId) {
+    const [companySalary] = await db
+      .select({ salary: employeeCompanySalaries.salary })
+      .from(employeeCompanySalaries)
+      .where(
+        and(
+          eq(employeeCompanySalaries.employeeId, employee.id),
+          eq(employeeCompanySalaries.companyId, config.companyId)
+        )
+      )
+      .limit(1);
+    if (companySalary?.salary != null) {
+      const monthly = Number(companySalary.salary);
+      if (!Number.isNaN(monthly) && monthly > 0) return monthly;
+    }
+  }
+  return resolveMonthlySalaryFromEmployee(employee) ?? Number(config.baseSalary) ?? 0;
 }
 
 export function buildPayrollRecordPayload(
@@ -379,24 +461,36 @@ export async function upsertPayrollRecord(
     payrollMonth,
     payrollYear
   );
-  const companyId = await resolveCompanyIdForDate(employee.id, referenceDate);
+  const companyId =
+    config.companyId ??
+    (await resolveCompanyIdForDate(employee.id, referenceDate));
 
   const existing = await findPayrollRecordForPeriod(
     employee.id,
     normalizedStart,
-    normalizedEnd
-  );
-  const payload = buildPayrollRecordPayload(
-    activeConfig,
-    employee,
-    normalizedStart,
     normalizedEnd,
-    userId,
-    tenantId,
-    options.notes ?? "",
-    options.overtimeHours ?? 0,
     companyId
   );
+  const snapshot = await buildPayrollEmployeeSnapshot(
+    employee,
+    activeConfig,
+    companyId,
+    referenceDate
+  );
+  const payload = {
+    ...buildPayrollRecordPayload(
+      activeConfig,
+      employee,
+      normalizedStart,
+      normalizedEnd,
+      userId,
+      tenantId,
+      options.notes ?? "",
+      options.overtimeHours ?? 0,
+      companyId
+    ),
+    ...snapshot,
+  };
 
   if (!existing) {
     const [record] = await db.insert(payrollRecords).values(payload).returning();
@@ -404,14 +498,15 @@ export async function upsertPayrollRecord(
   }
 
   const forceUpdate = parseForceOverwriteFlag(options.forceUpdate);
-  const inputsChanged = hasPayrollInputsChanged(
-    activeConfig,
-    employee,
-    existing,
-    normalizePayPeriodDate(payPeriodStart),
-    normalizePayPeriodDate(payPeriodEnd),
-    options.overtimeHours ?? 0
-  );
+  const inputsChanged =
+    hasPayrollInputsChanged(
+      activeConfig,
+      employee,
+      existing,
+      normalizePayPeriodDate(payPeriodStart),
+      normalizePayPeriodDate(payPeriodEnd),
+      options.overtimeHours ?? 0
+    ) || hasPayrollSnapshotChanged(existing, snapshot, payload);
 
   if (!forceUpdate) {
     if (!inputsChanged) {
@@ -453,18 +548,6 @@ export async function upsertPayrollRecord(
   return { action: "updated", record };
 }
 
-function resolveMonthlySalaryFromEmployee(employee: typeof employees.$inferSelect): number | null {
-  if (employee.salary != null && String(employee.salary).trim() !== "") {
-    const monthly = Number(employee.salary);
-    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
-  }
-  if (employee.annualSalary != null && String(employee.annualSalary).trim() !== "") {
-    const monthly = Number(employee.annualSalary) / 12;
-    if (!Number.isNaN(monthly) && monthly > 0) return monthly;
-  }
-  return null;
-}
-
 /** Keep active payroll config in sync when employee profile/salary changes elsewhere. */
 export async function syncPayrollConfigFromEmployee(
   employee: typeof employees.$inferSelect,
@@ -491,7 +574,7 @@ export async function syncPayrollConfigFromEmployee(
 
   if (!config) return null;
 
-  const monthlySalary = resolveMonthlySalaryFromEmployee(employee) ?? Number(config.baseSalary);
+  const monthlySalary = await resolveMonthlySalaryForConfig(employee, config);
   const configForCalc = { ...config, baseSalary: String(monthlySalary) };
   const calculation = calculateSingaporePayroll(buildPayrollCalculationInput(configForCalc, employee, 0));
 
@@ -510,6 +593,276 @@ export async function syncPayrollConfigFromEmployee(
     .returning();
 
   return updated ?? null;
+}
+
+/** Current company IDs assigned to this employee via employee_company_salaries. */
+export async function getCurrentEmployeeCompanyIds(
+  employeeId: number
+): Promise<number[]> {
+  const salaries = await getEmployeeCompanySalaries(employeeId);
+  return salaries.map((entry) => Number(entry.companyId)).filter((id) => id > 0);
+}
+
+/**
+ * Align employee_payroll rows with employee_company_salaries:
+ * deactivate removed companies, create/reactivate configs for current companies.
+ */
+export async function syncPayrollConfigsWithCompanySalaries(
+  employee: typeof employees.$inferSelect,
+  createdByUserId?: number
+): Promise<void> {
+  const salaries = await getEmployeeCompanySalaries(employee.id);
+  const currentCompanyIds = new Set(
+    salaries.map((entry) => Number(entry.companyId)).filter((id) => id > 0)
+  );
+
+  const allConfigs = await db
+    .select()
+    .from(employeePayroll)
+    .where(eq(employeePayroll.employeeId, employee.id));
+
+  const templateConfig =
+    allConfigs.find((config) => config.isActive) ?? allConfigs[0] ?? null;
+  const createdBy =
+    createdByUserId ??
+    templateConfig?.createdBy ??
+    1;
+
+  for (const config of allConfigs) {
+    const configCompanyId =
+      config.companyId != null ? Number(config.companyId) : null;
+    const shouldDeactivate =
+      currentCompanyIds.size > 0 &&
+      (configCompanyId == null || !currentCompanyIds.has(configCompanyId));
+
+    if (shouldDeactivate && config.isActive) {
+      await db
+        .update(employeePayroll)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(employeePayroll.id, config.id));
+    }
+  }
+
+  if (currentCompanyIds.size === 0) {
+    for (const config of allConfigs.filter((row) => row.isActive)) {
+      await syncPayrollConfigFromEmployee(employee, config.id);
+    }
+    return;
+  }
+
+  for (const salary of salaries) {
+    const companyId = Number(salary.companyId);
+    if (!companyId) continue;
+
+    let config = allConfigs.find((row) => Number(row.companyId) === companyId);
+
+    if (config) {
+      if (!config.isActive) {
+        const [reactivated] = await db
+          .update(employeePayroll)
+          .set({ isActive: true, updatedAt: new Date() })
+          .where(eq(employeePayroll.id, config.id))
+          .returning();
+        config = reactivated ?? config;
+      }
+      await syncPayrollConfigFromEmployee(employee, config.id);
+      continue;
+    }
+
+    const monthlySalary = salary.salary != null ? Number(salary.salary) : 0;
+    const draftConfig = {
+      ...(templateConfig ?? {}),
+      tenantId: employee.tenantId ?? templateConfig?.tenantId,
+      employeeId: employee.id,
+      companyId,
+      baseSalary: String(monthlySalary || 0),
+      payrollPeriod: templateConfig?.payrollPeriod ?? ("monthly" as const),
+      noOfWorkingDays: templateConfig?.noOfWorkingDays ?? null,
+      hourlyRate: templateConfig?.hourlyRate ?? "0",
+      overtimeRate: templateConfig?.overtimeRate ?? "0",
+      allowances: templateConfig?.allowances ?? {},
+      deductions: templateConfig?.deductions ?? {},
+      taxRate: templateConfig?.taxRate ?? "0.00",
+      cpfRate: templateConfig?.cpfRate ?? "20.00",
+      isActive: true,
+      effectiveFrom: toDateOnly(new Date()),
+      effectiveTo: null,
+      createdBy,
+    };
+
+    const configForCalc = {
+      ...draftConfig,
+      id: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as typeof employeePayroll.$inferSelect;
+
+    const calculation = calculateSingaporePayroll(
+      buildPayrollCalculationInput(configForCalc, employee, 0)
+    );
+
+    const [created] = await db
+      .insert(employeePayroll)
+      .values({
+        tenantId: draftConfig.tenantId!,
+        employeeId: employee.id,
+        companyId,
+        baseSalary: String(monthlySalary || 0),
+        payrollPeriod: draftConfig.payrollPeriod,
+        noOfWorkingDays: draftConfig.noOfWorkingDays,
+        hourlyRate: draftConfig.hourlyRate,
+        overtimeRate: draftConfig.overtimeRate,
+        allowances: draftConfig.allowances,
+        deductions: draftConfig.deductions,
+        taxRate: draftConfig.taxRate,
+        cpfRate: String(calculation.employeeCpfRate),
+        cpfAmount: String(calculation.employeeCpf),
+        employerCpfRate: String(calculation.employerCpfRate),
+        employerCpfAmount: String(calculation.employerCpf),
+        netSalary: String(calculation.netPay),
+        isActive: true,
+        effectiveFrom: draftConfig.effectiveFrom,
+        effectiveTo: null,
+        createdBy,
+      })
+      .returning();
+
+    if (created) {
+      await syncPayrollConfigFromEmployee(employee, created.id);
+    }
+  }
+}
+
+/** Active payroll configs for current company assignments only. */
+export async function resolvePayrollConfigsForProcessing(
+  employeeId: number,
+  tenantId: number
+): Promise<(typeof employeePayroll.$inferSelect)[]> {
+  const currentCompanyIds = await getCurrentEmployeeCompanyIds(employeeId);
+
+  if (currentCompanyIds.length > 0) {
+    return db
+      .select()
+      .from(employeePayroll)
+      .where(
+        and(
+          eq(employeePayroll.employeeId, employeeId),
+          eq(employeePayroll.tenantId, tenantId),
+          eq(employeePayroll.isActive, true),
+          inArray(employeePayroll.companyId, currentCompanyIds)
+        )
+      )
+      .orderBy(employeePayroll.companyId);
+  }
+
+  const configs = await db
+    .select()
+    .from(employeePayroll)
+    .where(
+      and(
+        eq(employeePayroll.employeeId, employeeId),
+        eq(employeePayroll.tenantId, tenantId),
+        eq(employeePayroll.isActive, true)
+      )
+    )
+    .orderBy(desc(employeePayroll.updatedAt));
+
+  return configs.length > 0 ? [configs[0]] : [];
+}
+
+/** Remove payroll records for companies no longer assigned when re-processing a month. */
+export async function purgeStalePayrollRecordsForMonth(
+  employeeId: number,
+  year: number,
+  month: number,
+  allowedCompanyIds: number[]
+): Promise<void> {
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const monthEnd = dayjs(monthStart).endOf("month").format("YYYY-MM-DD");
+  const allowed = new Set(allowedCompanyIds.map(Number).filter((id) => id > 0));
+
+  if (allowed.size === 0) return;
+
+  await db.delete(payrollRecords).where(
+    and(
+      eq(payrollRecords.employeeId, employeeId),
+      sql`(
+        (${payrollRecords.payrollYear} = ${year} AND ${payrollRecords.payrollMonth} = ${month})
+        OR (
+          (${payrollRecords.payrollYear} IS NULL OR ${payrollRecords.payrollMonth} IS NULL)
+          AND EXTRACT(YEAR FROM ${payrollRecords.payPeriodStart}::date) = ${year}
+          AND EXTRACT(MONTH FROM ${payrollRecords.payPeriodStart}::date) = ${month}
+        )
+      )`,
+      sql`${payrollRecords.payPeriodStart}::date <= ${monthEnd}::date`,
+      sql`${payrollRecords.payPeriodEnd}::date >= ${monthStart}::date`,
+      or(
+        isNull(payrollRecords.companyId),
+        sql`${payrollRecords.companyId} NOT IN (${sql.join(
+          [...allowed].map((id) => sql`${id}`),
+          sql`, `
+        )})`
+      )
+    )
+  );
+}
+
+/**
+ * Drop outdated company payroll rows for a month before processing with current companies.
+ * Preserves valid historical months unless force-overwrite or month only has stale companies.
+ */
+export async function reconcilePayrollRecordsBeforeProcessing(
+  employeeId: number,
+  year: number,
+  month: number,
+  allowedCompanyIds: number[],
+  forceOverwrite: boolean
+): Promise<void> {
+  const allowed = new Set(allowedCompanyIds.map(Number).filter((id) => id > 0));
+  if (allowed.size === 0) return;
+
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const monthEnd = dayjs(monthStart).endOf("month").format("YYYY-MM-DD");
+
+  const existing = await db
+    .select({
+      companyId: payrollRecords.companyId,
+    })
+    .from(payrollRecords)
+    .where(
+      and(
+        eq(payrollRecords.employeeId, employeeId),
+        sql`(
+          (${payrollRecords.payrollYear} = ${year} AND ${payrollRecords.payrollMonth} = ${month})
+          OR (
+            (${payrollRecords.payrollYear} IS NULL OR ${payrollRecords.payrollMonth} IS NULL)
+            AND EXTRACT(YEAR FROM ${payrollRecords.payPeriodStart}::date) = ${year}
+            AND EXTRACT(MONTH FROM ${payrollRecords.payPeriodStart}::date) = ${month}
+          )
+        )`,
+        sql`${payrollRecords.payPeriodStart}::date <= ${monthEnd}::date`,
+        sql`${payrollRecords.payPeriodEnd}::date >= ${monthStart}::date`
+      )
+    );
+
+  const hasStale = existing.some(
+    (row) => row.companyId != null && !allowed.has(Number(row.companyId))
+  );
+  const hasCurrent = existing.some(
+    (row) => row.companyId != null && allowed.has(Number(row.companyId))
+  );
+
+  if (forceOverwrite || (hasStale && !hasCurrent)) {
+    await purgeStalePayrollRecordsForMonth(employeeId, year, month, allowedCompanyIds);
+  }
+}
+
+/** Sync every active company payroll config from current employee + company salaries. */
+export async function syncAllPayrollConfigsFromEmployee(
+  employee: typeof employees.$inferSelect,
+  createdByUserId?: number
+): Promise<void> {
+  await syncPayrollConfigsWithCompanySalaries(employee, createdByUserId);
 }
 
 /** Mirror payroll config base salary back to the employee record. */

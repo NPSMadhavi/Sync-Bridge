@@ -50,13 +50,15 @@ function isValidPreviewInput(input: PayrollCalculationPreviewInput | null): inpu
 
 export function usePayrollCalculationPreview(
   input: PayrollCalculationPreviewInput | null,
-  debounceMs = 300
+  debounceMs = 500
 ) {
   const [calculation, setCalculation] = useState<PayrollCalculationPreviewResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const hasCalculationRef = useRef(false);
 
   const inputKey = useMemo(
     () => (isValidPreviewInput(input) ? JSON.stringify(input) : ""),
@@ -68,6 +70,8 @@ export function usePayrollCalculationPreview(
       setCalculation(null);
       setError(null);
       setIsLoading(false);
+      setIsRefreshing(false);
+      hasCalculationRef.current = false;
       return;
     }
 
@@ -77,7 +81,11 @@ export function usePayrollCalculationPreview(
       abortRef.current = controller;
       const requestId = ++requestIdRef.current;
 
-      setIsLoading(true);
+      if (hasCalculationRef.current) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
       setError(null);
 
       try {
@@ -98,14 +106,18 @@ export function usePayrollCalculationPreview(
 
         const data = (await res.json()) as PayrollCalculationPreviewResult;
         setCalculation(data);
+        hasCalculationRef.current = true;
       } catch (err) {
         if (controller.signal.aborted) return;
         if (requestId !== requestIdRef.current) return;
-        setCalculation(null);
+        if (!hasCalculationRef.current) {
+          setCalculation(null);
+        }
         setError(err instanceof Error ? err.message : "Calculation failed");
       } finally {
         if (requestId === requestIdRef.current) {
           setIsLoading(false);
+          setIsRefreshing(false);
         }
       }
     }, debounceMs);
@@ -121,5 +133,5 @@ export function usePayrollCalculationPreview(
     };
   }, []);
 
-  return { calculation, isLoading, error };
+  return { calculation, isLoading, isRefreshing, error };
 }

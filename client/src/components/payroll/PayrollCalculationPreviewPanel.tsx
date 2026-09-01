@@ -12,28 +12,37 @@ function formatCurrency(amount: number) {
 interface PayrollCalculationPreviewPanelProps {
   calculation: PayrollCalculationPreviewResult | null;
   isLoading?: boolean;
+  isRefreshing?: boolean;
   error?: string | null;
   emptyMessage?: string;
   className?: string;
+  title?: string;
 }
 
 export default function PayrollCalculationPreviewPanel({
   calculation,
   isLoading = false,
+  isRefreshing = false,
   error = null,
   emptyMessage = "Enter salary and employee details to preview CPF calculations.",
   className,
+  title = "CPF Preview",
 }: PayrollCalculationPreviewPanelProps) {
+  const showInitialLoader = isLoading && !calculation;
+
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-base">
           <Calculator className="h-5 w-5 text-blue-600" />
-          CPF Preview
+          {title}
+          {isRefreshing && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-auto" />
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {showInitialLoader ? (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             Calculating payroll...

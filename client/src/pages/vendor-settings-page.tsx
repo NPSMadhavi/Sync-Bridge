@@ -75,9 +75,7 @@ export default function VendorSettingsPage() {
     queryKey: ['vendor-products'],
     queryFn: async () => {
       const response = await apiRequest('GET', '/api/vendor/products');
-      const data = await response.json();
-      console.log('Products API response:', data); // Debug log
-      return data;
+      return response.json();
     },
     enabled: !!user
   });
@@ -87,9 +85,7 @@ export default function VendorSettingsPage() {
     queryKey: ['vendor-product-prices'],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/vendor/product-prices?vendorEmail=${user?.email}`);
-      const data = await response.json();
-      console.log('Product prices API response:', data); // Debug log
-      return data;
+      return response.json();
     },
     enabled: !!user
   });
@@ -99,9 +95,7 @@ export default function VendorSettingsPage() {
     queryKey: ['vendor-customers'],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/vendor/customers?vendorEmail=${user?.email}`);
-      const data = await response.json();
-      console.log('Customers API response:', data); // Debug log
-      return data;
+      return response.json();
     },
     enabled: !!user
   });
@@ -109,11 +103,8 @@ export default function VendorSettingsPage() {
   // Add product mutation
   const addProductMutation = useMutation({
     mutationFn: async (data: any) => {
-      console.log('Adding product with data:', data); // Debug log
       const response = await apiRequest('POST', '/api/vendor/products', data);
-      const result = await response.json();
-      console.log('Add product response:', result); // Debug log
-      return result;
+      return response.json();
     },
     onSuccess: () => {
       toast({
@@ -123,8 +114,7 @@ export default function VendorSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['vendor-products'] });
       setProductForm({ name: '', description: '', category: '' });
     },
-    onError: (error) => {
-      console.error('Add product error:', error); // Debug log
+    onError: () => {
       toast({
         title: "Add Failed",
         description: "Failed to add product. Please try again.",
@@ -136,11 +126,8 @@ export default function VendorSettingsPage() {
   // Set price mutation
   const setPriceMutation = useMutation({
     mutationFn: async (data: any) => {
-      console.log('Setting price with data:', data); // Debug log
       const response = await apiRequest('POST', '/api/vendor/product-prices', data);
-      const result = await response.json();
-      console.log('Set price response:', result); // Debug log
-      return result;
+      return response.json();
     },
     onSuccess: () => {
       toast({
@@ -150,8 +137,7 @@ export default function VendorSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['vendor-product-prices'] });
       setPriceForm({ productId: '', buyingPrice: '', sellingPrice: '' });
     },
-    onError: (error) => {
-      console.error('Set price error:', error); // Debug log
+    onError: () => {
       toast({
         title: "Set Price Failed",
         description: "Failed to set product price. Please try again.",
@@ -387,8 +373,6 @@ export default function VendorSettingsPage() {
                         <SelectValue placeholder={productsLoading ? "Loading products..." : "Select a product"} />
                       </SelectTrigger>
                       <SelectContent>
-                        {console.log('Products in dropdown:', products)} {/* Debug log */}
-                        {console.log('Products loading:', productsLoading)} {/* Debug log */}
                         {productsLoading ? (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">Loading products...</div>
                         ) : products && Object.entries(products).length > 0 ? (

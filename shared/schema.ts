@@ -234,6 +234,18 @@ export const employeeCompanyHistory = pgTable("employee_company_history", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const employeeCompanySalaries = pgTable("employee_company_salaries", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  employeeId: integer("employee_id").references(() => employees.id, { onDelete: "cascade" }).notNull(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  companyName: text("company_name").notNull(),
+  salary: decimal("salary", { precision: 12, scale: 2 }),
+  annualSalary: decimal("annual_salary", { precision: 12, scale: 2 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const dependents = pgTable("dependents", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").references(() => tenants.id),
@@ -508,6 +520,7 @@ export const employeePayroll = pgTable("employee_payroll", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").references(() => tenants.id).notNull(),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  companyId: integer("company_id").references(() => companies.id),
   baseSalary: decimal("base_salary", { precision: 10, scale: 2 }).notNull(),
   payrollPeriod: payrollPeriodEnum("payroll_period").notNull().default('monthly'),
   noOfWorkingDays: integer("no_of_working_days"),
@@ -551,6 +564,19 @@ export const payrollRecords = pgTable("payroll_records", {
   cpfDeduction: decimal("cpf_deduction", { precision: 10, scale: 2 }).default('0.00'),
   netPay: decimal("net_pay", { precision: 10, scale: 2 }).notNull(),
   companyId: integer("company_id").references(() => companies.id),
+  // Historical snapshot — frozen at payroll generation time
+  employeeCode: text("employee_code"),
+  employeeName: text("employee_name"),
+  employeeEmail: text("employee_email"),
+  designation: text("designation"),
+  department: text("department"),
+  annualSalary: decimal("annual_salary", { precision: 12, scale: 2 }),
+  monthlySalary: decimal("monthly_salary", { precision: 12, scale: 2 }),
+  companyName: text("company_name"),
+  companyAddress: text("company_address"),
+  icNo: text("ic_no"),
+  employerCpfAmount: decimal("employer_cpf_amount", { precision: 12, scale: 2 }),
+  noOfWorkingDays: integer("no_of_working_days"),
   status: payrollStatusEnum("status").notNull().default('draft'),
   paymentDate: date("payment_date"),
   notes: text("notes"),
@@ -1201,7 +1227,11 @@ export const insertEmployeePayrollSchema = createInsertSchema(employeePayroll, {
       const n = Number(val);
       return Number.isNaN(n) ? undefined : Math.trunc(n);
     },
-    z.number().int().min(1, "No of working days is required")
+    z.union([z.number().int().min(1), z.undefined()])
+  ),
+  companyId: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? undefined : Number(val)),
+    z.number().int().optional()
   ),
   cpfRate: z.union([z.string(), z.number()]).optional().transform(val => {
     if (typeof val === 'string') return val;
@@ -1340,6 +1370,8 @@ export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type EmployeeCompanyHistory = typeof employeeCompanyHistory.$inferSelect;
 export type InsertEmployeeCompanyHistory = typeof employeeCompanyHistory.$inferInsert;
+export type EmployeeCompanySalary = typeof employeeCompanySalaries.$inferSelect;
+export type InsertEmployeeCompanySalary = typeof employeeCompanySalaries.$inferInsert;
 export type DocumentReminder = typeof documentReminders.$inferSelect;
 export type LicenseReminder = typeof licenseReminders.$inferSelect;
 export type InsertDocumentReminder = z.infer<typeof insertDocumentReminderSchema>;

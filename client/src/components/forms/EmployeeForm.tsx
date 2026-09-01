@@ -308,7 +308,6 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
       // Force an immediate refetch
       await queryClient.refetchQueries({ queryKey: ["/api/employees"], type: 'active' });
     } catch (error) {
-      console.error('Error submitting form:', error);
     }
   };
 

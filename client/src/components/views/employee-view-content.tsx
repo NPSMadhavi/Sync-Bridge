@@ -40,9 +40,17 @@ interface EmployeeViewEmployee {
   createdAt?: string;
 }
 
+export interface EmployeeCompanySalaryView {
+  companyId?: number;
+  companyName: string;
+  salary?: string | number | null;
+  annualSalary?: string | number | null;
+}
+
 interface EmployeeViewContentProps {
   employee: EmployeeViewEmployee;
   companyDisplay: string;
+  companySalaries?: EmployeeCompanySalaryView[];
   nationalityLabel: string;
   prStatusLabel: string;
   visaTypeLabel: string;
@@ -121,9 +129,22 @@ function formatCurrency(value?: string | number | null): string {
   });
 }
 
-function annualSalary(value?: string | number | null): string {
-  if (value === null || value === undefined || value === "") return "—";
-  const num = typeof value === "string" ? parseFloat(value) : value;
+function formatAnnualSalary(
+  salary?: string | number | null,
+  annualSalary?: string | number | null
+): string {
+  if (annualSalary !== null && annualSalary !== undefined && annualSalary !== "") {
+    const annual =
+      typeof annualSalary === "string" ? parseFloat(annualSalary) : annualSalary;
+    if (!Number.isNaN(annual)) {
+      return annual.toLocaleString("en-SG", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    }
+  }
+  if (salary === null || salary === undefined || salary === "") return "—";
+  const num = typeof salary === "string" ? parseFloat(salary) : salary;
   if (Number.isNaN(num)) return "—";
   return (num * 12).toLocaleString("en-SG", {
     minimumFractionDigits: 2,
@@ -134,6 +155,7 @@ function annualSalary(value?: string | number | null): string {
 export function EmployeeViewContent({
   employee,
   companyDisplay,
+  companySalaries = [],
   nationalityLabel,
   prStatusLabel,
   visaTypeLabel,
@@ -141,6 +163,19 @@ export function EmployeeViewContent({
   onToggleVisibility,
   isFieldVisible,
 }: EmployeeViewContentProps) {
+  const companyEntries =
+    companySalaries.length > 0
+      ? companySalaries
+      : companyDisplay && companyDisplay !== "—"
+        ? [
+            {
+              companyName: companyDisplay,
+              salary: employee.salary,
+              annualSalary: null,
+            },
+          ]
+        : [];
+
   return (
     <div className="space-y-4">
       <EntityViewSection title="Employee Information">
@@ -149,15 +184,49 @@ export function EmployeeViewContent({
           <EntityViewField label="Full Name" value={employee.name} />
           <EntityViewField label="Department" value={employee.department} />
           <EntityViewField label="Designation" value={employee.designation} />
-          <EntityViewField label="Company" value={companyDisplay} />
         </EntityViewFieldGrid>
+      </EntityViewSection>
+
+      <EntityViewSection title="Companies & Salaries">
+        {companyEntries.length > 0 ? (
+          <div className="space-y-4">
+            {companyEntries.map((entry, index) => (
+              <div
+                key={`${entry.companyName}-${index}`}
+                className="rounded-lg border bg-muted/20 p-4"
+              >
+                <p className="mb-3 text-sm font-semibold">
+                  Company {index + 1}: {entry.companyName}
+                </p>
+                <EntityViewFieldGrid>
+                  <EntityViewField label="Company Name" value={entry.companyName} />
+                  <EntityViewField
+                    label="Salary (Monthly)"
+                    value={formatCurrency(entry.salary)}
+                  />
+                  <EntityViewField
+                    label="Annual Salary"
+                    value={formatAnnualSalary(entry.salary, entry.annualSalary)}
+                  />
+                </EntityViewFieldGrid>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EntityViewFieldGrid>
+            <EntityViewField label="Company" value="—" />
+            <EntityViewField label="Salary (Monthly)" value={formatCurrency(employee.salary)} />
+            <EntityViewField
+              label="Annual Salary"
+              value={formatAnnualSalary(employee.salary, null)}
+            />
+          </EntityViewFieldGrid>
+        )}
       </EntityViewSection>
 
       <EntityViewSection title="Employment Details">
         <EntityViewFieldGrid>
           <EntityViewField label="Join Date" value={formatViewDate(employee.joinDate)} />
-          <EntityViewField label="Salary" value={formatCurrency(employee.salary)} />
-          <EntityViewField label="Annual Salary" value={annualSalary(employee.salary)} />
           <EntityViewField label="Status">
             <Badge variant={employee.status === "active" ? "default" : "secondary"}>
               {formatViewStatus(employee.status)}

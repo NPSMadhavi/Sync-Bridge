@@ -156,7 +156,6 @@ export default function VendorsPage() {
       });
     },
     onError: (error: any) => {
-      console.error('Add vendor mutation error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to add vendor",
@@ -199,7 +198,6 @@ export default function VendorsPage() {
       });
     },
     onError: (error: any) => {
-      console.error('Update vendor mutation error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to update vendor",

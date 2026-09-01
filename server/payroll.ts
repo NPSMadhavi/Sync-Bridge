@@ -1,7 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { db } from './db';
 import { employeePayroll, payrollRecords, employees, tenants, companies } from '@shared/schema';
-import { and, eq, desc, gte, lte, sql } from 'drizzle-orm';
+import { and, eq, desc, gte, lte, sql, isNull } from 'drizzle-orm';
 import { insertEmployeePayrollSchema, insertPayrollRecordSchema } from '@shared/schema';
 import { sendEmail } from './email';
 import dayjs from 'dayjs';
@@ -9,9 +9,11 @@ import { calculateSingaporePayroll } from './singapore-payroll-calculator';
 import { mapEmployeeResidency } from '@shared/singapore-payroll';
 import {
   generatePayslipPdf,
+  generateCombinedPayslipPdf,
   savePayslipPdf,
   getPayslipDownloadFileName,
   buildPayslipHtml,
+  buildCombinedPayslipHtml,
   type PayslipData,
 } from './payslip-generator';
 import {
@@ -37,7 +39,19 @@ import {
   buildPayrollRecordPayload,
   syncEmployeeSalaryFromPayrollConfig,
   syncPayrollConfigFromEmployee,
+  syncPayrollConfigsWithCompanySalaries,
+  resolvePayrollConfigsForProcessing,
+  purgeStalePayrollRecordsForMonth,
+  reconcilePayrollRecordsBeforeProcessing,
+  getCurrentEmployeeCompanyIds,
 } from './payroll-process-service';
+import {
+  buildPayrollEmployeeSnapshot,
+  findPayrollRecordsForMonth,
+  isHistoricalPayrollRecord,
+  payrollRecordSnapshotSelect,
+  type PayrollRecordWithSnapshot,
+} from './payroll-snapshot-service';
 import {
   getSalaryMonthReferenceDate,
   resolveCompanyForPayrollDate,
@@ -47,6 +61,7 @@ import {
   getEarliestPayslipEligibilityDate,
   isPayslipMonthEligible,
 } from './employee-company-history-service';
+import { resolveCompanySalariesForPayslip } from './employee-company-salary-service';
 import { DataEncryption } from './utils/encryption';
 
 // Utility to get CPF rate based on citizenship and PR years
@@ -91,6 +106,8 @@ export async function getEmployeePayrollConfigs(req: Request, res: Response) {
       .select({
         id: employeePayroll.id,
         employeeId: employeePayroll.employeeId,
+        companyId: employeePayroll.companyId,
+        companyName: companies.companyName,
         employeeName: employees.name,
         department: employees.department,
         designation: employees.designation,
@@ -121,20 +138,28 @@ export async function getEmployeePayrollConfigs(req: Request, res: Response) {
         updatedAt: employeePayroll.updatedAt,
       })
       .from(employeePayroll)
-      .leftJoin(employees, eq(employeePayroll.employeeId, employees.id));
+      .leftJoin(employees, eq(employeePayroll.employeeId, employees.id))
+      .leftJoin(companies, eq(employeePayroll.companyId, companies.id));
 
+    const employeeIdFilter = req.query.employeeId ? Number(req.query.employeeId) : null;
     const effectiveTenantId = tenant?.id || user?.tenantId || null;
-    // Apply tenant filter based on user role
+
+    const whereConditions = [];
     if (user?.role === 'super_admin' || user?.isSuperAdmin) {
       if (effectiveTenantId) {
-        query = query.where(eq(employeePayroll.tenantId, effectiveTenantId));
+        whereConditions.push(eq(employeePayroll.tenantId, effectiveTenantId));
       }
-      // If no tenant, fetch all (global access for super admin)
     } else {
       if (!effectiveTenantId) {
         return res.status(400).json({ message: 'Tenant context required for regular users' });
       }
-      query = query.where(eq(employeePayroll.tenantId, effectiveTenantId));
+      whereConditions.push(eq(employeePayroll.tenantId, effectiveTenantId));
+    }
+    if (employeeIdFilter && Number.isFinite(employeeIdFilter)) {
+      whereConditions.push(eq(employeePayroll.employeeId, employeeIdFilter));
+    }
+    if (whereConditions.length > 0) {
+      query = query.where(and(...whereConditions));
     }
 
     const configs = await query.orderBy(desc(employeePayroll.createdAt));
@@ -188,6 +213,244 @@ export async function getEmployeePayrollConfigs(req: Request, res: Response) {
   }
 }
 
+async function resolvePayrollTenantId(
+  effectiveTenantId: number | null,
+  employeeId: number
+): Promise<number | null> {
+  let resolvedTenantId = effectiveTenantId;
+  if (!resolvedTenantId) {
+    const [emp] = await db
+      .select({ tenantId: employees.tenantId })
+      .from(employees)
+      .where(eq(employees.id, employeeId));
+    resolvedTenantId = emp?.tenantId ?? null;
+  }
+  if (!resolvedTenantId) {
+    const [firstTenant] = await db.select({ id: tenants.id }).from(tenants).limit(1);
+    resolvedTenantId = firstTenant?.id ?? null;
+  }
+  return resolvedTenantId;
+}
+
+function normalizePayrollConfigBody(reqBody: Record<string, unknown>, userId: number) {
+  const bodyPayload: Record<string, unknown> = {
+    ...reqBody,
+    createdBy: userId,
+    companyId:
+      reqBody.companyId != null && reqBody.companyId !== ''
+        ? Number(reqBody.companyId)
+        : undefined,
+    baseSalary: Number(reqBody.baseSalary),
+    hourlyRate: reqBody.hourlyRate ? Number(reqBody.hourlyRate) : null,
+    overtimeRate: reqBody.overtimeRate ? Number(reqBody.overtimeRate) : null,
+    taxRate: reqBody.taxRate ? Number(reqBody.taxRate) : 0,
+    cpfRate: reqBody.cpfRate ? Number(reqBody.cpfRate) : 20,
+    allowances: reqBody.allowances || {},
+    deductions: reqBody.deductions || {},
+    effectiveTo:
+      reqBody.effectiveTo && String(reqBody.effectiveTo).trim() !== ''
+        ? reqBody.effectiveTo
+        : null,
+  };
+
+  if (reqBody.noOfWorkingDays != null && reqBody.noOfWorkingDays !== '') {
+    bodyPayload.noOfWorkingDays = Math.trunc(Number(reqBody.noOfWorkingDays));
+  }
+
+  return bodyPayload;
+}
+
+async function findExistingPayrollConfigForUpsert(
+  resolvedTenantId: number,
+  employeeId: number,
+  companyId?: number | null,
+  configId?: number | null
+) {
+  if (configId) {
+    const [byId] = await db
+      .select()
+      .from(employeePayroll)
+      .where(
+        and(
+          eq(employeePayroll.id, Number(configId)),
+          eq(employeePayroll.tenantId, resolvedTenantId)
+        )
+      )
+      .limit(1);
+    if (byId) return byId;
+  }
+
+  if (companyId) {
+    const [byCompany] = await db
+      .select()
+      .from(employeePayroll)
+      .where(
+        and(
+          eq(employeePayroll.tenantId, resolvedTenantId),
+          eq(employeePayroll.employeeId, employeeId),
+          eq(employeePayroll.isActive, true),
+          eq(employeePayroll.companyId, Number(companyId))
+        )
+      )
+      .limit(1);
+    if (byCompany) return byCompany;
+
+    const legacyRows = await db
+      .select()
+      .from(employeePayroll)
+      .where(
+        and(
+          eq(employeePayroll.tenantId, resolvedTenantId),
+          eq(employeePayroll.employeeId, employeeId),
+          eq(employeePayroll.isActive, true),
+          isNull(employeePayroll.companyId)
+        )
+      );
+    if (legacyRows.length === 1) return legacyRows[0];
+    return null;
+  }
+
+  const [legacyOnly] = await db
+    .select()
+    .from(employeePayroll)
+    .where(
+      and(
+        eq(employeePayroll.tenantId, resolvedTenantId),
+        eq(employeePayroll.employeeId, employeeId),
+        eq(employeePayroll.isActive, true),
+        isNull(employeePayroll.companyId)
+      )
+    )
+    .limit(1);
+  return legacyOnly ?? null;
+}
+
+async function upsertEmployeePayrollConfigRecord(
+  resolvedTenantId: number,
+  validatedData: Record<string, unknown>,
+  options?: { configId?: number | null; companyId?: number | null; employeeId?: number }
+) {
+  const employeeId = Number(options?.employeeId ?? validatedData.employeeId);
+  const companyId =
+    options?.companyId != null
+      ? Number(options.companyId)
+      : validatedData.companyId != null
+        ? Number(validatedData.companyId)
+        : null;
+
+  const existing = await findExistingPayrollConfigForUpsert(
+    resolvedTenantId,
+    employeeId,
+    companyId,
+    options?.configId
+  );
+
+  if (existing) {
+    const [updatedConfig] = await db
+      .update(employeePayroll)
+      .set({ ...validatedData, tenantId: resolvedTenantId, updatedAt: new Date() })
+      .where(eq(employeePayroll.id, existing.id))
+      .returning();
+    return updatedConfig;
+  }
+
+  const [newConfig] = await db
+    .insert(employeePayroll)
+    .values({ ...validatedData, tenantId: resolvedTenantId })
+    .returning();
+  return newConfig;
+}
+
+// Batch save payroll configs for all companies of one employee (single final save)
+export async function batchSaveEmployeePayrollConfigs(req: Request, res: Response) {
+  try {
+    const tenant = (req as any).tenant;
+    const user = (req as any).user;
+
+    if (!user || !user.id) {
+      return res.status(401).json({ message: 'User context not found' });
+    }
+
+    const effectiveTenantId = tenant?.id || user?.tenantId || null;
+    if (!effectiveTenantId && !(user?.role === 'super_admin' || user?.isSuperAdmin)) {
+      return res.status(401).json({ message: 'Tenant context not found' });
+    }
+
+    const { employeeId, configs } = req.body as {
+      employeeId?: number;
+      configs?: Array<Record<string, unknown>>;
+    };
+
+    const employeeIdNum = Number(employeeId);
+    if (!employeeIdNum || !Array.isArray(configs) || configs.length === 0) {
+      return res.status(400).json({ message: 'employeeId and at least one company config are required' });
+    }
+
+    const resolvedTenantId = await resolvePayrollTenantId(effectiveTenantId, employeeIdNum);
+    if (!resolvedTenantId) {
+      return res.status(400).json({ message: 'No tenant found. Please create a tenant first.' });
+    }
+
+    const savedConfigs = [];
+    const savedCompanyIds = new Set<number>();
+    for (const config of configs) {
+      const bodyPayload = normalizePayrollConfigBody(
+        { ...config, employeeId: employeeIdNum },
+        user.id
+      );
+      const validatedData = insertEmployeePayrollSchema.omit({ tenantId: true }).parse(bodyPayload);
+      const companyId =
+        config.companyId != null ? Number(config.companyId) : validatedData.companyId ?? null;
+      if (companyId) savedCompanyIds.add(companyId);
+      const saved = await upsertEmployeePayrollConfigRecord(resolvedTenantId, validatedData, {
+        configId: config.configId != null ? Number(config.configId) : null,
+        companyId,
+        employeeId: employeeIdNum,
+      });
+      savedConfigs.push(saved);
+    }
+
+    const existingConfigs = await db
+      .select()
+      .from(employeePayroll)
+      .where(
+        and(
+          eq(employeePayroll.tenantId, resolvedTenantId),
+          eq(employeePayroll.employeeId, employeeIdNum)
+        )
+      );
+
+    for (const existing of existingConfigs) {
+      const existingCompanyId =
+        existing.companyId != null ? Number(existing.companyId) : null;
+      if (
+        savedCompanyIds.size > 0 &&
+        existingCompanyId != null &&
+        !savedCompanyIds.has(existingCompanyId) &&
+        existing.isActive
+      ) {
+        await db
+          .update(employeePayroll)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(eq(employeePayroll.id, existing.id));
+      }
+    }
+
+    res.status(200).json({ configs: savedConfigs });
+  } catch (error) {
+    console.error('Error batch saving employee payroll configs:', error);
+    if (error && typeof error === 'object' && 'issues' in error) {
+      const issues = (error as { issues: Array<{ message: string }> }).issues;
+      return res.status(400).json({ message: issues.map((i) => i.message).join(', ') });
+    }
+    if (error instanceof Error) {
+      res.status(400).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Failed to save payroll configurations' });
+    }
+  }
+}
+
 // Create employee payroll configuration
 export async function createEmployeePayrollConfig(req: Request, res: Response) {
   try {
@@ -204,69 +467,28 @@ export async function createEmployeePayrollConfig(req: Request, res: Response) {
       return res.status(401).json({ message: 'Tenant context not found' });
     }
     
-    // Ensure all numeric fields are properly converted to numbers
-    const bodyPayload = {
-      ...req.body,
-      createdBy: user.id,
-      baseSalary: Number(req.body.baseSalary),
-      hourlyRate: req.body.hourlyRate ? Number(req.body.hourlyRate) : null,
-      overtimeRate: req.body.overtimeRate ? Number(req.body.overtimeRate) : null,
-      noOfWorkingDays: Number(req.body.noOfWorkingDays),
-      taxRate: req.body.taxRate ? Number(req.body.taxRate) : 0,
-      cpfRate: req.body.cpfRate ? Number(req.body.cpfRate) : 20,
-      allowances: req.body.allowances || {},
-      deductions: req.body.deductions || {},
-      // Convert empty strings to null for optional date field
-      effectiveTo: req.body.effectiveTo && req.body.effectiveTo.trim() !== '' ? req.body.effectiveTo : null,
-    };
+    const bodyPayload = normalizePayrollConfigBody(req.body, user.id);
 
-    // Parse without tenantId so null doesn't fail the notNull schema check
     const validatedData = insertEmployeePayrollSchema.omit({ tenantId: true }).parse(bodyPayload);
 
-    // Resolve tenantId — for super_admin with no tenant context, derive from the employee
-    // or fall back to the first available tenant in the system
-    let resolvedTenantId = effectiveTenantId;
-    if (!resolvedTenantId) {
-      const [emp] = await db.select({ tenantId: employees.tenantId })
-        .from(employees)
-        .where(eq(employees.id, validatedData.employeeId));
-      resolvedTenantId = emp?.tenantId ?? null;
-    }
-    if (!resolvedTenantId) {
-      // Super_admin fallback: use the first tenant in the system
-      const [firstTenant] = await db.select({ id: tenants.id }).from(tenants).limit(1);
-      resolvedTenantId = firstTenant?.id ?? null;
-    }
+    const resolvedTenantId = await resolvePayrollTenantId(effectiveTenantId, validatedData.employeeId);
     if (!resolvedTenantId) {
       return res.status(400).json({ message: 'No tenant found. Please create a tenant first.' });
     }
 
-    // Check if active payroll config already exists for this employee
-    const existingConfig = await db
-      .select()
-      .from(employeePayroll)
-      .where(
-        and(
-          eq(employeePayroll.tenantId, resolvedTenantId),
-          eq(employeePayroll.employeeId, validatedData.employeeId),
-          eq(employeePayroll.isActive, true)
-        )
-      );
+    const saved = await upsertEmployeePayrollConfigRecord(resolvedTenantId, validatedData, {
+      configId: req.body.configId != null ? Number(req.body.configId) : null,
+      companyId: validatedData.companyId ?? null,
+      employeeId: validatedData.employeeId,
+    });
 
-    if (existingConfig.length > 0) {
-      return res.status(400).json({ 
-        message: 'Active payroll configuration already exists for this employee' 
-      });
-    }
-
-    const [newConfig] = await db
-      .insert(employeePayroll)
-      .values({ ...validatedData, tenantId: resolvedTenantId })
-      .returning();
-
-    res.status(201).json(newConfig);
+    res.status(200).json(saved);
   } catch (error) {
     console.error('Error creating employee payroll config:', error);
+    if (error && typeof error === 'object' && 'issues' in error) {
+      const issues = (error as { issues: Array<{ message: string }> }).issues;
+      return res.status(400).json({ message: issues.map((i) => i.message).join(', ') });
+    }
     if (error instanceof Error) {
       res.status(400).json({ message: error.message });
     } else {
@@ -294,9 +516,17 @@ export async function updateEmployeePayrollConfig(req: Request, res: Response) {
       updatedAt: new Date(),
     };
 
+    if (req.body.companyId !== undefined) {
+      updateData.companyId = req.body.companyId ? Number(req.body.companyId) : null;
+    }
     if (req.body.baseSalary !== undefined) updateData.baseSalary = String(num(req.body.baseSalary) ?? req.body.baseSalary);
     if (req.body.payrollPeriod !== undefined) updateData.payrollPeriod = req.body.payrollPeriod;
-    if (req.body.noOfWorkingDays !== undefined) updateData.noOfWorkingDays = Math.trunc(Number(req.body.noOfWorkingDays));
+    if (req.body.noOfWorkingDays !== undefined) {
+      updateData.noOfWorkingDays =
+        req.body.noOfWorkingDays != null && req.body.noOfWorkingDays !== ''
+          ? Math.trunc(Number(req.body.noOfWorkingDays))
+          : null;
+    }
     if (req.body.hourlyRate !== undefined) updateData.hourlyRate = req.body.hourlyRate != null ? String(num(req.body.hourlyRate) ?? 0) : null;
     if (req.body.overtimeRate !== undefined) updateData.overtimeRate = req.body.overtimeRate != null ? String(num(req.body.overtimeRate) ?? 0) : null;
     if (req.body.allowances !== undefined) updateData.allowances = req.body.allowances;
@@ -401,9 +631,16 @@ export async function getPayrollRecords(req: Request, res: Response) {
         payrollConfigId: payrollRecords.payrollConfigId,
         payrollMonth: payrollRecords.payrollMonth,
         payrollYear: payrollRecords.payrollYear,
-        employeeName: employees.name,
-        department: employees.department,
-        designation: employees.designation,
+        companyId: payrollRecords.companyId,
+        employeeName: payrollRecords.employeeName,
+        employeeCode: payrollRecords.employeeCode,
+        employeeEmail: payrollRecords.employeeEmail,
+        department: payrollRecords.department,
+        designation: payrollRecords.designation,
+        companyName: payrollRecords.companyName,
+        companyAddress: payrollRecords.companyAddress,
+        monthlySalary: payrollRecords.monthlySalary,
+        annualSalary: payrollRecords.annualSalary,
         payPeriodStart: payrollRecords.payPeriodStart,
         payPeriodEnd: payrollRecords.payPeriodEnd,
         baseSalary: payrollRecords.baseSalary,
@@ -415,14 +652,15 @@ export async function getPayrollRecords(req: Request, res: Response) {
         taxDeduction: payrollRecords.taxDeduction,
         cpfDeduction: payrollRecords.cpfDeduction,
         netPay: payrollRecords.netPay,
+        employerCpfAmount: payrollRecords.employerCpfAmount,
+        noOfWorkingDays: payrollRecords.noOfWorkingDays,
         status: payrollRecords.status,
         paymentDate: payrollRecords.paymentDate,
         notes: payrollRecords.notes,
         createdAt: payrollRecords.createdAt,
         updatedAt: payrollRecords.updatedAt,
       })
-      .from(payrollRecords)
-      .leftJoin(employees, eq(payrollRecords.employeeId, employees.id));
+      .from(payrollRecords);
 
     const effectiveTenantId = tenant?.id || user?.tenantId || null;
     // Apply tenant filter based on user role
@@ -494,7 +732,8 @@ export async function createPayrollRecord(req: Request, res: Response) {
       taxDeduction = 0,
       cpfDeduction = 0,
       netPay,
-      notes = ''
+      notes = '',
+      forceOverwrite = false,
     } = req.body;
 
     // Validate required fields
@@ -543,6 +782,23 @@ export async function createPayrollRecord(req: Request, res: Response) {
     const calculatedTaxDeduction = 0;
     const calculatedCpfDeduction = calculationResult.employeeCpf;
 
+    const referenceDate = resolveReferenceDateFromPayPeriod(
+      normalizedStart,
+      normalizedEnd,
+      payrollMonth,
+      payrollYear
+    );
+    const companyId =
+      payrollConfig.companyId ??
+      (await resolveCompanyIdForDate(employee.id, referenceDate));
+
+    const snapshot = await buildPayrollEmployeeSnapshot(
+      employee,
+      payrollConfig,
+      companyId,
+      referenceDate
+    );
+
     // Ensure all numeric fields are properly converted to numbers
     const payload = {
       tenantId: resolvedTenantId,
@@ -561,9 +817,11 @@ export async function createPayrollRecord(req: Request, res: Response) {
       taxDeduction: calculatedTaxDeduction,
       cpfDeduction: calculatedCpfDeduction,
       netPay: Number(netPay),
+      companyId,
       status: 'pending',
       notes: notes || '',
       createdBy: user.id,
+      ...snapshot,
     };
 
     const validatedData = insertPayrollRecordSchema.omit({ tenantId: true }).parse({
@@ -574,10 +832,12 @@ export async function createPayrollRecord(req: Request, res: Response) {
     const existingRecord = await findPayrollRecordForPeriod(
       Number(employeeId),
       normalizedStart,
-      normalizedEnd
+      normalizedEnd,
+      companyId
     );
 
     if (existingRecord) {
+      const forceUpdate = parseForceOverwriteFlag(forceOverwrite);
       const configChanged = hasPayrollConfigChanged(
         payrollConfig,
         existingRecord,
@@ -586,12 +846,15 @@ export async function createPayrollRecord(req: Request, res: Response) {
       const overtimeChanged =
         Number(overtimeHours) !== Number(existingRecord.overtimeHours ?? 0);
 
-      if (!configChanged && !overtimeChanged) {
+      if (!forceUpdate) {
         const startDate = normalizePayPeriodDate(payPeriodStart);
         const { monthLabel } = derivePayrollMonthYear(startDate);
         return res.status(409).json({
-          message: `Payroll for ${monthLabel} has already been processed.`,
+          message: configChanged || overtimeChanged
+            ? `Payroll for ${monthLabel} has already been processed. Use force overwrite to update this record.`
+            : `Payroll for ${monthLabel} has already been processed.`,
           action: 'skipped',
+          dataChanged: configChanged || overtimeChanged,
           record: existingRecord,
         });
       }
@@ -863,17 +1126,7 @@ function resolveEmployeeIcNo(employee: {
 }
 
 function buildPayslipFromProcessedRecord(
-  record: {
-    payPeriodStart: string;
-    payPeriodEnd: string;
-    baseSalary: string | number;
-    overtimePay: string | number | null;
-    allowances: Record<string, number> | null;
-    deductions: Record<string, number> | null;
-    grossPay: string | number;
-    cpfDeduction: string | number | null;
-    netPay: string | number;
-  },
+  record: PayrollRecordWithSnapshot,
   config: {
     noOfWorkingDays: number | null;
     employerCpfAmount: string | number | null;
@@ -894,11 +1147,48 @@ function buildPayslipFromProcessedRecord(
   month: number,
   year: number,
   payPeriodStart: string,
-  payPeriodEnd: string
+  payPeriodEnd: string,
+  options?: { historicalOnly?: boolean }
 ): PayslipData {
+  const historical =
+    options?.historicalOnly ?? isHistoricalPayrollRecord(record);
+  const basicSalary = parseFloat(String(record.baseSalary));
+
+  if (historical) {
+    const snapshotBasicRate =
+      record.monthlySalary != null && String(record.monthlySalary).trim() !== ''
+        ? parseFloat(String(record.monthlySalary))
+        : basicSalary;
+
+    return {
+      companyName: record.companyName ?? '',
+      companyAddress: record.companyAddress ?? '',
+      employeeName: record.employeeName ?? '',
+      employeeDbId: employee.id,
+      employeeCode: record.employeeCode ?? '',
+      icNo: record.icNo ?? '',
+      department: record.department ?? '',
+      jobTitle: record.designation ?? '',
+      month,
+      year,
+      payPeriodStart,
+      payPeriodEnd,
+      basicRate: snapshotBasicRate,
+      workingDays: record.noOfWorkingDays ?? null,
+      basicPay: basicSalary,
+      overtime: parseFloat(String(record.overtimePay || 0)),
+      allowance: sumJsonValues(record.allowances),
+      grossPay: parseFloat(String(record.grossPay)),
+      employeeCpf: parseFloat(String(record.cpfDeduction || 0)),
+      netPay: parseFloat(String(record.netPay)),
+      employerCpf: parseFloat(String(record.employerCpfAmount ?? 0)),
+      otherDeductions: sumJsonValues(record.deductions),
+    };
+  }
+
   return {
-    companyName: company?.companyName || '',
-    companyAddress: company?.address || '',
+    companyName: company?.companyName ?? '',
+    companyAddress: company?.address ?? '',
     employeeName: employee.name,
     employeeDbId: employee.id,
     employeeCode: employee.employeeId,
@@ -909,15 +1199,15 @@ function buildPayslipFromProcessedRecord(
     year,
     payPeriodStart,
     payPeriodEnd,
-    basicRate: parseFloat(String(record.baseSalary)),
+    basicRate: basicSalary,
     workingDays: config.noOfWorkingDays,
-    basicPay: parseFloat(String(record.baseSalary)),
+    basicPay: basicSalary,
     overtime: parseFloat(String(record.overtimePay || 0)),
     allowance: sumJsonValues(record.allowances),
     grossPay: parseFloat(String(record.grossPay)),
     employeeCpf: parseFloat(String(record.cpfDeduction || 0)),
     netPay: parseFloat(String(record.netPay)),
-    employerCpf: parseFloat(String(config.employerCpfAmount || 0)),
+    employerCpf: parseFloat(String(config.employerCpfAmount ?? 0)),
     otherDeductions: sumJsonValues(record.deductions),
   };
 }
@@ -971,6 +1261,219 @@ type SingleMonthPayslipResult =
     }
   | { status: 'ineligible'; monthLabel: string };
 
+type CompanyPayslipOverride = {
+  companyId: number;
+  companyName: string;
+  salary: string | null;
+  annualSalary: string | null;
+  address: string | null;
+};
+
+async function buildPayslipEntryFromStoredRecord(
+  companyRecord: PayrollRecordWithSnapshot,
+  config: typeof employeePayroll.$inferSelect,
+  employee: {
+    id: number;
+    employeeId: string;
+    name: string;
+    department: string;
+    designation: string;
+    nricNumber: string | null;
+    finNumber: string | null;
+  },
+  _fallbackCompany: { companyName: string | null; address: string | null } | null,
+  _referenceDate: string
+): Promise<PayslipData> {
+  const recordStart = normalizePayPeriodDate(companyRecord.payPeriodStart);
+  const recordEnd = normalizePayPeriodDate(companyRecord.payPeriodEnd);
+  const { month: payrollMonth, year: payrollYear } = resolvePayrollMonthYearFromRecord({
+    payrollMonth: companyRecord.payrollMonth,
+    payrollYear: companyRecord.payrollYear,
+    payPeriodStart: recordStart,
+  });
+
+  const configForPayslip = {
+    noOfWorkingDays: companyRecord.noOfWorkingDays ?? null,
+    employerCpfAmount: companyRecord.employerCpfAmount ?? null,
+  };
+
+  return buildPayslipFromProcessedRecord(
+    companyRecord,
+    configForPayslip,
+    employee,
+    null,
+    payrollMonth,
+    payrollYear,
+    recordStart,
+    recordEnd,
+    { historicalOnly: true }
+  );
+}
+
+async function buildPayslipDataListForMonth(
+  config: typeof employeePayroll.$inferSelect,
+  employee: {
+    id: number;
+    employeeId: string;
+    name: string;
+    department: string;
+    designation: string;
+    nricNumber: string | null;
+    finNumber: string | null;
+    dateOfBirth: string | Date | null;
+    nationality: typeof employees.$inferSelect['nationality'];
+    prStatus: typeof employees.$inferSelect['prStatus'];
+    joinDate: string | Date | null;
+  },
+  fallbackCompany: { companyName: string | null; address: string | null } | null,
+  yearNum: number,
+  month: number,
+  userId: number,
+  options?: { storedOnly?: boolean }
+): Promise<PayslipData[]> {
+  const storedOnly = options?.storedOnly === true;
+  const referenceDate = getSalaryMonthReferenceDate(yearNum, month);
+
+  // Historical path: use stored payroll records (snapshots) — never live employee data
+  const storedRecords = await findPayrollRecordsForMonth(config.employeeId, yearNum, month);
+  if (storedRecords.length > 0) {
+    const payslipDataList: PayslipData[] = [];
+    for (const companyRecord of storedRecords) {
+      payslipDataList.push(
+        await buildPayslipEntryFromStoredRecord(
+          companyRecord,
+          config,
+          employee,
+          fallbackCompany,
+          referenceDate
+        )
+      );
+    }
+    return payslipDataList;
+  }
+
+  // View/download must never fall back to live employee data for processed months
+  if (storedOnly) {
+    return [];
+  }
+
+  // Preview path: no processed payroll yet — derive from current employee/company config
+  const companySalaries = await resolveCompanySalariesForPayslip(
+    config.employeeId,
+    referenceDate
+  ).catch((err) => {
+    console.warn('[payslip] Failed to load company salaries:', err);
+    return [];
+  });
+  const targets = companySalaries.length > 0 ? companySalaries : [null];
+
+  const payslipDataList: PayslipData[] = [];
+  const fullEmployee = employee as typeof employees.$inferSelect;
+  const { payPeriodStart, payPeriodEnd } = getPayPeriodForMonth(yearNum, month);
+
+  for (const companySalary of targets) {
+    const targetCompanyId = companySalary?.companyId ?? null;
+
+    let configForCompany = config as typeof employeePayroll.$inferSelect;
+    if (targetCompanyId) {
+      const [matchedConfig] = await db
+        .select()
+        .from(employeePayroll)
+        .where(
+          and(
+            eq(employeePayroll.employeeId, config.employeeId),
+            eq(employeePayroll.companyId, targetCompanyId),
+            eq(employeePayroll.isActive, true)
+          )
+        )
+        .limit(1);
+      if (matchedConfig) {
+        configForCompany = matchedConfig;
+      }
+    }
+    if (companySalary?.salary != null) {
+      configForCompany = {
+        ...configForCompany,
+        baseSalary: String(companySalary.salary),
+      };
+    }
+
+    const eligibilityStart = await getEarliestPayslipEligibilityDate(config.employeeId);
+    if (!eligibilityStart || !isPayslipMonthEligible(yearNum, month, eligibilityStart)) {
+      continue;
+    }
+
+    const companyId =
+      targetCompanyId ??
+      (await resolveCompanyIdForDateStrict(config.employeeId, referenceDate));
+
+    if (!companyId) {
+      continue;
+    }
+
+    const payslipRecord = buildPayrollRecordPayload(
+      configForCompany,
+      fullEmployee,
+      payPeriodStart,
+      payPeriodEnd,
+      userId,
+      config.tenantId ?? 0,
+      '',
+      0,
+      companyId
+    );
+
+    const companyForPayslip = companySalary
+      ? { companyName: companySalary.companyName, address: companySalary.address }
+      : await resolveCompanyForPayrollDate(
+          config.employeeId,
+          referenceDate,
+          targetCompanyId
+        ).then((c) =>
+          c ? { companyName: c.companyName, address: c.address } : fallbackCompany
+        );
+
+    payslipDataList.push(
+      buildPayslipFromProcessedRecord(
+        payslipRecord,
+        configForCompany,
+        employee,
+        companyForPayslip,
+        month,
+        yearNum,
+        payPeriodStart,
+        payPeriodEnd,
+        { historicalOnly: false }
+      )
+    );
+  }
+
+  return payslipDataList;
+}
+
+async function generateCombinedPayslipFileFromDataList(
+  payslipDataList: PayslipData[],
+  employeeName: string
+): Promise<{
+  pdfBuffer: Buffer;
+  downloadFilename: string;
+  saved: { filename: string; relativePath: string };
+} | null> {
+  if (payslipDataList.length === 0) return null;
+
+  const pdfBuffer = await generateCombinedPayslipPdf(payslipDataList);
+  const primary = payslipDataList[0];
+  const saved = await savePayslipPdf(primary, pdfBuffer);
+  const displayName = primary.employeeName?.trim() || employeeName;
+  const downloadFilename = getPayslipDownloadFileName(
+    displayName,
+    primary.month,
+    primary.year
+  );
+
+  return { pdfBuffer, downloadFilename, saved };
+}
+
 async function resolveSingleMonthPayslipData(
   config: typeof employeePayroll.$inferSelect,
   employee: {
@@ -989,7 +1492,9 @@ async function resolveSingleMonthPayslipData(
   company: { companyName: string | null; address: string | null } | null,
   yearNum: number,
   month: number,
-  userId = 0
+  userId = 0,
+  companyOverride?: CompanyPayslipOverride,
+  includeCompanyInFilename = false
 ): Promise<SingleMonthPayslipResult> {
   const monthLabel = MONTH_NAMES[month - 1];
   const eligibilityStart = await getEarliestPayslipEligibilityDate(config.employeeId);
@@ -1001,112 +1506,118 @@ async function resolveSingleMonthPayslipData(
   const monthStart = `${yearNum}-${String(month).padStart(2, '0')}-01`;
   const monthEnd = dayjs(monthStart).endOf('month').format('YYYY-MM-DD');
 
+  const recordConditions = [
+    eq(payrollRecords.employeeId, config.employeeId),
+    sql`${payrollRecords.payPeriodStart}::date <= ${monthEnd}::date`,
+    sql`${payrollRecords.payPeriodEnd}::date >= ${monthStart}::date`,
+  ];
+  if (companyOverride?.companyId) {
+    recordConditions.push(eq(payrollRecords.companyId, companyOverride.companyId));
+  }
+
   const [record] = await db
-    .select({
-      payPeriodStart: payrollRecords.payPeriodStart,
-      payPeriodEnd: payrollRecords.payPeriodEnd,
-      payrollMonth: payrollRecords.payrollMonth,
-      payrollYear: payrollRecords.payrollYear,
-      baseSalary: payrollRecords.baseSalary,
-      overtimePay: payrollRecords.overtimePay,
-      allowances: payrollRecords.allowances,
-      deductions: payrollRecords.deductions,
-      grossPay: payrollRecords.grossPay,
-      cpfDeduction: payrollRecords.cpfDeduction,
-      netPay: payrollRecords.netPay,
-      companyId: payrollRecords.companyId,
-    })
+    .select(payrollRecordSnapshotSelect)
     .from(payrollRecords)
-    .where(
-      and(
-        eq(payrollRecords.employeeId, config.employeeId),
-        sql`${payrollRecords.payPeriodStart}::date <= ${monthEnd}::date`,
-        sql`${payrollRecords.payPeriodEnd}::date >= ${monthStart}::date`
-      )
-    )
+    .where(and(...recordConditions))
     .orderBy(desc(payrollRecords.updatedAt), desc(payrollRecords.createdAt))
     .limit(1);
 
-  let payslipRecord: {
-    payPeriodStart: string;
-    payPeriodEnd: string;
-    baseSalary: string | number;
-    overtimePay: string | number | null;
-    allowances: Record<string, number> | null;
-    deductions: Record<string, number> | null;
-    grossPay: string | number;
-    cpfDeduction: string | number | null;
-    netPay: string | number;
-  };
-  let payrollMonth = month;
-  let payrollYear = yearNum;
-  let recordStart = monthStart;
-  let recordEnd = monthEnd;
-
   if (record) {
-    recordStart = normalizePayPeriodDate(record.payPeriodStart);
-    recordEnd = normalizePayPeriodDate(record.payPeriodEnd);
-    const resolved = resolvePayrollMonthYearFromRecord({
-      payrollMonth: (record as any).payrollMonth,
-      payrollYear: (record as any).payrollYear,
-      payPeriodStart: recordStart,
-    });
-    payrollMonth = resolved.month;
-    payrollYear = resolved.year;
-    payslipRecord = record;
-  } else {
-    const { payPeriodStart, payPeriodEnd } = getPayPeriodForMonth(yearNum, month);
     const referenceDate = getSalaryMonthReferenceDate(yearNum, month);
-    const companyId = await resolveCompanyIdForDateStrict(config.employeeId, referenceDate);
-
-    if (!companyId) {
-      return { status: 'ineligible', monthLabel };
-    }
-
-    const payload = buildPayrollRecordPayload(
+    const payslipData = await buildPayslipEntryFromStoredRecord(
+      record,
       config,
-      employee as typeof employees.$inferSelect,
-      payPeriodStart,
-      payPeriodEnd,
-      userId,
-      config.tenantId,
-      '',
-      0,
-      companyId
+      employee,
+      company,
+      referenceDate
     );
-    recordStart = payPeriodStart;
-    recordEnd = payPeriodEnd;
-    payslipRecord = payload;
+    const resolved = resolvePayrollMonthYearFromRecord({
+      payrollMonth: record.payrollMonth,
+      payrollYear: record.payrollYear,
+      payPeriodStart: normalizePayPeriodDate(record.payPeriodStart),
+    });
+
+    return {
+      status: 'ok',
+      payslipData,
+      downloadFilename: getPayslipDownloadFileName(
+        payslipData.employeeName || employee.name,
+        resolved.month,
+        resolved.year,
+        includeCompanyInFilename ? companyOverride?.companyName : undefined
+      ),
+      monthLabel: MONTH_NAMES[resolved.month - 1],
+      payrollMonth: resolved.month,
+      payrollYear: resolved.year,
+    };
   }
 
-  const referenceDate = getSalaryMonthReferenceDate(payrollYear, payrollMonth);
-  const resolvedCompany = await resolveCompanyForPayrollDate(
-    config.employeeId,
-    referenceDate,
-    (record as { companyId?: number | null } | undefined)?.companyId ?? null
+  const { payPeriodStart, payPeriodEnd } = getPayPeriodForMonth(yearNum, month);
+  const referenceDate = getSalaryMonthReferenceDate(yearNum, month);
+  const companyId =
+    companyOverride?.companyId ??
+    (await resolveCompanyIdForDateStrict(config.employeeId, referenceDate));
+
+  if (!companyId) {
+    return { status: 'ineligible', monthLabel };
+  }
+
+  const configForCompany =
+    companyOverride?.salary != null
+      ? { ...config, baseSalary: String(companyOverride.salary) }
+      : config;
+
+  const previewRecord = buildPayrollRecordPayload(
+    configForCompany,
+    employee as typeof employees.$inferSelect,
+    payPeriodStart,
+    payPeriodEnd,
+    userId,
+    config.tenantId,
+    '',
+    0,
+    companyId
   );
-  const companyForPayslip = resolvedCompany
-    ? { companyName: resolvedCompany.companyName, address: resolvedCompany.address }
-    : company;
+
+  const companyForPayslip = companyOverride
+    ? {
+        companyName: companyOverride.companyName,
+        address: companyOverride.address,
+      }
+    : await resolveCompanyForPayrollDate(
+        config.employeeId,
+        referenceDate,
+        companyId
+      ).then((resolved) =>
+        resolved
+          ? { companyName: resolved.companyName, address: resolved.address }
+          : company
+      );
 
   const payslipData = buildPayslipFromProcessedRecord(
-    payslipRecord,
-    config,
+    previewRecord,
+    configForCompany,
     employee,
     companyForPayslip,
-    payrollMonth,
-    payrollYear,
-    recordStart,
-    recordEnd
+    month,
+    yearNum,
+    payPeriodStart,
+    payPeriodEnd,
+    { historicalOnly: false }
   );
 
   return {
     status: 'ok',
     payslipData,
-    downloadFilename: getPayslipDownloadFileName(employee.name, payrollMonth, payrollYear),
-    monthLabel: MONTH_NAMES[payrollMonth - 1],
-    payrollMonth,
-    payrollYear,
+    downloadFilename: getPayslipDownloadFileName(
+      employee.name,
+      month,
+      yearNum,
+      includeCompanyInFilename ? companyOverride?.companyName : undefined
+    ),
+    monthLabel: MONTH_NAMES[month - 1],
+    payrollMonth: month,
+    payrollYear: yearNum,
   };
 }
 
@@ -1208,31 +1719,40 @@ async function generatePayslipFilesForMonths(
   const ineligibleMonths: string[] = [];
 
   for (const month of validMonths) {
-    const result = await resolveSingleMonthPayslipData(
+    const monthLabel = MONTH_NAMES[month - 1];
+    const payslipDataList = await buildPayslipDataListForMonth(
       config,
       employee,
       company,
       yearNum,
       month,
-      userId
+      userId,
+      { storedOnly: true }
     );
 
-    if (result.status === 'ineligible') {
-      ineligibleMonths.push(result.monthLabel);
+    if (payslipDataList.length === 0) {
+      missingMonths.push(monthLabel);
       continue;
     }
 
-    const pdfBuffer = await generatePayslipPdf(result.payslipData);
-    const saved = await savePayslipPdf(result.payslipData, pdfBuffer);
+    const combined = await generateCombinedPayslipFileFromDataList(
+      payslipDataList,
+      payslipDataList[0]?.employeeName?.trim() || employee.name
+    );
+    if (!combined) {
+      ineligibleMonths.push(monthLabel);
+      continue;
+    }
 
+    const primary = payslipDataList[0];
     generatedFiles.push({
-      filename: saved.filename,
-      downloadFilename: result.downloadFilename,
-      month: result.payrollMonth,
-      monthLabel: result.monthLabel,
-      downloadUrl: `/${saved.relativePath.replace(/\\/g, '/')}`,
-      relativePath: saved.relativePath,
-      buffer: pdfBuffer,
+      filename: combined.saved.filename,
+      downloadFilename: combined.downloadFilename,
+      month: primary.month,
+      monthLabel: MONTH_NAMES[primary.month - 1],
+      downloadUrl: `/${combined.saved.relativePath.replace(/\\/g, '/')}`,
+      relativePath: combined.saved.relativePath,
+      buffer: combined.pdfBuffer,
     });
   }
 
@@ -1265,31 +1785,39 @@ export async function previewPayslip(req: Request, res: Response) {
     const { config, employee, company } = ctx as Exclude<typeof ctx, { error: unknown }>;
     const user = (req as any).user;
 
-    const result = await resolveSingleMonthPayslipData(
+    const payslipDataList = await buildPayslipDataListForMonth(
       config,
       employee,
       company,
       yearNum,
       monthNum,
-      user?.id || 0
+      user?.id || 0,
+      { storedOnly: true }
     );
 
-    if (result.status === 'ineligible') {
+    if (payslipDataList.length === 0) {
       return res.status(404).json({
-        message: `Payslip cannot be generated for ${result.monthLabel} ${yearNum}. The employee was not yet assigned to a company in this month.`,
+        message: `Payslip cannot be generated for ${MONTH_NAMES[monthNum - 1]} ${yearNum}. Please process payroll for this month first.`,
       });
     }
 
-    const html = buildPayslipHtml(result.payslipData);
-    const title = `Payslip — ${employee.name} — ${result.monthLabel} ${yearNum}`;
+    const html = buildCombinedPayslipHtml(payslipDataList);
+    const primary = payslipDataList[0];
+    const displayName = primary.employeeName?.trim() || employee.name;
+    const title = `Payslip — ${displayName} — ${MONTH_NAMES[primary.month - 1]} ${yearNum}`;
+    const downloadFilename = getPayslipDownloadFileName(
+      displayName,
+      primary.month,
+      primary.year
+    );
 
     res.json({
       html,
       title,
-      downloadFilename: result.downloadFilename,
-      month: result.payrollMonth,
-      monthLabel: result.monthLabel,
-      year: result.payrollYear,
+      downloadFilename,
+      month: primary.month,
+      monthLabel: MONTH_NAMES[primary.month - 1],
+      year: primary.year,
     });
   } catch (error) {
     console.error('Error previewing payslip:', error);
@@ -1446,20 +1974,7 @@ function getBatchPayslipZipFileName(payPeriodStart: string) {
 }
 
 async function generatePayslipBufferForRecord(
-  record: {
-    payPeriodStart: string | Date;
-    payPeriodEnd: string | Date;
-    payrollMonth?: number | null;
-    payrollYear?: number | null;
-    baseSalary: string | number;
-    overtimePay: string | number | null;
-    allowances: Record<string, number> | null;
-    deductions: Record<string, number> | null;
-    grossPay: string | number;
-    cpfDeduction: string | number | null;
-    netPay: string | number;
-    companyId?: number | null;
-  },
+  record: PayrollRecordWithSnapshot,
   config: {
     employeeId: number;
     noOfWorkingDays: number | null;
@@ -1484,34 +1999,24 @@ async function generatePayslipBufferForRecord(
     payPeriodStart,
   });
 
-  const referenceDate = resolveReferenceDateFromPayPeriod(
-    payPeriodStart,
-    payPeriodEnd,
-    record.payrollMonth,
-    record.payrollYear
-  );
-  const resolvedCompany = await resolveCompanyForPayrollDate(
-    config.employeeId,
-    referenceDate,
-    record.companyId ?? null
-  );
-  const companyForPayslip = resolvedCompany
-    ? { companyName: resolvedCompany.companyName, address: resolvedCompany.address }
-    : fallbackCompany;
-
   const payslipData = buildPayslipFromProcessedRecord(
     record,
     config,
     employee,
-    companyForPayslip,
+    null,
     month,
     year,
     payPeriodStart,
-    payPeriodEnd
+    payPeriodEnd,
+    { historicalOnly: true }
   );
   const pdfBuffer = await generatePayslipPdf(payslipData);
   await savePayslipPdf(payslipData, pdfBuffer);
-  const downloadFilename = getPayslipDownloadFileName(employee.name, month, year);
+  const downloadFilename = getPayslipDownloadFileName(
+    payslipData.employeeName || employee.name,
+    month,
+    year
+  );
   return { pdfBuffer, downloadFilename, payslipData };
 }
 
@@ -1593,22 +2098,65 @@ export async function processIndividualPayroll(req: Request, res: Response) {
 
     const forceOverwriteFlag = parseForceOverwriteFlag(forceOverwrite);
 
-    const result = await db.transaction(async () => {
-      return upsertPayrollRecord(
-        fullConfig,
-        fullEmployee,
-        normalizedPayPeriodStart,
-        normalizedPayPeriodEnd,
-        user.id,
-        effectiveTenantId,
-        {
-          notes,
-          overtimeHours: Number(overtimeHours) || 0,
-          allowReprocess: true,
-          forceUpdate: forceOverwriteFlag,
-          requireForceForReprocess: true,
-        }
+    await syncPayrollConfigsWithCompanySalaries(fullEmployee, user.id);
+
+    const { month: payrollMonth, year: payrollYear } = derivePayrollMonthYear(
+      normalizedPayPeriodStart
+    );
+    const currentCompanyIds = await getCurrentEmployeeCompanyIds(fullEmployee.id);
+
+    if (currentCompanyIds.length > 0) {
+      await reconcilePayrollRecordsBeforeProcessing(
+        fullEmployee.id,
+        payrollYear,
+        payrollMonth,
+        currentCompanyIds,
+        forceOverwriteFlag
       );
+    }
+
+    const configsToProcess = await resolvePayrollConfigsForProcessing(
+      fullEmployee.id,
+      effectiveTenantId
+    );
+
+    if (configsToProcess.length === 0) {
+      return res.status(400).json({
+        message:
+          'No active payroll configuration found for this employee\'s current companies. Please save payroll config first.',
+      });
+    }
+
+    const result = await db.transaction(async () => {
+      let primaryResult: Awaited<ReturnType<typeof upsertPayrollRecord>> | null = null;
+
+      for (const configRow of configsToProcess) {
+        const upsertResult = await upsertPayrollRecord(
+          configRow,
+          fullEmployee,
+          normalizedPayPeriodStart,
+          normalizedPayPeriodEnd,
+          user.id,
+          effectiveTenantId,
+          {
+            notes,
+            overtimeHours: Number(overtimeHours) || 0,
+            allowReprocess: true,
+            forceUpdate: forceOverwriteFlag,
+            requireForceForReprocess: true,
+          }
+        );
+
+        if (Number(configRow.id) === payrollConfigIdNum) {
+          primaryResult = upsertResult;
+        } else if (!primaryResult && upsertResult.action !== "skipped") {
+          primaryResult = upsertResult;
+        } else if (!primaryResult) {
+          primaryResult = upsertResult;
+        }
+      }
+
+      return primaryResult ?? { action: "skipped" as const, reason: "already_processed" as const };
     });
 
     if (result.action === 'skipped') {
@@ -1629,15 +2177,62 @@ export async function processIndividualPayroll(req: Request, res: Response) {
       return res.status(500).json({ message: 'Failed to process payroll' });
     }
 
-    const { pdfBuffer, downloadFilename } = await generatePayslipBufferForRecord(
-      result.record,
-      config,
-      employee,
-      company
+    const { month, year } = resolvePayrollMonthYearFromRecord({
+      payrollMonth: result.record.payrollMonth,
+      payrollYear: result.record.payrollYear,
+      payPeriodStart: normalizePayPeriodDate(result.record.payPeriodStart),
+    });
+
+    const payslipDataList = await buildPayslipDataListForMonth(
+      fullConfig,
+      {
+        id: fullEmployee.id,
+        employeeId: fullEmployee.employeeId,
+        name: fullEmployee.name,
+        department: fullEmployee.department,
+        designation: fullEmployee.designation,
+        nricNumber: fullEmployee.nricNumber,
+        finNumber: fullEmployee.finNumber,
+        dateOfBirth: fullEmployee.dateOfBirth,
+        nationality: fullEmployee.nationality,
+        prStatus: fullEmployee.prStatus,
+        joinDate: fullEmployee.joinDate,
+      },
+      company,
+      year,
+      month,
+      user?.id || 0,
+      { storedOnly: true }
     );
 
+    if (payslipDataList.length === 0) {
+      return res.status(500).json({
+        message: 'Payroll was saved but payslip snapshot could not be loaded. Please download again from the payroll page.',
+      });
+    }
+
+    let combined;
+    try {
+      combined = await generateCombinedPayslipFileFromDataList(
+        payslipDataList,
+        payslipDataList[0]?.employeeName?.trim() || employee.name
+      );
+    } catch (pdfError) {
+      console.error('Error generating payslip PDF after payroll processing:', pdfError);
+      return res.status(500).json({
+        message:
+          pdfError instanceof Error
+            ? `Failed to generate payslip PDF: ${pdfError.message}`
+            : 'Failed to generate payslip PDF.',
+      });
+    }
+
+    if (!combined) {
+      return res.status(500).json({ message: 'Failed to generate payslip PDF.' });
+    }
+
     res.setHeader('X-Payroll-Action', result.action);
-    sendPdfBuffer(res, pdfBuffer, downloadFilename);
+    sendPdfBuffer(res, combined.pdfBuffer, combined.downloadFilename);
   } catch (error) {
     console.error('Error processing individual payroll:', error);
     const message = error instanceof Error ? error.message : 'Failed to process payroll';
@@ -1713,6 +2308,47 @@ export async function batchProcessPayroll(req: Request, res: Response) {
     }
 
     const forceOverwriteFlag = parseForceOverwriteFlag(forceOverwrite);
+    const { month: batchMonth, year: batchYear } = derivePayrollMonthYear(resolvedPayPeriodStart);
+    const uniqueEmployeeIds = [...new Set(configs.map((config) => config.employeeId))];
+    const validConfigIdSet = new Set<number>();
+
+    for (const employeeId of uniqueEmployeeIds) {
+      const [employee] = await db
+        .select()
+        .from(employees)
+        .where(eq(employees.id, employeeId));
+
+      if (!employee) continue;
+
+      const tenantId = effectiveTenantId || employee.tenantId || null;
+      if (!tenantId) continue;
+
+      await syncPayrollConfigsWithCompanySalaries(employee, user.id);
+      const currentCompanyIds = await getCurrentEmployeeCompanyIds(employeeId);
+
+      if (currentCompanyIds.length > 0) {
+        await reconcilePayrollRecordsBeforeProcessing(
+          employeeId,
+          batchYear,
+          batchMonth,
+          currentCompanyIds,
+          forceOverwriteFlag
+        );
+      }
+
+      const resolvedConfigs = await resolvePayrollConfigsForProcessing(employeeId, tenantId);
+      for (const resolved of resolvedConfigs) {
+        validConfigIdSet.add(resolved.id);
+      }
+    }
+
+    configs = configs.filter((config) => validConfigIdSet.has(config.id));
+
+    if (configs.length === 0) {
+      return res.status(400).json({
+        message: 'No payroll configurations match the current company assignments for selected employees.',
+      });
+    }
 
     const pendingConfigs: typeof configs = [];
     const changedConfigs: typeof configs = [];
@@ -1721,7 +2357,8 @@ export async function batchProcessPayroll(req: Request, res: Response) {
       const existing = await findPayrollRecordForPeriod(
         config.employeeId,
         resolvedPayPeriodStart,
-        resolvedPayPeriodEnd
+        resolvedPayPeriodEnd,
+        config.companyId
       );
       if (!existing) {
         pendingConfigs.push(config);
@@ -1939,14 +2576,27 @@ export async function batchProcessPayroll(req: Request, res: Response) {
           { error: unknown }
         >;
 
-        const { pdfBuffer, downloadFilename } = await generatePayslipBufferForRecord(
-          record,
+        const { month, year } = resolvePayrollMonthYearFromRecord({
+          payrollMonth: record.payrollMonth,
+          payrollYear: record.payrollYear,
+          payPeriodStart: normalizePayPeriodDate(record.payPeriodStart),
+        });
+
+        const { generatedFiles } = await generatePayslipFilesForMonths(
           payslipConfig,
           payslipEmployee,
-          company
+          company,
+          year,
+          [month],
+          user?.id || 0
         );
 
-        zipFiles.push({ filename: downloadFilename, buffer: pdfBuffer });
+        if (generatedFiles.length === 0) {
+          continue;
+        }
+
+        const file = generatedFiles[0];
+        zipFiles.push({ filename: file.downloadFilename, buffer: file.buffer });
       } catch (error) {
         summary.failures.push({
           employeeName,
@@ -1984,6 +2634,7 @@ export function createPayrollRouter() {
 
   // Payroll configuration routes
   router.get('/configs', getEmployeePayrollConfigs);
+  router.post('/configs/batch', batchSaveEmployeePayrollConfigs);
   router.post('/configs', createEmployeePayrollConfig);
   router.put('/configs/:id', updateEmployeePayrollConfig);
   router.delete('/configs/:id', deleteEmployeePayrollConfig);

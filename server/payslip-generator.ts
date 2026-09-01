@@ -41,15 +41,22 @@ export function getPayslipFileName(
 export function getPayslipDownloadFileName(
   employeeName: string,
   month: number,
-  year: number
+  year: number,
+  companyName?: string
 ): string {
   const safeName =
     employeeName
       .trim()
       .replace(/[^a-zA-Z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "Employee";
+  const companyPart = companyName
+    ? `_${companyName
+        .trim()
+        .replace(/[^a-zA-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")}`
+    : "";
   const monthName = formatPayrollMonthLabel(year, month).split(" ")[0];
-  return `Payslip_${safeName}_${monthName}_${year}.pdf`;
+  return `Payslip_${safeName}${companyPart}_${monthName}_${year}.pdf`;
 }
 
 function formatAmount(value: string | number | null | undefined): string {
@@ -179,6 +186,11 @@ body {
   margin: 0 auto;
   padding: 25px;
   background: #fff;
+}
+
+.page-break {
+  page-break-before: always;
+  break-before: page;
 }
 
 .company-name {
@@ -631,6 +643,74 @@ body {
 </div>
 </body>
 </html>`;
+}
+
+function extractPayslipPageContent(html: string): string {
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  return bodyMatch ? bodyMatch[1].trim() : html;
+}
+
+function extractPayslipHead(html: string): string {
+  const headMatch = html.match(/<head[\s\S]*?<\/head>/i);
+  return headMatch ? headMatch[0] : "";
+}
+
+/** Combine multiple payslips into one HTML document (one page per company). */
+export function buildCombinedPayslipHtml(dataList: PayslipData[]): string {
+  if (dataList.length === 0) return "";
+  if (dataList.length === 1) return buildPayslipHtml(dataList[0]);
+
+  const firstHtml = buildPayslipHtml(dataList[0]);
+  const head = extractPayslipHead(firstHtml);
+  const pages = dataList.map((data, index) => {
+    const html = buildPayslipHtml(data);
+    const body = extractPayslipPageContent(html);
+    return index === 0 ? body : `<div class="page-break"></div>${body}`;
+  });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+${head}
+<body>
+${pages.join("\n")}
+</body>
+</html>`;
+}
+
+export async function generateCombinedPayslipPdf(dataList: PayslipData[]): Promise<Buffer> {
+  if (dataList.length === 0) {
+    throw new Error("No payslip data provided");
+  }
+  if (dataList.length === 1) {
+    return generatePayslipPdf(dataList[0]);
+  }
+
+  const html = buildCombinedPayslipHtml(dataList);
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
+    });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    const pdfBytes = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "0", right: "0", bottom: "0", left: "0" },
+    });
+    const pdfBuffer = Buffer.from(pdfBytes);
+    if (!isPdfBuffer(pdfBuffer)) {
+      throw new Error("Puppeteer did not return a valid PDF buffer");
+    }
+    return pdfBuffer;
+  } finally {
+    if (browser) await browser.close();
+  }
 }
 
 function isPdfBuffer(buffer: Buffer): boolean {

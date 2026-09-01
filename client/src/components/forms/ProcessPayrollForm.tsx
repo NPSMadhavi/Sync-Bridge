@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -27,7 +27,7 @@ import { StringDatePicker } from "@/components/ui/string-date-picker";
 import { EmployeeSearchSelect } from "@/components/ui/employee-search-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { processIndividualPayrollForConfig, getLastCompletedPayPeriod, findPayrollRecordForPeriod, hasPayrollDataChanged, derivePayrollMonthYear, resolveEffectiveMonthlySalary, isPayPeriodEligibleForProcessing, PAYROLL_CURRENT_MONTH_ERROR } from "@/lib/payroll-batch-utils";
+import { processIndividualPayrollForConfig, getLastCompletedPayPeriod, findPayrollRecordForPeriod, findPayrollRecordsForPeriod, hasPayrollDataChanged, derivePayrollMonthYear, resolveEffectiveMonthlySalary, isPayPeriodEligibleForProcessing, PAYROLL_CURRENT_MONTH_ERROR } from "@/lib/payroll-batch-utils";
 import { insertPayrollRecordSchema } from "@shared/schema";
 import { Calculator, CheckCircle, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -57,6 +57,34 @@ interface ProcessPayrollFormProps {
 }
 
 type ProcessedDialogMode = "overwrite" | "no-changes" | null;
+
+function buildUniquePayrollEmployeeOptions(payrollConfigs: any[], employees: any[]) {
+  const activeEmployeeIds = new Set<number>();
+  for (const config of payrollConfigs) {
+    if (config.isActive) {
+      activeEmployeeIds.add(config.employeeId);
+    }
+  }
+
+  // Newest employees first (createdAt desc, then id desc)
+  return employees
+    .filter((employee) => activeEmployeeIds.has(employee.id))
+    .map((employee) => ({
+      id: employee.id,
+      name: employee.name,
+      employeeId: employee.employeeId,
+      department: employee.department,
+      designation: employee.designation,
+      createdAt: employee.createdAt,
+    }))
+    .sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return b.id - a.id;
+    })
+    .map(({ createdAt: _createdAt, ...option }) => option);
+}
 
 export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true }: ProcessPayrollFormProps) {
   const { toast } = useToast();
@@ -100,6 +128,11 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
     refetchOnMount: "always",
   });
 
+  const payrollEmployeeOptions = useMemo(
+    () => buildUniquePayrollEmployeeOptions(payrollConfigs, employees),
+    [payrollConfigs, employees]
+  );
+
   const form = useForm<ProcessPayrollFormData>({
     resolver: zodResolver(processPayrollSchema),
     defaultValues: {
@@ -127,35 +160,49 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
   };
 
   const resolvePayrollChangeStatus = (data: ProcessPayrollFormData) => {
-    const payrollConfig = payrollConfigs.find(
+    const employeeConfigs = payrollConfigs.filter(
       (config: any) => config.employeeId === data.employeeId && config.isActive
     );
     const employee = employees.find((emp: any) => emp.id === data.employeeId);
-    const effectiveConfig = payrollConfig
-      ? {
-          ...payrollConfig,
-          baseSalary: resolveEffectiveMonthlySalary(employee, payrollConfig),
-        }
-      : payrollConfig;
-    const existingRecord = findPayrollRecordForPeriod(
+    const periodRecords = findPayrollRecordsForPeriod(
       data.employeeId,
       payrollRecords,
       data.payPeriodStart,
       data.payPeriodEnd
     );
 
-    if (!existingRecord) {
+    if (periodRecords.length === 0) {
       return { alreadyProcessed: false, dataChanged: false };
     }
 
+    const dataChanged = employeeConfigs.some((payrollConfig: any) => {
+      const record =
+        findPayrollRecordForPeriod(
+          data.employeeId,
+          payrollRecords,
+          data.payPeriodStart,
+          data.payPeriodEnd,
+          payrollConfig.companyId
+        ) ?? periodRecords[0];
+      if (!record) return false;
+
+      const effectiveConfig = {
+        ...payrollConfig,
+        baseSalary: resolveEffectiveMonthlySalary(employee, payrollConfig),
+      };
+
+      return hasPayrollDataChanged(
+        effectiveConfig,
+        record,
+        Number(data.overtimeHours) || 0,
+        payrollCalculation,
+        employee
+      );
+    });
+
     return {
       alreadyProcessed: true,
-      dataChanged: hasPayrollDataChanged(
-        effectiveConfig,
-        existingRecord,
-        Number(data.overtimeHours) || 0,
-        payrollCalculation
-      ),
+      dataChanged,
     };
   };
 
@@ -213,13 +260,12 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
       toast({
         title: wasUpdated ? "Payroll Updated Successfully" : "Payroll Processed Successfully",
         description: wasUpdated
-          ? "The payslip has been regenerated and downloaded successfully."
-          : "Payroll saved and payslip downloaded automatically.",
+          ? "All company payslips have been regenerated and downloaded in one document."
+          : "Payroll saved for all companies and combined payslip downloaded.",
       });
       onSuccess();
     },
     onError: (error: Error) => {
-      console.error('Process payroll error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to process payroll",
@@ -245,7 +291,10 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
     try {
       // Find employee and their payroll config
       const employee = employees.find((emp: any) => emp.id === formData.employeeId);
-      const payrollConfig = payrollConfigs.find((config: any) => config.employeeId === formData.employeeId && config.isActive);
+      const employeeConfigs = payrollConfigs.filter(
+        (config: any) => config.employeeId === formData.employeeId && config.isActive
+      );
+      const payrollConfig = employeeConfigs[0];
       
       if (!employee || !payrollConfig) {
         toast({
@@ -261,7 +310,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
       const effectiveSalary = resolveEffectiveMonthlySalary(employee, payrollConfig);
       const effectiveConfig = { ...payrollConfig, baseSalary: effectiveSalary };
 
-      setSelectedEmployee({ ...employee, payrollConfig: effectiveConfig });
+      setSelectedEmployee({ ...employee, payrollConfig: effectiveConfig, payrollConfigs: employeeConfigs });
 
       const age = calculateAgeFromDob(employee.dateOfBirth);
       const { residencyType, prYear } = mapEmployeeResidency(employee);
@@ -286,8 +335,6 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
         overtimeRate: Number(payrollConfig.overtimeRate) || 0,
       };
 
-      console.log('Calculating payroll with input:', calculationInput);
-
       const res = await apiRequest("POST", "/api/payroll/calculate", calculationInput);
       
       if (!res.ok) {
@@ -296,10 +343,8 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
       }
       
       const calculation = await res.json();
-      console.log('Payroll calculation result:', calculation);
       setPayrollCalculation(calculation);
     } catch (error: any) {
-      console.error('Calculation error:', error);
       toast({
         title: "Calculation Error",
         description: error.message || "Unable to calculate payroll",
@@ -417,31 +462,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
                   <FormField
                     control={form.control}
                     name="employeeId"
-                    render={({ field }) => {
-                      const payrollEmployeeOptions = payrollConfigs
-                        .filter((config: any) => config.isActive)
-                        .map((config: any) => {
-                          const employee = employees.find((emp: any) => emp.id === config.employeeId);
-                          if (!employee) return null;
-                          return {
-                            id: employee.id,
-                            name: employee.name,
-                            employeeId: employee.employeeId,
-                            designation: employee.designation,
-                            department: employee.department,
-                            detail: `${employee.designation || "—"} (${formatCurrency(resolveEffectiveMonthlySalary(employee, config))}/month)`,
-                          };
-                        })
-                        .filter(Boolean) as Array<{
-                          id: number;
-                          name: string;
-                          employeeId?: string;
-                          designation?: string;
-                          department?: string;
-                          detail: string;
-                        }>;
-
-                      return (
+                    render={({ field }) => (
                       <FormItem>
                         <FormLabel>Employee *</FormLabel>
                         <FormControl>
@@ -453,13 +474,12 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
                               setPayrollCalculation(null);
                             }}
                             placeholder="Select employee to process payroll"
-                            subtitle="designation"
+                            subtitle="department"
                           />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
-                      );
-                    }}
+                    )}
                   />
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

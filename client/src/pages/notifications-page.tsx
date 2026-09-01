@@ -75,7 +75,7 @@ export default function NotificationsPage() {
       const settings = await response.json();
       setNotificationSettings(settings);
     } catch (error) {
-      console.error("Failed to load notification settings:", error);
+      // Settings load failed silently; form keeps defaults
     }
   };
 

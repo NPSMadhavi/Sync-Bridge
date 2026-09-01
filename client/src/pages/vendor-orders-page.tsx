@@ -178,7 +178,6 @@ export default function VendorOrdersPage() {
       const statsData = await statsResponse.json();
       setStats(statsData);
     } catch (error) {
-      console.error('Error fetching data:', error);
       toast({
         title: "Error",
         description: "Failed to fetch data",
@@ -231,7 +230,6 @@ export default function VendorOrdersPage() {
       // Refresh data
       fetchData();
     } catch (error) {
-      console.error('Error creating order:', error);
       toast({
         title: "Error",
         description: "Failed to create order",
@@ -309,7 +307,6 @@ export default function VendorOrdersPage() {
       // Refresh data
       fetchData();
     } catch (error) {
-      console.error('Error updating order:', error);
       toast({
         title: "Error",
         description: "Failed to update order",
@@ -336,7 +333,6 @@ export default function VendorOrdersPage() {
       // Refresh data
       fetchData();
     } catch (error) {
-      console.error('Error deleting order:', error);
       toast({
         title: "Error",
         description: "Failed to delete order",
@@ -365,7 +361,6 @@ export default function VendorOrdersPage() {
         description: `Report downloaded successfully`,
       });
     } catch (error) {
-      console.error('Error downloading report:', error);
       toast({
         title: "Error",
         description: "Failed to download report",

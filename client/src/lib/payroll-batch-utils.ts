@@ -160,13 +160,19 @@ export function findPayrollRecordForPeriod(
   employeeDbId: number,
   records: any[],
   payPeriodStart: string,
-  payPeriodEnd: string
+  payPeriodEnd: string,
+  companyId?: number | null
 ) {
   const start = toDateOnly(payPeriodStart);
   const { year, month } = derivePayrollMonthYear(start);
 
   return records
     .filter((record) => Number(record.employeeId) === Number(employeeDbId))
+    .filter((record) =>
+      companyId == null || record.companyId == null
+        ? true
+        : Number(record.companyId) === Number(companyId)
+    )
     .filter(
       (record) =>
         (record.payrollYear === year && record.payrollMonth === month) ||
@@ -179,11 +185,48 @@ export function findPayrollRecordForPeriod(
     })[0];
 }
 
+export function findPayrollRecordsForPeriod(
+  employeeDbId: number,
+  records: any[],
+  payPeriodStart: string,
+  payPeriodEnd: string
+) {
+  const start = toDateOnly(payPeriodStart);
+  const { year, month } = derivePayrollMonthYear(start);
+  const seen = new Set<string>();
+  const matched: any[] = [];
+
+  for (const record of records) {
+    if (Number(record.employeeId) !== Number(employeeDbId)) continue;
+    const inPeriod =
+      (record.payrollYear === year && record.payrollMonth === month) ||
+      payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, month);
+    if (!inPeriod) continue;
+    const key = record.companyId != null ? String(record.companyId) : "default";
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matched.push(record);
+  }
+
+  return matched.sort((a, b) => {
+    const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
 export function hasPayrollDataChanged(
   config: any,
   record: any,
   requestedOvertimeHours = 0,
-  calculation?: { grossPay?: number; netPay?: number; employeeCpf?: number; cpfDeduction?: number } | null
+  calculation?: { grossPay?: number; netPay?: number; employeeCpf?: number; cpfDeduction?: number } | null,
+  employee?: {
+    name?: string;
+    designation?: string;
+    department?: string;
+    salary?: string | number | null;
+    annualSalary?: string | number | null;
+  } | null
 ) {
   if (!config || !record) return false;
 
@@ -194,6 +237,19 @@ export function hasPayrollDataChanged(
     return true;
   }
   if (Number(record.baseSalary) !== Number(config.baseSalary)) return true;
+  if (record.monthlySalary != null && config.baseSalary != null) {
+    if (Math.abs(Number(record.monthlySalary) - Number(config.baseSalary)) > 0.01) return true;
+  }
+  if (record.companyName && config.companyName && record.companyName !== config.companyName) {
+    return true;
+  }
+  if (employee?.name && record.employeeName && record.employeeName !== employee.name) return true;
+  if (employee?.designation && record.designation && record.designation !== employee.designation) {
+    return true;
+  }
+  if (employee?.department && record.department && record.department !== employee.department) {
+    return true;
+  }
   if (normalizePayrollComponentMap(record.allowances) !== normalizePayrollComponentMap(config.allowances)) {
     return true;
   }
@@ -256,7 +312,8 @@ export function resolveBatchPayrollStatus(
       config.employeeId,
       records,
       payPeriodStart,
-      payPeriodEnd
+      payPeriodEnd,
+      (config as { companyId?: number | null }).companyId
     );
     if (!existing) {
       pendingConfigIds.push(config.id);
