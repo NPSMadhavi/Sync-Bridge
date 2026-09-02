@@ -75,18 +75,20 @@ export function usePayrollCalculationPreview(
       return;
     }
 
+    if (hasCalculationRef.current) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setError(null);
+
+    const delay = hasCalculationRef.current ? debounceMs : 0;
+
     const timer = window.setTimeout(async () => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
       const requestId = ++requestIdRef.current;
-
-      if (hasCalculationRef.current) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setError(null);
 
       try {
         const res = await fetch("/api/payroll/calculate", {
@@ -120,7 +122,7 @@ export function usePayrollCalculationPreview(
           setIsRefreshing(false);
         }
       }
-    }, debounceMs);
+    }, delay);
 
     return () => {
       window.clearTimeout(timer);

@@ -264,6 +264,23 @@ function parseApiError(text: string): string {
   return text || "Something went wrong";
 }
 
+function buildEmployeeContextFromRecord(employee: {
+  dateOfBirth?: string | Date | null;
+  nationality?: string | null;
+  prStatus?: string | null;
+}) {
+  const { residencyType } = mapEmployeeResidency(employee);
+  const dob = employee.dateOfBirth
+    ? String(employee.dateOfBirth).split("T")[0]
+    : "";
+  return {
+    age: dob ? calculateAgeFromDob(employee.dateOfBirth) : undefined,
+    dateOfBirth: dob,
+    citizenshipStatus: residencyType,
+    prStatus: residencyType === "pr" ? employee.prStatus || "year_3_plus" : "",
+  };
+}
+
 function buildCalculationInputForDraft(
   draft: CompanyPayrollDraft,
   employeeContext: {
@@ -419,12 +436,16 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
       form.setValue("age", calculateAgeFromDob(emp.dateOfBirth), { shouldValidate: true });
     }
 
+    let cancelled = false;
+
     void (async () => {
       try {
         const [salariesRes, configsRes] = await Promise.all([
           apiRequest("GET", `/api/employees/${emp.id}/company-salaries`),
           apiRequest("GET", `/api/payroll/configs?employeeId=${emp.id}`),
         ]);
+
+        if (cancelled) return;
 
         let salaries: Array<{
           companyId: number;
@@ -475,6 +496,8 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
           drafts[editData.companyId] = draftFromExistingConfig(editEntry, editData);
         }
 
+        if (cancelled) return;
+
         setCompanyDrafts(drafts);
 
         const configured = new Set<number>();
@@ -489,12 +512,18 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
           (isEditMode && editData?.companyId) ||
           salaries[0]?.companyId ||
           null;
+        if (cancelled) return;
         setSelectedCompanyId(initialCompanyId ?? null);
       } catch {
+        if (cancelled) return;
         setCompanyDrafts({});
         setSelectedCompanyId(null);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [watchedEmployeeId, employees, form, isEditMode, editData?.id, editData?.companyId]);
 
   useEffect(() => {
@@ -502,26 +531,30 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
     form.setValue("age", calculateAgeFromDob(watchedDOB), { shouldValidate: true });
   }, [watchedDOB, form]);
 
-  const employeeContext = useMemo(
-    () => ({
+  const selectedEmployee = employees.find((e) => e.id === watchedEmployeeId);
+
+  const employeeContext = useMemo(() => {
+    if (selectedEmployee) {
+      return buildEmployeeContextFromRecord(selectedEmployee);
+    }
+    return {
       age: Number(watchedAge) || undefined,
       dateOfBirth: watchedDOB || "",
       citizenshipStatus: watchedCitizenship,
       prStatus: watchedPrStatus,
-    }),
-    [watchedAge, watchedDOB, watchedCitizenship, watchedPrStatus]
-  );
+    };
+  }, [selectedEmployee, watchedAge, watchedDOB, watchedCitizenship, watchedPrStatus]);
 
   const calculationInputBase = useMemo((): Omit<
     PayrollCalculationPreviewInput,
     "grossSalary"
   > | null => {
-    if (!selectedDraft || !watchedCitizenship) return null;
+    if (!selectedDraft || !selectedEmployee) return null;
     const input = buildCalculationInputForDraft(selectedDraft, employeeContext);
     if (!input) return null;
     const { grossSalary: _gross, ...rest } = input;
     return rest;
-  }, [selectedDraft, employeeContext, watchedCitizenship]);
+  }, [selectedDraft, selectedEmployee, employeeContext]);
 
   const handleCompanyCalculation = useCallback(
     (companyId: number, calc: PayrollCalculationPreviewResult | null) => {
@@ -646,8 +679,6 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat("en-SG", { style: "currency", currency: "SGD" }).format(n);
-
-  const selectedEmployee = employees.find((e) => e.id === watchedEmployeeId);
 
   const canSubmit =
     !!watchedEmployeeId &&
@@ -791,6 +822,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
 
                 {selectedDraft ? (
                   <CompanyCpfPreview
+                    key={`${watchedEmployeeId}-${selectedDraft.companyId}`}
                     companyId={selectedDraft.companyId}
                     companyName={selectedDraft.companyName}
                     salary={selectedDraft.salary}
