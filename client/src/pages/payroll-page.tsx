@@ -112,7 +112,7 @@ export default function PayrollPage() {
     return <div className="flex items-center justify-center h-64">Loading user...</div>;
   }
   if (userError || !user) {
-    return <div className="flex items-center justify-center h-64 text-red-600">Unable to load user context. Please log in again.</div>;
+    return <div className="flex items-center justify-center h-64 text-muted-foreground font-medium">Unable to load user context. Please log in again.</div>;
   }
 
   // Fetch payroll summary - tenant-aware

@@ -1,37 +1,41 @@
-import puppeteer from 'puppeteer';
+import pdfmake from 'pdfmake';
 
-async function test(headlessMode) {
-  console.log(`Testing launch with headless: ${JSON.stringify(headlessMode)}...`);
+async function testPureNodePdf() {
+  console.log('Testing pure Node.js PDF generation with pdfmake (No browser required)...');
   try {
-    const browser = await puppeteer.launch({
-      headless: headlessMode,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer'
-      ]
+    pdfmake.fonts = {
+      Times: {
+        normal: 'Times-Roman',
+        bold: 'Times-Bold',
+        italics: 'Times-Italic',
+        bolditalics: 'Times-BoldItalic'
+      }
+    };
+    pdfmake.setUrlAccessPolicy(() => false);
+    pdfmake.setLocalAccessPolicy(() => true);
+
+    const doc = pdfmake.createPdf({
+      defaultStyle: { font: 'Times' },
+      content: [{ text: 'SyncBridge Pure Node PDF Test' }]
     });
-    console.log(`Success launching with ${headlessMode}! Closing...`);
-    await browser.close();
-    return true;
+    const buffer = await doc.getBuffer();
+    const isPdf = buffer && buffer.length > 4 && buffer.subarray(0, 4).toString() === '%PDF';
+    if (isPdf) {
+      console.log('Success! Pure Node PDF generated successfully without browser. Size:', buffer.length, 'bytes');
+      return true;
+    } else {
+      console.error('Buffer is not a valid PDF');
+      return false;
+    }
   } catch (err) {
-    console.error(`Failed launching with ${headlessMode}:`, err.message);
+    console.error('Failed generating PDF:', err.message);
     return false;
   }
 }
 
 async function main() {
-  const modes = [true, 'shell', 'new'];
-  for (const mode of modes) {
-    const success = await test(mode);
-    if (success) {
-      console.log(`Recommended launch mode is: ${mode}`);
-      break;
-    }
-  }
-  process.exit(0);
+  const success = await testPureNodePdf();
+  process.exit(success ? 0 : 1);
 }
 
 main();

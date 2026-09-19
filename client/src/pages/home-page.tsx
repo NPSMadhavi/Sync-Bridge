@@ -261,9 +261,9 @@ export default function HomePage() {
       ) : error ? (
         <div className="flex justify-center items-center py-20">
           <div className="text-center">
-            <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
-            <p className="text-red-600">Error loading dashboard data</p>
-            <p className="text-sm text-gray-500">{error.message}</p>
+            <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-foreground font-medium">Error loading dashboard data</p>
+            <p className="text-sm text-muted-foreground">{error.message}</p>
           </div>
         </div>
       ) : (

@@ -605,12 +605,12 @@ export default function SettingsPage() {
                           )}
                         </Button>
                         {profileForm.formState.errors.name && (
-                          <p className="text-sm text-red-500 mt-2">
+                          <p className="text-sm text-muted-foreground font-medium mt-2">
                             {profileForm.formState.errors.name.message}
                           </p>
                         )}
                         {profileForm.formState.errors.email && (
-                          <p className="text-sm text-red-500 mt-2">
+                          <p className="text-sm text-muted-foreground font-medium mt-2">
                             {profileForm.formState.errors.email.message}
                           </p>
                         )}

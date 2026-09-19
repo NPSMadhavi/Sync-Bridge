@@ -1160,15 +1160,23 @@ function buildPayslipFromProcessedRecord(
         ? parseFloat(String(record.monthlySalary))
         : basicSalary;
 
+    const employeeName = record.employeeName?.trim() || employee.name?.trim() || '';
+    const employeeCode = record.employeeCode?.trim() || employee.employeeId?.trim() || '';
+    const icNo = record.icNo?.trim() || resolveEmployeeIcNo(employee)?.trim() || '';
+    const department = record.department?.trim() || employee.department?.trim() || '';
+    const jobTitle = record.designation?.trim() || employee.designation?.trim() || '';
+    const companyName = record.companyName?.trim() || company?.companyName?.trim() || '';
+    const companyAddress = record.companyAddress?.trim() || company?.address?.trim() || '';
+
     return {
-      companyName: record.companyName ?? '',
-      companyAddress: record.companyAddress ?? '',
-      employeeName: record.employeeName ?? '',
+      companyName,
+      companyAddress,
+      employeeName,
       employeeDbId: employee.id,
-      employeeCode: record.employeeCode ?? '',
-      icNo: record.icNo ?? '',
-      department: record.department ?? '',
-      jobTitle: record.designation ?? '',
+      employeeCode,
+      icNo,
+      department,
+      jobTitle,
       month,
       year,
       payPeriodStart,
@@ -1186,15 +1194,23 @@ function buildPayslipFromProcessedRecord(
     };
   }
 
+  const employeeName = employee.name?.trim() || '';
+  const employeeCode = employee.employeeId?.trim() || '';
+  const icNo = resolveEmployeeIcNo(employee)?.trim() || '';
+  const department = employee.department?.trim() || '';
+  const jobTitle = employee.designation?.trim() || '';
+  const companyName = company?.companyName?.trim() || '';
+  const companyAddress = company?.address?.trim() || '';
+
   return {
-    companyName: company?.companyName ?? '',
-    companyAddress: company?.address ?? '',
-    employeeName: employee.name,
+    companyName,
+    companyAddress,
+    employeeName,
     employeeDbId: employee.id,
-    employeeCode: employee.employeeId,
-    icNo: resolveEmployeeIcNo(employee),
-    department: employee.department,
-    jobTitle: employee.designation,
+    employeeCode,
+    icNo,
+    department,
+    jobTitle,
     month,
     year,
     payPeriodStart,
@@ -1281,7 +1297,7 @@ async function buildPayslipEntryFromStoredRecord(
     nricNumber: string | null;
     finNumber: string | null;
   },
-  _fallbackCompany: { companyName: string | null; address: string | null } | null,
+  fallbackCompany: { companyName: string | null; address: string | null } | null,
   _referenceDate: string
 ): Promise<PayslipData> {
   const recordStart = normalizePayPeriodDate(companyRecord.payPeriodStart);
@@ -1297,11 +1313,26 @@ async function buildPayslipEntryFromStoredRecord(
     employerCpfAmount: companyRecord.employerCpfAmount ?? null,
   };
 
+  let resolvedCompany: { companyName: string | null; address: string | null } | null = fallbackCompany;
+  if (companyRecord.companyId) {
+    const [c] = await db
+      .select({
+        companyName: companies.companyName,
+        address: companies.address,
+      })
+      .from(companies)
+      .where(eq(companies.id, companyRecord.companyId))
+      .limit(1);
+    if (c) {
+      resolvedCompany = c;
+    }
+  }
+
   return buildPayslipFromProcessedRecord(
     companyRecord,
     configForPayslip,
     employee,
-    null,
+    resolvedCompany,
     payrollMonth,
     payrollYear,
     recordStart,
@@ -1310,7 +1341,7 @@ async function buildPayslipEntryFromStoredRecord(
   );
 }
 
-async function buildPayslipDataListForMonth(
+export async function buildPayslipDataListForMonth(
   config: typeof employeePayroll.$inferSelect,
   employee: {
     id: number;
@@ -1690,7 +1721,7 @@ async function resolvePayslipContext(
   return { config, employee, company };
 }
 
-async function generatePayslipFilesForMonths(
+export async function generatePayslipFilesForMonths(
   config: typeof employeePayroll.$inferSelect,
   employee: {
     id: number;

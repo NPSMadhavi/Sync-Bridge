@@ -18,6 +18,7 @@ import {
 } from "@shared/schema";
 import companyDocumentsRouter from "./company-documents";
 import { createPayrollRouter } from "./payroll";
+import { generateInvoicePDF } from "./routes/invoices";
 import { registerEmailSettingsRoutes } from "./email-settings-routes";
 import {
   isSuperAdminUser,
@@ -1225,6 +1226,57 @@ app.use(express.static('public'));
         );
       }
 
+      // Backend safeguard: exclude document_expiry notifications referencing non-existent or wrong-tenant employees
+      const employeeExpiryNotifications = notifications.filter(
+        (n) => n.type === "document_expiry" && !n.entityType?.startsWith("document_expiry:")
+      );
+
+      if (employeeExpiryNotifications.length > 0) {
+        const candidateEmployeeIds = new Set<number>();
+        for (const n of employeeExpiryNotifications) {
+          let empId: number | null = null;
+          if (n.entityId != null && !isNaN(Number(n.entityId))) {
+            empId = Number(n.entityId);
+          } else if (n.entityType?.startsWith("doc_reminder:") || n.entityType?.startsWith("manual_reminder:")) {
+            const parts = n.entityType.split(":");
+            if (parts.length >= 3 && !isNaN(Number(parts[2]))) {
+              empId = Number(parts[2]);
+            }
+          }
+          if (empId) {
+            candidateEmployeeIds.add(empId);
+          }
+        }
+
+        if (candidateEmployeeIds.size > 0) {
+          const tenantScoped = !isSuperAdminUser(user) && user.tenantId != null ? user.tenantId : undefined;
+          const validIds = await storage.getExistingEmployeeIds(
+            Array.from(candidateEmployeeIds),
+            tenantScoped
+          );
+          const validEmployeeIdSet = new Set(validIds);
+
+          notifications = notifications.filter((n) => {
+            if (n.type !== "document_expiry" || n.entityType?.startsWith("document_expiry:")) {
+              return true;
+            }
+            let empId: number | null = null;
+            if (n.entityId != null && !isNaN(Number(n.entityId))) {
+              empId = Number(n.entityId);
+            } else if (n.entityType?.startsWith("doc_reminder:") || n.entityType?.startsWith("manual_reminder:")) {
+              const parts = n.entityType.split(":");
+              if (parts.length >= 3 && !isNaN(Number(parts[2]))) {
+                empId = Number(parts[2]);
+              }
+            }
+            if (empId) {
+              return validEmployeeIdSet.has(empId);
+            }
+            return true;
+          });
+        }
+      }
+
       res.json(notifications);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch notifications" });
@@ -1662,11 +1714,42 @@ app.use(express.static('public'));
       if (!invoice) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      
-      // For now, return a simple response. In a real implementation,
-      // you would generate a PDF using a library like Puppeteer or PDFKit
-      res.json({ message: "PDF generation not implemented yet" });
+
+      const items = await storage.getInvoiceItemsByInvoiceId(id);
+      let customer = await storage.getCustomer(invoice.customerId || 0);
+      if (!customer) {
+        const vendorCustomers = await storage.getVendorCustomers("");
+        const vc = vendorCustomers.find((v) => v.id === invoice.customerId);
+        if (vc) {
+          customer = {
+            id: vc.id,
+            tenantId: 0,
+            name: vc.customerName,
+            email: vc.customerEmail,
+            phone: vc.customerPhone,
+            company: vc.customerName,
+            address: vc.customerAddress,
+            city: "",
+            state: "",
+            zipCode: "",
+            country: "",
+            taxId: "",
+            isActive: true,
+            notes: "",
+            createdAt: vc.createdAt,
+          };
+        }
+      }
+
+      const pdfBuffer = await generateInvoicePDF(invoice, items, customer || { name: "Customer" });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="invoice-${invoice.invoiceNumber}.pdf"`);
+      res.setHeader("Content-Length", String(pdfBuffer.length));
+      res.setHeader("Accept-Ranges", "bytes");
+      res.status(200).end(pdfBuffer);
     } catch (error) {
+      console.error("Error generating invoice PDF:", error);
       res.status(500).json({ message: "Failed to generate PDF" });
     }
   });

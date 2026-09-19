@@ -157,7 +157,7 @@ export default function VendorDashboardPage() {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <div className="text-center">
-          <div className="text-red-500 text-6xl mb-4">⚠️</div>
+          <div className="text-muted-foreground text-6xl mb-4">⚠️</div>
           <h2 className="text-2xl font-semibold text-foreground mb-2">Error Loading Dashboard</h2>
           <p className="text-muted-foreground">{error.message}</p>
         </div>

@@ -425,7 +425,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
     return <div>Loading user...</div>;
   }
   if (userError || !user) {
-    return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
+    return <div className="text-muted-foreground font-medium">Unable to load user context. Please log in again.</div>;
   }
 
   // Show loading states
@@ -434,7 +434,7 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
   }
 
   if (employeesError || configsError) {
-    return <div className="text-red-600">Error loading payroll data. Please try again.</div>;
+    return <div className="text-muted-foreground font-medium">Error loading payroll data. Please try again.</div>;
   }
 
   if (employees.length === 0) {

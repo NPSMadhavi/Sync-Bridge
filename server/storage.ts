@@ -89,7 +89,7 @@ import {
   type DocumentExpiryRecord,
 } from '@shared/document-reminder-utils';
 import { normalizePermissions } from '@shared/permissions';
-import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or, inArray, getTableColumns } from 'drizzle-orm';
+import { eq, and, gt, gte, lt, lte, desc, isNull, sql, isNotNull, or, inArray, getTableColumns, like } from 'drizzle-orm';
 import { DataEncryption } from './utils/encryption';
 
 export class CompanyDeletionBlockedError extends Error {
@@ -163,6 +163,7 @@ export interface IStorage {
   updateEmployee(id: number, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
   deleteAllEmployees(tenantId: number): Promise<number>;
+  getExistingEmployeeIds(ids: number[], tenantId?: number): Promise<number[]>;
   
   // Employee company history operations
   getEmployeeCompanyHistory(employeeId: number): Promise<EmployeeCompanyHistory[]>;
@@ -621,6 +622,11 @@ export class DatabaseStorage implements IStorage {
 
 
   async deleteEmployee(id: number): Promise<void> {
+    const [employee] = await db
+      .select({ id: employees.id, tenantId: employees.tenantId })
+      .from(employees)
+      .where(eq(employees.id, id));
+
     const employeeDependents = await db
       .select({ id: dependents.id })
       .from(dependents)
@@ -637,6 +643,48 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.delete(documentReminderHistory).where(eq(documentReminderHistory.employeeId, id));
     }
+
+    // Clean up employee-related document_expiry notifications (strictly tenant-safe)
+    const notificationConditions = [
+      and(
+        eq(notifications.type, "document_expiry"),
+        eq(notifications.entityId, id),
+        or(
+          like(notifications.entityType, "doc_reminder:%"),
+          like(notifications.entityType, "manual_reminder:%")
+        )
+      ),
+      and(
+        eq(notifications.type, "document_expiry"),
+        like(notifications.entityType, `doc_reminder:%:${id}:%`)
+      ),
+      and(
+        eq(notifications.type, "document_expiry"),
+        like(notifications.entityType, `manual_reminder:%:${id}:%`)
+      )
+    ];
+
+    if (dependentIds.length > 0) {
+      for (const depId of dependentIds) {
+        notificationConditions.push(
+          and(
+            eq(notifications.type, "document_expiry"),
+            like(notifications.entityType, `doc_reminder:%:%:${depId}:%`)
+          )
+        );
+      }
+    }
+
+    const tenantFilter = employee?.tenantId != null
+      ? eq(notifications.tenantId, employee.tenantId)
+      : isNull(notifications.tenantId);
+
+    const deleteNotificationWhere = and(
+      tenantFilter,
+      or(...notificationConditions)
+    );
+
+    await db.delete(notifications).where(deleteNotificationWhere);
 
     // Delete all related records to avoid FK constraint violations
     await db.delete(employeeCompanyHistory).where(eq(employeeCompanyHistory.employeeId, id));
@@ -658,6 +706,20 @@ export class DatabaseStorage implements IStorage {
       await this.deleteEmployee(row.id);
     }
     return rows.length;
+  }
+
+  async getExistingEmployeeIds(ids: number[], tenantId?: number): Promise<number[]> {
+    if (ids.length === 0) return [];
+    let query = db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(inArray(employees.id, ids));
+
+    if (tenantId !== undefined) {
+      query = query.where(and(inArray(employees.id, ids), eq(employees.tenantId, tenantId))) as typeof query;
+    }
+    const rows = await query;
+    return rows.map((r) => r.id);
   }
 
   async getEmployeeCompanyHistory(employeeId: number): Promise<EmployeeCompanyHistory[]> {

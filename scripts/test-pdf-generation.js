@@ -17,15 +17,10 @@ async function main() {
       console.log('Customer:', customer);
       console.log('Design:', design);
       
-      // Let's check if puppeteer is installed/works
-      console.log('Testing puppeteer launch...');
-      const puppeteer = await import('puppeteer');
-      const browser = await puppeteer.default.launch({
-        headless: true,
-        args: ['--no-sandbox']
-      });
-      console.log('Puppeteer browser launched successfully!');
-      await browser.close();
+      console.log('Testing pure Node PDF generation...');
+      const { generateInvoicePDF } = await import('../server/routes/invoices.ts');
+      const buffer = await generateInvoicePDF(invoice, items, customer, design);
+      console.log('PDF generated successfully without browser! Size:', buffer.length, 'bytes');
     }
   } catch (error) {
     console.error('Error during PDF generation test:', error);

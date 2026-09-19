@@ -169,7 +169,7 @@ function CustomizeInvoiceDesignForm({ invoiceId, onClose }: { invoiceId: number,
   };
 
   if (loading) return <div className="py-8 text-center">Loading design...</div>;
-  if (error) return <div className="py-8 text-center text-red-600">{error}</div>;
+  if (error) return <div className="py-8 text-center text-muted-foreground font-medium">{error}</div>;
 
   return (
     <form onSubmit={handleSave} className="h-full flex flex-col">

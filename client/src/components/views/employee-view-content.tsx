@@ -123,10 +123,10 @@ function formatCurrency(value?: string | number | null): string {
   if (value === null || value === undefined || value === "") return "—";
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (Number.isNaN(num)) return "—";
-  return num.toLocaleString("en-SG", {
+  return `S$ ${num.toLocaleString("en-SG", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
+  })}`;
 }
 
 function formatAnnualSalary(
@@ -137,19 +137,19 @@ function formatAnnualSalary(
     const annual =
       typeof annualSalary === "string" ? parseFloat(annualSalary) : annualSalary;
     if (!Number.isNaN(annual)) {
-      return annual.toLocaleString("en-SG", {
+      return `S$ ${annual.toLocaleString("en-SG", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-      });
+      })}`;
     }
   }
   if (salary === null || salary === undefined || salary === "") return "—";
   const num = typeof salary === "string" ? parseFloat(salary) : salary;
   if (Number.isNaN(num)) return "—";
-  return (num * 12).toLocaleString("en-SG", {
+  return `S$ ${(num * 12).toLocaleString("en-SG", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
+  })}`;
 }
 
 export function EmployeeViewContent({

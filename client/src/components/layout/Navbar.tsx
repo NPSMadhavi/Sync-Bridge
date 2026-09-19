@@ -325,7 +325,7 @@ export default function Navbar({ toggleMobileSidebar }: { toggleMobileSidebar: (
                   Searching...
                 </div>
               ) : isSearchError ? (
-                <div className="px-4 py-6 text-sm text-destructive text-center">
+                <div className="px-4 py-6 text-sm text-muted-foreground text-center font-medium">
                   Search failed. Try again or refresh the page.
                 </div>
               ) : searchResults.length === 0 ? (

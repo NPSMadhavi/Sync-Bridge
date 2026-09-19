@@ -322,7 +322,7 @@ export default function PayrollPage() {
   if (userError || !user) {
     return (
       <Dashboard>
-        <div className="flex items-center justify-center h-64 text-red-600">
+        <div className="flex items-center justify-center h-64 text-muted-foreground font-medium">
           Unable to load user context. Please log in again.
         </div>
       </Dashboard>
@@ -333,7 +333,7 @@ export default function PayrollPage() {
   if (!user.isSuperAdmin && user.role !== 'super_admin' && user.role !== 'admin' && !tenantId) {
     return (
       <Dashboard>
-        <div className="flex items-center justify-center h-64 text-red-600">
+        <div className="flex items-center justify-center h-64 text-muted-foreground font-medium">
           Tenant context required for regular users.
         </div>
       </Dashboard>
@@ -1588,7 +1588,7 @@ export default function PayrollPage() {
               recordsLoading ? (
                 <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading payroll records...</div>
               ) : recordsError ? (
-                <div className="py-8 text-center text-red-600">Failed to load payroll records.</div>
+                <div className="py-8 text-center text-muted-foreground font-medium">Failed to load payroll records.</div>
               ) : payrollRecords?.length ? (
                 <table className="min-w-full text-sm border rounded-lg overflow-hidden">
                   <thead>
@@ -1615,7 +1615,7 @@ export default function PayrollPage() {
               recordsLoading ? (
                 <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading payroll records...</div>
               ) : recordsError ? (
-                <div className="py-8 text-center text-red-600">Failed to load payroll records.</div>
+                <div className="py-8 text-center text-muted-foreground font-medium">Failed to load payroll records.</div>
               ) : payrollRecords?.length ? (
                 <table className="min-w-full text-sm border rounded-lg overflow-hidden">
                   <thead>
@@ -1642,7 +1642,7 @@ export default function PayrollPage() {
               recordsLoading ? (
                 <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading payroll records...</div>
               ) : recordsError ? (
-                <div className="py-8 text-center text-red-600">Failed to load payroll records.</div>
+                <div className="py-8 text-center text-muted-foreground font-medium">Failed to load payroll records.</div>
               ) : payrollRecords?.length ? (
                 <table className="min-w-full text-sm border rounded-lg overflow-hidden">
                   <thead>
@@ -1970,8 +1970,8 @@ export default function PayrollPage() {
               </p>
               {batchSummary.failures.length > 0 && (
                 <div className="pt-2">
-                  <p className="font-medium text-red-600">Failures:</p>
-                  <ul className="list-disc pl-5 text-red-600">
+                  <p className="font-medium text-foreground">Failures:</p>
+                  <ul className="list-disc pl-5 text-muted-foreground">
                     {batchSummary.failures.map((failure, index) => (
                       <li key={index}>
                         {failure.employeeName}: {failure.message}
