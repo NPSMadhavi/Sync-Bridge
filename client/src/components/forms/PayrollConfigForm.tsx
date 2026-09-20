@@ -686,9 +686,9 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
     companyList.every((c) => configuredCompanyIds.has(c.companyId));
 
   if (userLoading) return <div>Loading user...</div>;
-  if (userError || !user) return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
+  if (userError || !user) return <div className="text-muted-foreground font-medium">Unable to load user context. Please log in again.</div>;
   if (employeesLoading) return <div>Loading employees...</div>;
-  if (employeesError) return <div className="text-red-600">Error loading employees. Please try again.</div>;
+  if (employeesError) return <div className="text-muted-foreground font-medium">Error loading employees. Please try again.</div>;
   if (employees.length === 0) return <div className="text-yellow-600">No employees found. Please add employees first.</div>;
 
   return (

@@ -67,7 +67,7 @@ export default function PayrollPage() {
     return <div>Loading user...</div>;
   }
   if (userError || !user || !tenantId) {
-    return <div className="text-red-600">Unable to load user context. Please log in again.</div>;
+    return <div className="text-muted-foreground font-medium">Unable to load user context. Please log in again.</div>;
   }
 
   const formatCurrency = (amount: string | number) => {
@@ -248,7 +248,7 @@ export default function PayrollPage() {
                   </TableRow>
                 ) : configsError ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-red-600">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground font-medium">
                       Error loading payroll configurations
                     </TableCell>
                   </TableRow>
@@ -329,7 +329,7 @@ export default function PayrollPage() {
                   </TableRow>
                 ) : recordsError ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-red-600">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground font-medium">
                       Error loading payroll records
                     </TableCell>
                   </TableRow>

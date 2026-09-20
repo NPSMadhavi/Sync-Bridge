@@ -136,10 +136,11 @@ export function isPayrollProcessedForPeriod(
   employeeDbId: number,
   records: any[],
   payPeriodStart: string,
-  payPeriodEnd: string
+  payPeriodEnd: string,
+  companyId?: number | null
 ) {
   return Boolean(
-    findPayrollRecordForPeriod(employeeDbId, records, payPeriodStart, payPeriodEnd)
+    findPayrollRecordForPeriod(employeeDbId, records, payPeriodStart, payPeriodEnd, companyId)
   );
 }
 
@@ -164,25 +165,40 @@ export function findPayrollRecordForPeriod(
   companyId?: number | null
 ) {
   const start = toDateOnly(payPeriodStart);
+  const end = toDateOnly(payPeriodEnd);
   const { year, month } = derivePayrollMonthYear(start);
 
-  return records
+  const matched = records
     .filter((record) => Number(record.employeeId) === Number(employeeDbId))
-    .filter((record) =>
-      companyId == null || record.companyId == null
-        ? true
-        : Number(record.companyId) === Number(companyId)
-    )
-    .filter(
-      (record) =>
-        (record.payrollYear === year && record.payrollMonth === month) ||
-        payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, month)
-    )
+    .filter((record) => {
+      const recStart = toDateOnly(record.payPeriodStart);
+      const recEnd = toDateOnly(record.payPeriodEnd);
+      // Exact pay period match
+      if (recStart === start && recEnd === end) return true;
+      // Stored month/year match
+      if (Number(record.payrollYear) === year && Number(record.payrollMonth) === month) return true;
+      // Fallback: derived start date within month and overlapping
+      const recDerived = derivePayrollMonthYear(recStart);
+      if (recDerived.year === year && recDerived.month === month) {
+        return payPeriodOverlapsMonth(record.payPeriodStart, record.payPeriodEnd, year, month);
+      }
+      return false;
+    })
     .sort((a, b) => {
       const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
       const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
       return bTime - aTime;
-    })[0];
+    });
+
+  if (companyId != null) {
+    const exactComp = matched.find((r) => r.companyId != null && Number(r.companyId) === Number(companyId));
+    if (exactComp) return exactComp;
+    const nullComp = matched.find((r) => r.companyId == null);
+    if (nullComp) return nullComp;
+    return undefined;
+  }
+
+  return matched[0];
 }
 
 export function findPayrollRecordsForPeriod(
@@ -275,14 +291,14 @@ export function hasPayrollDataChanged(
 }
 
 export function areAllConfigsProcessedForPeriod(
-  configs: { employeeId: number }[],
+  configs: { employeeId: number; companyId?: number | null }[],
   records: any[],
   payPeriodStart: string,
   payPeriodEnd: string
 ): boolean {
   if (configs.length === 0) return false;
   return configs.every((config) =>
-    isPayrollProcessedForPeriod(config.employeeId, records, payPeriodStart, payPeriodEnd)
+    isPayrollProcessedForPeriod(config.employeeId, records, payPeriodStart, payPeriodEnd, config.companyId)
   );
 }
 

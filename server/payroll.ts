@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import { db } from './db';
-import { employeePayroll, payrollRecords, employees, tenants, companies } from '@shared/schema';
+import { employeePayroll, payrollRecords, employees, tenants, companies, employeeCompanySalaries } from '@shared/schema';
 import { and, eq, desc, gte, lte, sql, isNull } from 'drizzle-orm';
 import { insertEmployeePayrollSchema, insertPayrollRecordSchema } from '@shared/schema';
 import { sendEmail } from './email';
@@ -1160,15 +1160,23 @@ function buildPayslipFromProcessedRecord(
         ? parseFloat(String(record.monthlySalary))
         : basicSalary;
 
+    const employeeName = record.employeeName?.trim() || employee.name?.trim() || '';
+    const employeeCode = record.employeeCode?.trim() || employee.employeeId?.trim() || '';
+    const icNo = record.icNo?.trim() || resolveEmployeeIcNo(employee)?.trim() || '';
+    const department = record.department?.trim() || employee.department?.trim() || '';
+    const jobTitle = record.designation?.trim() || employee.designation?.trim() || '';
+    const companyName = record.companyName?.trim() || company?.companyName?.trim() || '';
+    const companyAddress = record.companyAddress?.trim() || company?.address?.trim() || '';
+
     return {
-      companyName: record.companyName ?? '',
-      companyAddress: record.companyAddress ?? '',
-      employeeName: record.employeeName ?? '',
+      companyName,
+      companyAddress,
+      employeeName,
       employeeDbId: employee.id,
-      employeeCode: record.employeeCode ?? '',
-      icNo: record.icNo ?? '',
-      department: record.department ?? '',
-      jobTitle: record.designation ?? '',
+      employeeCode,
+      icNo,
+      department,
+      jobTitle,
       month,
       year,
       payPeriodStart,
@@ -1186,15 +1194,23 @@ function buildPayslipFromProcessedRecord(
     };
   }
 
+  const employeeName = employee.name?.trim() || '';
+  const employeeCode = employee.employeeId?.trim() || '';
+  const icNo = resolveEmployeeIcNo(employee)?.trim() || '';
+  const department = employee.department?.trim() || '';
+  const jobTitle = employee.designation?.trim() || '';
+  const companyName = company?.companyName?.trim() || '';
+  const companyAddress = company?.address?.trim() || '';
+
   return {
-    companyName: company?.companyName ?? '',
-    companyAddress: company?.address ?? '',
-    employeeName: employee.name,
+    companyName,
+    companyAddress,
+    employeeName,
     employeeDbId: employee.id,
-    employeeCode: employee.employeeId,
-    icNo: resolveEmployeeIcNo(employee),
-    department: employee.department,
-    jobTitle: employee.designation,
+    employeeCode,
+    icNo,
+    department,
+    jobTitle,
     month,
     year,
     payPeriodStart,
@@ -1281,7 +1297,7 @@ async function buildPayslipEntryFromStoredRecord(
     nricNumber: string | null;
     finNumber: string | null;
   },
-  _fallbackCompany: { companyName: string | null; address: string | null } | null,
+  fallbackCompany: { companyName: string | null; address: string | null } | null,
   _referenceDate: string
 ): Promise<PayslipData> {
   const recordStart = normalizePayPeriodDate(companyRecord.payPeriodStart);
@@ -1297,11 +1313,50 @@ async function buildPayslipEntryFromStoredRecord(
     employerCpfAmount: companyRecord.employerCpfAmount ?? null,
   };
 
+  let resolvedCompany: { companyName: string | null; address: string | null } | null = fallbackCompany;
+  let targetCompanyId = companyRecord.companyId ?? config.companyId ?? null;
+  if (!targetCompanyId) {
+    const ecsConditions = [
+      eq(employeeCompanySalaries.employeeId, config.employeeId),
+    ];
+    if (config.tenantId) {
+      ecsConditions.push(eq(employeeCompanySalaries.tenantId, config.tenantId));
+    }
+    const [ecs] = await db
+      .select({ companyId: employeeCompanySalaries.companyId })
+      .from(employeeCompanySalaries)
+      .where(and(...ecsConditions))
+      .orderBy(employeeCompanySalaries.id)
+      .limit(1);
+    targetCompanyId = ecs?.companyId ?? (employee as any).companyId ?? null;
+  }
+  if (!targetCompanyId) {
+    const [emp] = await db
+      .select({ companyId: employees.companyId })
+      .from(employees)
+      .where(eq(employees.id, config.employeeId))
+      .limit(1);
+    targetCompanyId = emp?.companyId ?? null;
+  }
+  if (targetCompanyId) {
+    const [c] = await db
+      .select({
+        companyName: companies.companyName,
+        address: companies.address,
+      })
+      .from(companies)
+      .where(eq(companies.id, targetCompanyId))
+      .limit(1);
+    if (c) {
+      resolvedCompany = c;
+    }
+  }
+
   return buildPayslipFromProcessedRecord(
     companyRecord,
     configForPayslip,
     employee,
-    null,
+    resolvedCompany,
     payrollMonth,
     payrollYear,
     recordStart,
@@ -1310,7 +1365,7 @@ async function buildPayslipEntryFromStoredRecord(
   );
 }
 
-async function buildPayslipDataListForMonth(
+export async function buildPayslipDataListForMonth(
   config: typeof employeePayroll.$inferSelect,
   employee: {
     id: number;
@@ -1468,7 +1523,9 @@ async function generateCombinedPayslipFileFromDataList(
   const downloadFilename = getPayslipDownloadFileName(
     displayName,
     primary.month,
-    primary.year
+    primary.year,
+    primary.companyName,
+    primary.employeeCode || primary.employeeDbId
   );
 
   return { pdfBuffer, downloadFilename, saved };
@@ -1544,7 +1601,8 @@ async function resolveSingleMonthPayslipData(
         payslipData.employeeName || employee.name,
         resolved.month,
         resolved.year,
-        includeCompanyInFilename ? companyOverride?.companyName : undefined
+        includeCompanyInFilename ? companyOverride?.companyName : (payslipData.companyName || company?.companyName),
+        payslipData.employeeCode || payslipData.employeeDbId || employee.employeeId || employee.id
       ),
       monthLabel: MONTH_NAMES[resolved.month - 1],
       payrollMonth: resolved.month,
@@ -1613,7 +1671,8 @@ async function resolveSingleMonthPayslipData(
       employee.name,
       month,
       yearNum,
-      includeCompanyInFilename ? companyOverride?.companyName : undefined
+      includeCompanyInFilename ? companyOverride?.companyName : (payslipData.companyName || company?.companyName),
+      payslipData.employeeCode || payslipData.employeeDbId || employee.employeeId || employee.id
     ),
     monthLabel: MONTH_NAMES[month - 1],
     payrollMonth: month,
@@ -1674,23 +1733,39 @@ async function resolvePayslipContext(
     return { error: { status: 404, body: { message: 'Employee not found' } } };
   }
 
-  // Only use the company assigned to this employee — never fall back to a
-  // tenant default / first company (that incorrectly labels unassigned employees).
+  // Priority: 1) config.companyId, 2) active employeeCompanySalaries, 3) employee.companyId
   let company: { companyName: string | null; address: string | null } | null = null;
-  if (employee.companyId) {
+  let targetCompanyId = config.companyId ?? null;
+  const tenantIdToUse = effectiveTenantId || employee.tenantId || config.tenantId || null;
+  if (!targetCompanyId) {
+    const ecsConditions = [
+      eq(employeeCompanySalaries.employeeId, employee.id),
+    ];
+    if (tenantIdToUse) {
+      ecsConditions.push(eq(employeeCompanySalaries.tenantId, tenantIdToUse));
+    }
+    const [ecs] = await db
+      .select({ companyId: employeeCompanySalaries.companyId })
+      .from(employeeCompanySalaries)
+      .where(and(...ecsConditions))
+      .orderBy(employeeCompanySalaries.id)
+      .limit(1);
+    targetCompanyId = ecs?.companyId ?? employee.companyId ?? null;
+  }
+  if (targetCompanyId) {
     [company] = await db
       .select({
         companyName: companies.companyName,
         address: companies.address,
       })
       .from(companies)
-      .where(eq(companies.id, employee.companyId));
+      .where(eq(companies.id, targetCompanyId));
   }
 
   return { config, employee, company };
 }
 
-async function generatePayslipFilesForMonths(
+export async function generatePayslipFilesForMonths(
   config: typeof employeePayroll.$inferSelect,
   employee: {
     id: number;
@@ -1808,7 +1883,9 @@ export async function previewPayslip(req: Request, res: Response) {
     const downloadFilename = getPayslipDownloadFileName(
       displayName,
       primary.month,
-      primary.year
+      primary.year,
+      primary.companyName,
+      primary.employeeCode || primary.employeeDbId || employee.employeeId || employee.id
     );
 
     res.json({
@@ -2003,7 +2080,7 @@ async function generatePayslipBufferForRecord(
     record,
     config,
     employee,
-    null,
+    fallbackCompany,
     month,
     year,
     payPeriodStart,
@@ -2015,7 +2092,9 @@ async function generatePayslipBufferForRecord(
   const downloadFilename = getPayslipDownloadFileName(
     payslipData.employeeName || employee.name,
     month,
-    year
+    year,
+    payslipData.companyName || fallbackCompany?.companyName,
+    payslipData.employeeCode || payslipData.employeeDbId || employee.employeeId || employee.id
   );
   return { pdfBuffer, downloadFilename, payslipData };
 }
@@ -2298,9 +2377,11 @@ export async function batchProcessPayroll(req: Request, res: Response) {
           .from(employeePayroll)
           .where(eq(employeePayroll.isActive, true));
 
-    if (Array.isArray(payrollConfigIds) && payrollConfigIds.length > 0) {
-      const idSet = new Set(payrollConfigIds.map(Number));
-      configs = configs.filter((config) => idSet.has(config.id));
+    const isSpecificSelection = Array.isArray(payrollConfigIds) && payrollConfigIds.length > 0;
+    const selectedConfigIds = isSpecificSelection ? new Set(payrollConfigIds.map(Number)) : null;
+
+    if (selectedConfigIds) {
+      configs = configs.filter((config) => selectedConfigIds.has(config.id));
     }
 
     if (configs.length === 0) {
@@ -2310,7 +2391,15 @@ export async function batchProcessPayroll(req: Request, res: Response) {
     const forceOverwriteFlag = parseForceOverwriteFlag(forceOverwrite);
     const { month: batchMonth, year: batchYear } = derivePayrollMonthYear(resolvedPayPeriodStart);
     const uniqueEmployeeIds = [...new Set(configs.map((config) => config.employeeId))];
-    const validConfigIdSet = new Set<number>();
+    const selectedCompanyByEmployee = new Map<number, Set<number | null>>();
+    for (const c of configs) {
+      if (!selectedCompanyByEmployee.has(c.employeeId)) {
+        selectedCompanyByEmployee.set(c.employeeId, new Set());
+      }
+      selectedCompanyByEmployee.get(c.employeeId)!.add(c.companyId ?? null);
+    }
+
+    const freshConfigs: typeof configs = [];
 
     for (const employeeId of uniqueEmployeeIds) {
       const [employee] = await db
@@ -2337,12 +2426,29 @@ export async function batchProcessPayroll(req: Request, res: Response) {
       }
 
       const resolvedConfigs = await resolvePayrollConfigsForProcessing(employeeId, tenantId);
-      for (const resolved of resolvedConfigs) {
-        validConfigIdSet.add(resolved.id);
+      if (!isSpecificSelection) {
+        freshConfigs.push(...resolvedConfigs);
+      } else {
+        const allowedCompanyIds = selectedCompanyByEmployee.get(employeeId);
+        for (const resolved of resolvedConfigs) {
+          if (
+            selectedConfigIds!.has(resolved.id) ||
+            (allowedCompanyIds && allowedCompanyIds.has(resolved.companyId ?? null)) ||
+            (allowedCompanyIds && allowedCompanyIds.has(null))
+          ) {
+            freshConfigs.push(resolved);
+          }
+        }
       }
     }
 
-    configs = configs.filter((config) => validConfigIdSet.has(config.id));
+    // Deduplicate freshConfigs by ID
+    const seenConfigIds = new Set<number>();
+    configs = freshConfigs.filter((c) => {
+      if (seenConfigIds.has(c.id)) return false;
+      seenConfigIds.add(c.id);
+      return true;
+    });
 
     if (configs.length === 0) {
       return res.status(400).json({
@@ -2383,11 +2489,17 @@ export async function batchProcessPayroll(req: Request, res: Response) {
       }
     }
 
+    const distinctSelectedEmpIds = [...new Set(configs.map((c) => c.employeeId))];
+    const pendingEmpIds = new Set(pendingConfigs.map((c) => c.employeeId));
+    const changedEmpIds = new Set(changedConfigs.map((c) => c.employeeId));
+
     const buildStatusSummary = (): BatchPayrollSummary => ({
-      totalEmployees: configs.length,
+      totalEmployees: distinctSelectedEmpIds.length,
       processedNew: 0,
       updated: 0,
-      skipped: configs.length - pendingConfigs.length - changedConfigs.length,
+      skipped: distinctSelectedEmpIds.filter(
+        (id) => !pendingEmpIds.has(id) && !changedEmpIds.has(id)
+      ).length,
       failures: [],
     });
 
@@ -2450,13 +2562,27 @@ export async function batchProcessPayroll(req: Request, res: Response) {
       });
     }
 
-    const summary: BatchPayrollSummary = {
-      totalEmployees: configs.length,
-      processedNew: 0,
-      updated: 0,
-      skipped: configs.length - configsToProcess.length,
-      failures: [],
-    };
+    const employeeResults = new Map<
+      number,
+      {
+        employeeName: string;
+        created: boolean;
+        updated: boolean;
+        skipped: boolean;
+        failed: boolean;
+        failureMessage?: string;
+      }
+    >();
+
+    for (const empId of distinctSelectedEmpIds) {
+      employeeResults.set(empId, {
+        employeeName: `Employee ${empId}`,
+        created: false,
+        updated: false,
+        skipped: false,
+        failed: false,
+      });
+    }
 
     const processedConfigIds = new Set<number>();
 
@@ -2470,6 +2596,15 @@ export async function batchProcessPayroll(req: Request, res: Response) {
             .limit(1)
         )[0]?.name || `Employee ${config.employeeId}`;
 
+      const empState = employeeResults.get(config.employeeId) || {
+        employeeName,
+        created: false,
+        updated: false,
+        skipped: false,
+        failed: false,
+      };
+      empState.employeeName = employeeName;
+
       try {
         const [employee] = await db
           .select()
@@ -2477,10 +2612,9 @@ export async function batchProcessPayroll(req: Request, res: Response) {
           .where(eq(employees.id, config.employeeId));
 
         if (!employee) {
-          summary.failures.push({
-            employeeName,
-            message: 'Employee not found',
-          });
+          empState.failed = true;
+          empState.failureMessage = 'Employee not found';
+          employeeResults.set(config.employeeId, empState);
           continue;
         }
 
@@ -2488,10 +2622,9 @@ export async function batchProcessPayroll(req: Request, res: Response) {
           effectiveTenantId || config.tenantId || employee.tenantId || null;
 
         if (!tenantId) {
-          summary.failures.push({
-            employeeName,
-            message: 'Tenant context not found',
-          });
+          empState.failed = true;
+          empState.failureMessage = 'Tenant context not found';
+          employeeResults.set(config.employeeId, empState);
           continue;
         }
 
@@ -2513,56 +2646,92 @@ export async function batchProcessPayroll(req: Request, res: Response) {
         );
 
         if (result.action === 'skipped') {
-          summary.skipped++;
+          empState.skipped = true;
+          employeeResults.set(config.employeeId, empState);
           continue;
         }
 
         if (!result.record) {
-          summary.failures.push({
-            employeeName,
-            message: 'Failed to save payroll record',
-          });
+          empState.failed = true;
+          empState.failureMessage = 'Failed to save payroll record';
+          employeeResults.set(config.employeeId, empState);
           continue;
         }
 
         processedConfigIds.add(config.id);
 
         if (result.action === 'created') {
-          summary.processedNew++;
+          empState.created = true;
         } else if (result.action === 'updated') {
-          summary.updated++;
+          empState.updated = true;
         }
+        employeeResults.set(config.employeeId, empState);
       } catch (error) {
+        empState.failed = true;
+        empState.failureMessage = error instanceof Error ? error.message : 'Processing failed';
+        employeeResults.set(config.employeeId, empState);
+      }
+    }
+
+    const summary: BatchPayrollSummary = {
+      totalEmployees: distinctSelectedEmpIds.length,
+      processedNew: 0,
+      updated: 0,
+      skipped: 0,
+      failures: [],
+    };
+
+    for (const [empId, state] of employeeResults.entries()) {
+      if (state.failed) {
         summary.failures.push({
-          employeeName,
-          message: error instanceof Error ? error.message : 'Processing failed',
+          employeeName: state.employeeName,
+          message: state.failureMessage || 'Processing failed',
         });
+      } else if (state.created) {
+        summary.processedNew++;
+      } else if (state.updated) {
+        summary.updated++;
+      } else {
+        summary.skipped++;
+      }
+    }
+
+    // Group processed configs by employeeId so each employee generates exactly ONE combined payslip PDF
+    const processedConfigsByEmployee = new Map<number, (typeof configs)[0][]>();
+    for (const config of configs) {
+      if (processedConfigIds.has(config.id)) {
+        const list = processedConfigsByEmployee.get(config.employeeId) || [];
+        list.push(config);
+        processedConfigsByEmployee.set(config.employeeId, list);
       }
     }
 
     const zipFiles: { filename: string; buffer: Buffer }[] = [];
+    const generatedPdfsByEmployee = new Map<number, { filename: string; buffer: Buffer }>();
 
-    for (const config of configs.filter((item) => processedConfigIds.has(item.id))) {
+    for (const [employeeId, empConfigs] of processedConfigsByEmployee.entries()) {
+      const primaryConfig = empConfigs[0];
       const employeeName =
         (
           await db
             .select({ name: employees.name })
             .from(employees)
-            .where(eq(employees.id, config.employeeId))
+            .where(eq(employees.id, employeeId))
             .limit(1)
-        )[0]?.name || `Employee ${config.employeeId}`;
+        )[0]?.name || `Employee ${employeeId}`;
 
       try {
         const record = await findPayrollRecordForPeriod(
-          config.employeeId,
+          employeeId,
           resolvedPayPeriodStart,
-          resolvedPayPeriodEnd
+          resolvedPayPeriodEnd,
+          primaryConfig.companyId
         );
         if (!record) {
           continue;
         }
 
-        const ctx = await resolvePayslipContext(req, config.id);
+        const ctx = await resolvePayslipContext(req, primaryConfig.id);
         if ('error' in ctx && ctx.error) {
           summary.failures.push({
             employeeName,
@@ -2582,6 +2751,10 @@ export async function batchProcessPayroll(req: Request, res: Response) {
           payPeriodStart: normalizePayPeriodDate(record.payPeriodStart),
         });
 
+        console.log(
+          `[batch-zip] Generating payslip: employeeId=${employeeId}, employeeName="${employeeName}", payrollConfigId=${primaryConfig.id}, companyId=${primaryConfig.companyId ?? 'none'}`
+        );
+
         const { generatedFiles } = await generatePayslipFilesForMonths(
           payslipConfig,
           payslipEmployee,
@@ -2596,7 +2769,18 @@ export async function batchProcessPayroll(req: Request, res: Response) {
         }
 
         const file = generatedFiles[0];
-        zipFiles.push({ filename: file.downloadFilename, buffer: file.buffer });
+        console.log(
+          `[batch-zip] Generated PDF for employeeId=${employeeId}: filename="${file.downloadFilename}", size=${file.buffer.length} bytes`
+        );
+
+        if (!generatedPdfsByEmployee.has(employeeId)) {
+          generatedPdfsByEmployee.set(employeeId, { filename: file.downloadFilename, buffer: file.buffer });
+          zipFiles.push({ filename: file.downloadFilename, buffer: file.buffer });
+        } else {
+          console.warn(
+            `[batch-zip] Prevented duplicate PDF for employeeId=${employeeId} (${employeeName})`
+          );
+        }
       } catch (error) {
         summary.failures.push({
           employeeName,

@@ -48,7 +48,7 @@ export default function PayrollCalculationPreviewPanel({
             Calculating payroll...
           </div>
         ) : error ? (
-          <div className="py-6 text-sm text-red-600">{error}</div>
+          <div className="py-6 text-sm text-muted-foreground font-medium">{error}</div>
         ) : calculation ? (
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">

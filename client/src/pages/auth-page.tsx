@@ -255,7 +255,7 @@ export default function AuthPage() {
                       className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400 focus:border-teal-400"
                     />
                     {loginForm.formState.errors.email && (
-                      <p className="text-red-400 text-sm mt-1">
+                      <p className="text-slate-300 font-medium text-sm mt-1">
                         {loginForm.formState.errors.email.message}
                       </p>
                     )}
@@ -272,7 +272,7 @@ export default function AuthPage() {
                       className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400 focus:border-teal-400"
                     />
                     {loginForm.formState.errors.password && (
-                      <p className="text-red-400 text-sm mt-1">
+                      <p className="text-slate-300 font-medium text-sm mt-1">
                         {loginForm.formState.errors.password.message}
                       </p>
                     )}

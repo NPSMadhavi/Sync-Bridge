@@ -1,11 +1,28 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import puppeteer from "puppeteer";
+import pdfmake from "pdfmake";
 import {
   formatPayrollMonthLabel,
   normalizePayPeriodDate,
 } from "./payroll-process-service";
+
+pdfmake.fonts = {
+  Times: {
+    normal: "Times-Roman",
+    bold: "Times-Bold",
+    italics: "Times-Italic",
+    bolditalics: "Times-BoldItalic",
+  },
+  Helvetica: {
+    normal: "Helvetica",
+    bold: "Helvetica-Bold",
+    italics: "Helvetica-Oblique",
+    bolditalics: "Helvetica-BoldOblique",
+  },
+};
+pdfmake.setUrlAccessPolicy(() => false);
+pdfmake.setLocalAccessPolicy(() => true);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,18 +54,23 @@ export function getPayslipFileName(
   return `${getEmployeeNamePart(employeeName)}_${employeeId}_${monthName}${year}.pdf`;
 }
 
-/** User-facing download filename: Payslip_EMPLOYEE_NAME_MONTH_YEAR.pdf */
+/** User-facing download filename: Payslip_EMPLOYEE_NAME_IDENTIFIER_COMPANY_MONTH_YEAR.pdf */
 export function getPayslipDownloadFileName(
   employeeName: string,
   month: number,
   year: number,
-  companyName?: string
+  companyName?: string,
+  identifier?: string | number | null
 ): string {
   const safeName =
     employeeName
       .trim()
       .replace(/[^a-zA-Z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "Employee";
+  const safeId =
+    identifier != null && String(identifier).trim() !== ""
+      ? `_${String(identifier).trim().replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`
+      : "";
   const companyPart = companyName
     ? `_${companyName
         .trim()
@@ -56,7 +78,7 @@ export function getPayslipDownloadFileName(
         .replace(/^_+|_+$/g, "")}`
     : "";
   const monthName = formatPayrollMonthLabel(year, month).split(" ")[0];
-  return `Payslip_${safeName}${companyPart}_${monthName}_${year}.pdf`;
+  return `Payslip_${safeName}${safeId}${companyPart}_${monthName}_${year}.pdf`;
 }
 
 function formatAmount(value: string | number | null | undefined): string {
@@ -677,44 +699,207 @@ ${pages.join("\n")}
 </html>`;
 }
 
-export async function generateCombinedPayslipPdf(dataList: PayslipData[]): Promise<Buffer> {
-  if (dataList.length === 0) {
-    throw new Error("No payslip data provided");
-  }
-  if (dataList.length === 1) {
-    return generatePayslipPdf(dataList[0]);
-  }
+export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = false): any[] {
+  const payPeriodStart = normalizePayPeriodDate(data.payPeriodStart);
+  const payPeriodEnd = normalizePayPeriodDate(data.payPeriodEnd);
+  const payrollMonthShort = formatPayslipMonthShort(data.month, data.year);
+  const periodRange = `${formatPayslipShortDate(payPeriodStart)} - ${formatPayslipShortDate(payPeriodEnd)}`;
 
-  const html = buildCombinedPayslipHtml(dataList);
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
+  const companyName = data.companyName || "";
+  const companyAddress = data.companyAddress || "";
+  const employeeName = data.employeeName || "";
+  const icNo = data.icNo || "";
+  const employeeCode = data.employeeCode || "";
+  const department = data.department || "";
+  const jobTitle = data.jobTitle || "";
+
+  const elements: any[] = [];
+
+  // Header: Company Name & Address
+  elements.push({
+    text: companyName,
+    fontSize: 18,
+    bold: true,
+    color: "#3E67C5",
+    alignment: "center",
+    pageBreak: pageBreakBefore ? "before" : undefined,
+    margin: [0, 0, 0, 4],
+  });
+
+  elements.push({
+    text: companyAddress,
+    fontSize: 11,
+    alignment: "center",
+    margin: [0, 0, 0, 22],
+  });
+
+  // Main Payslip Table
+  elements.push({
+    table: {
+      widths: ["30%", "30%", "40%"],
+      body: [
+        // Row 1: Header
+        [
+          { text: "PAYSLIP", bold: true, fontSize: 13, alignment: "left", margin: [2, 4, 2, 4] },
+          { text: payrollMonthShort, bold: true, fontSize: 13, alignment: "center", margin: [2, 4, 2, 4] },
+          { text: periodRange, bold: true, fontSize: 13, alignment: "center", margin: [2, 4, 2, 4] },
+        ],
+        // Row 2: Employee info + Deduction Title
+        [
+          {
+            colSpan: 2,
+            table: {
+              widths: [105, "*"],
+              body: [
+                [
+                  { text: "Name :", fontSize: 10.5, border: [false, false, true, true] },
+                  { text: employeeName, fontSize: 10.5, bold: true, border: [false, false, false, true] },
+                ],
+                [
+                  { text: "IC NO :", fontSize: 10.5, border: [false, false, true, false] },
+                  { text: icNo, fontSize: 10.5, bold: true, border: [false, false, false, false] },
+                ],
+                [
+                  { text: "Employee Code :", fontSize: 10.5, border: [false, false, true, false] },
+                  { text: employeeCode, fontSize: 10.5, border: [false, false, false, false] },
+                ],
+                [
+                  { text: "Department :", fontSize: 10.5, border: [false, false, true, false] },
+                  { text: department, fontSize: 10.5, border: [false, false, false, false] },
+                ],
+                [
+                  { text: "Job Title :", fontSize: 10.5, border: [false, false, true, false] },
+                  { text: jobTitle, fontSize: 10.5, border: [false, false, false, false] },
+                ],
+              ],
+            },
+            layout: {
+              hLineWidth: () => 1.5,
+              vLineWidth: () => 1.5,
+              hLineColor: () => "#000000",
+              vLineColor: () => "#000000",
+              paddingLeft: () => 4,
+              paddingRight: () => 4,
+              paddingTop: () => 3,
+              paddingBottom: () => 3,
+            },
+          },
+          {},
+          { text: "Deduction", fontSize: 11, margin: [4, 4, 4, 4] },
+        ],
+        // Row 3: Payments + CPF block
+        [
+          {
+            colSpan: 2,
+            table: {
+              widths: ["*", 70],
+              body: [
+                [{ text: "Payment :", colSpan: 2, bold: true, fontSize: 10.5, margin: [0, 0, 0, 4] }, {}],
+                [{ text: "Basic Rate", fontSize: 10.5 }, { text: formatAmount(data.basicRate), fontSize: 10.5, alignment: "right" }],
+                [{ text: "Working Days", fontSize: 10.5 }, { text: formatWorkingDays(data.workingDays), fontSize: 10.5, alignment: "right" }],
+                [{ text: "Basic Pay", fontSize: 10.5 }, { text: formatAmount(data.basicPay), fontSize: 10.5, alignment: "right" }],
+                [{ text: "", colSpan: 2, margin: [0, 22, 0, 22] }, {}],
+                [{ text: "Overtime", fontSize: 10.5 }, { text: formatAmount(data.overtime), fontSize: 10.5, alignment: "right" }],
+                [{ text: "Allowance", fontSize: 10.5 }, { text: formatAmount(data.allowance), fontSize: 10.5, alignment: "right" }],
+              ],
+            },
+            layout: "noBorders",
+          },
+          {},
+          {
+            stack: [
+              { text: "", margin: [0, 48, 0, 0] },
+              { text: `Employee Amount = SGD ${formatAmount(data.employeeCpf)}`, fontSize: 10.5, lineHeight: 1.5 },
+              { text: `Employer Amount = SGD ${formatAmount(data.employerCpf)}`, fontSize: 10.5, lineHeight: 1.5 },
+            ],
+            margin: [4, 4, 4, 4],
+          },
+        ],
+        // Row 4: Other deductions
+        [
+          { text: "", colSpan: 2 },
+          {},
+          { text: `Other : ${formatAmount(data.otherDeductions)}`, fontSize: 10.5, margin: [4, 2, 4, 2] },
+        ],
+        // Row 5: Gross Monthly Row
+        [
+          {
+            colSpan: 2,
+            table: {
+              widths: ["*", 70],
+              body: [
+                [{ text: "Gross pay", fontSize: 10.5 }, { text: formatAmount(data.grossPay), fontSize: 10.5, alignment: "right" }],
+              ],
+            },
+            layout: "noBorders",
+          },
+          {},
+          { text: `Monthly Gross : SGD ${formatAmount(data.grossPay)}`, bold: true, fontSize: 10.5, margin: [4, 2, 4, 2] },
+        ],
+        // Row 6: Summary Row (CPF, Net Pay)
+        [
+          {
+            colSpan: 2,
+            table: {
+              widths: ["*", 70],
+              body: [
+                [{ text: "Employee CPF", fontSize: 10.5 }, { text: formatAmount(data.employeeCpf), fontSize: 10.5, alignment: "right" }],
+                [{ text: "", colSpan: 2, margin: [0, 8, 0, 8] }, {}],
+                [{ text: "Net Pay", bold: true, fontSize: 11 }, { text: formatAmount(data.netPay), bold: true, fontSize: 11, alignment: "right" }],
+              ],
+            },
+            layout: "noBorders",
+          },
+          {},
+          { text: "" },
+        ],
+        // Row 7: Signature Row
+        [
+          { text: "Employee", fontSize: 10.5, alignment: "right", margin: [0, 40, 6, 2] },
+          {
+            stack: [
+              { text: "", margin: [0, 32, 0, 0] },
+              { canvas: [{ type: "line", x1: 0, y1: 0, x2: 145, y2: 0, lineWidth: 1.5 }] },
+              { text: employeeName, bold: true, fontSize: 10.5, margin: [0, 4, 0, 2] },
+            ],
+          },
+          {
+            stack: [
+              { text: "", margin: [0, 32, 0, 0] },
+              { canvas: [{ type: "line", x1: 0, y1: 0, x2: 195, y2: 0, lineWidth: 1.5 }] },
+              { text: companyName, bold: true, fontSize: 10.5, margin: [0, 4, 0, 2] },
+            ],
+          },
+        ],
       ],
-    });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    const pdfBytes = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "0", right: "0", bottom: "0", left: "0" },
-    });
-    const pdfBuffer = Buffer.from(pdfBytes);
-    if (!isPdfBuffer(pdfBuffer)) {
-      throw new Error("Puppeteer did not return a valid PDF buffer");
-    }
-    return pdfBuffer;
-  } finally {
-    if (browser) await browser.close();
-  }
+    },
+    layout: {
+      hLineWidth: () => 1.5,
+      vLineWidth: () => 1.5,
+      hLineColor: () => "#000000",
+      vLineColor: () => "#000000",
+      paddingLeft: () => 6,
+      paddingRight: () => 6,
+      paddingTop: () => 4,
+      paddingBottom: () => 4,
+    },
+  });
+
+  // Footer Note
+  elements.push({
+    text: "***Computer Generated Payslip, No Signature Required***",
+    bold: true,
+    fontSize: 10.5,
+    alignment: "center",
+    margin: [0, 16, 0, 0],
+  });
+
+  return elements;
 }
 
-function isPdfBuffer(buffer: Buffer): boolean {
+export function isPdfBuffer(buffer: Buffer): boolean {
   return (
+    Buffer.isBuffer(buffer) &&
     buffer.length >= 4 &&
     buffer[0] === 0x25 &&
     buffer[1] === 0x50 &&
@@ -724,32 +909,58 @@ function isPdfBuffer(buffer: Buffer): boolean {
 }
 
 export async function generatePayslipPdf(data: PayslipData): Promise<Buffer> {
-  const html = buildPayslipHtml(data);
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
-    });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    const pdfBytes = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "0", right: "0", bottom: "0", left: "0" },
-    });
-    const pdfBuffer = Buffer.from(pdfBytes);
-    if (!isPdfBuffer(pdfBuffer)) {
-      throw new Error("Puppeteer did not return a valid PDF buffer");
-    }
-    return pdfBuffer;
-  } finally {
-    if (browser) await browser.close();
+  const content = buildPayslipPdfMakeContent(data, false);
+  const docDefinition: any = {
+    pageSize: "A4",
+    pageMargins: [28, 28, 28, 28],
+    defaultStyle: {
+      font: "Times",
+      fontSize: 10.5,
+      color: "#000000",
+    },
+    content,
+  };
+
+  const doc = pdfmake.createPdf(docDefinition);
+  const pdfBuffer = await doc.getBuffer();
+  if (!isPdfBuffer(pdfBuffer)) {
+    throw new Error("pdfmake did not return a valid PDF buffer");
   }
+  return pdfBuffer;
+}
+
+export async function generateCombinedPayslipPdf(dataList: PayslipData[]): Promise<Buffer> {
+  if (dataList.length === 0) {
+    throw new Error("No payslip data provided");
+  }
+  if (dataList.length === 1) {
+    return generatePayslipPdf(dataList[0]);
+  }
+
+  const content: any[] = [];
+  dataList.forEach((data, index) => {
+    const pageBreakBefore = index > 0;
+    const payslipContent = buildPayslipPdfMakeContent(data, pageBreakBefore);
+    content.push(...payslipContent);
+  });
+
+  const docDefinition: any = {
+    pageSize: "A4",
+    pageMargins: [28, 28, 28, 28],
+    defaultStyle: {
+      font: "Times",
+      fontSize: 10.5,
+      color: "#000000",
+    },
+    content,
+  };
+
+  const doc = pdfmake.createPdf(docDefinition);
+  const pdfBuffer = await doc.getBuffer();
+  if (!isPdfBuffer(pdfBuffer)) {
+    throw new Error("pdfmake did not return a valid PDF buffer");
+  }
+  return pdfBuffer;
 }
 
 export async function savePayslipPdf(

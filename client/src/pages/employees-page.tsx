@@ -1209,33 +1209,47 @@ export default function EmployeesPage() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Salary*</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            step="0.01"
-                            value={entry.salary}
-                            onChange={(e) => {
-                              const salary = e.target.value;
-                              updateCompanySalaryEntry(index, {
-                                salary,
-                                annualSalary: salary ? String(Number(salary) * 12) : '',
-                              });
-                            }}
-                            required
-                          />
+                          <Label>Salary (S$)*</Label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium pointer-events-none">
+                              $
+                            </span>
+                            <Input
+                              type="number"
+                              min="1"
+                              step="0.01"
+                              className="pl-7"
+                              placeholder="0.00"
+                              value={entry.salary}
+                              onChange={(e) => {
+                                const salary = e.target.value;
+                                updateCompanySalaryEntry(index, {
+                                  salary,
+                                  annualSalary: salary ? String(Number(salary) * 12) : '',
+                                });
+                              }}
+                              required
+                            />
+                          </div>
                         </div>
                         <div className="space-y-2">
-                          <Label>Annual Salary</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={entry.annualSalary}
-                            onChange={(e) =>
-                              updateCompanySalaryEntry(index, { annualSalary: e.target.value })
-                            }
-                          />
+                          <Label>Annual Salary (S$)</Label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium pointer-events-none">
+                              $
+                            </span>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="pl-7"
+                              placeholder="0.00"
+                              value={entry.annualSalary}
+                              onChange={(e) =>
+                                updateCompanySalaryEntry(index, { annualSalary: e.target.value })
+                              }
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1794,7 +1808,7 @@ export default function EmployeesPage() {
               </div>
             ) : error ? (
               <div className="text-center py-8">
-                <p className="text-red-600 mb-2">Error loading employees:</p>
+                <p className="text-foreground font-medium mb-2">Error loading employees:</p>
                 <p className="text-sm text-gray-600">{error.message}</p>
                 <Button 
                   onClick={() => queryClient.invalidateQueries({ queryKey: ['employees'] })}
@@ -2635,10 +2649,10 @@ export default function EmployeesPage() {
                           {row.errors.length === 0 ? (
                             <span className="text-green-600">Valid</span>
                           ) : (
-                            <span className="text-red-600">Invalid</span>
+                            <span className="text-muted-foreground font-medium">Invalid</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-xs text-red-600">{row.errors.join("; ") || "—"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{row.errors.join("; ") || "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

@@ -234,10 +234,10 @@ export default function CompaniesPage() {
           id="companyName"
           value={formData.companyName}
           onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-          className={formErrors.companyName ? "border-destructive" : ""}
+          className={formErrors.companyName ? "border-foreground/30" : ""}
         />
         {formErrors.companyName && (
-          <p className="text-sm text-destructive mt-1">{formErrors.companyName}</p>
+          <p className="text-sm text-muted-foreground mt-1">{formErrors.companyName}</p>
         )}
       </div>
 
@@ -247,10 +247,10 @@ export default function CompaniesPage() {
           id="uenNumber"
           value={formData.uenNumber}
           onChange={(e) => setFormData({ ...formData, uenNumber: e.target.value })}
-          className={formErrors.uenNumber ? "border-destructive" : ""}
+          className={formErrors.uenNumber ? "border-foreground/30" : ""}
         />
         {formErrors.uenNumber && (
-          <p className="text-sm text-destructive mt-1">{formErrors.uenNumber}</p>
+          <p className="text-sm text-muted-foreground mt-1">{formErrors.uenNumber}</p>
         )}
       </div>
 
