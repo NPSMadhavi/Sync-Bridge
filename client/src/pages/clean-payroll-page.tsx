@@ -175,17 +175,27 @@ function groupPayrollConfigsByEmployee(configs: any[]): GroupedPayrollConfigRow[
 function buildPayslipDownloadFilename(
   employeeName: string,
   month: number,
-  year: number
+  year: number,
+  companyName?: string | null,
+  identifier?: string | number | null
 ): string {
   const safeName =
     employeeName
       .trim()
       .replace(/[^a-zA-Z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "Employee";
+  const safeId =
+    identifier != null && String(identifier).trim() !== ""
+      ? `_${String(identifier).trim().replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`
+      : "";
+  const companyPart =
+    companyName && companyName.trim()
+      ? `_${companyName.trim().replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`
+      : "";
   const monthLabel =
     PAYSLIP_MONTHS_LEFT.concat(PAYSLIP_MONTHS_RIGHT).find((m) => m.value === month)?.label ||
     `Month${month}`;
-  return `Payslip_${safeName}_${monthLabel}_${year}.pdf`;
+  return `Payslip_${safeName}${safeId}${companyPart}_${monthLabel}_${year}.pdf`;
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string) {
@@ -292,6 +302,9 @@ export default function PayrollPage() {
     employeeName: string;
     year: number;
     month: number;
+    companyName?: string | null;
+    employeeCode?: string | null;
+    employeeId?: number | null;
   } | null>(null);
 
   const closePayslipViewer = () => {
@@ -464,11 +477,16 @@ export default function PayrollPage() {
     setSelectedRecord(null);
   };
 
-  // Helper to deduplicate payroll records by employeeId + payPeriodStart + payPeriodEnd
+  // Helper to deduplicate payroll records by employeeId + companyId + payPeriodStart + payPeriodEnd
   function getUniquePayrollRecords(records: any[] = []) {
-    const seen = new Set();
-    return records.filter(rec => {
-      const key = `${rec.employeeId}-${rec.payPeriodStart}-${rec.payPeriodEnd}`;
+    const seen = new Set<string>();
+    const sorted = [...records].sort((a, b) => {
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+    return sorted.filter(rec => {
+      const key = `${rec.employeeId}-${rec.companyId ?? 'none'}-${rec.payPeriodStart}-${rec.payPeriodEnd}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -520,9 +538,10 @@ export default function PayrollPage() {
   const isConfigProcessed = (config: any) =>
     isPayrollProcessedForPeriod(
       config.employeeId,
-      getUniquePayrollRecords(payrollRecords),
+      payrollRecords,
       payPeriodStart,
-      payPeriodEnd
+      payPeriodEnd,
+      config.companyId
     );
 
   const processedRowClass = "bg-[#E3F2FD] border-l-4 border-[#90CAF9]";
@@ -571,8 +590,14 @@ export default function PayrollPage() {
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/payroll/records"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/payroll/records", tenantId] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/payroll/summary", tenantId] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/payroll/configs"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/payroll/configs", tenantId] }),
+      ]);
       setSelectedConfigIds([]);
       setBatchConfirmDialogOpen(false);
       setBatchConfirmScenario(null);
@@ -781,7 +806,9 @@ export default function PayrollPage() {
         : buildPayslipDownloadFilename(
             payslipConfig.employeeName,
             selectedPayslipMonths[0],
-            payslipYear
+            payslipYear,
+            payslipConfig.companyName,
+            payslipConfig.employeeCode || payslipConfig.employeeId
           );
 
       const result = await handlePayslipDownloadResponse(res, fallbackFilename);
@@ -846,7 +873,9 @@ export default function PayrollPage() {
       const fallbackFilename = buildPayslipDownloadFilename(
         payslipViewerContext.employeeName,
         payslipViewerContext.month,
-        payslipViewerContext.year
+        payslipViewerContext.year,
+        payslipViewerContext.companyName,
+        payslipViewerContext.employeeCode || payslipViewerContext.employeeId
       );
       const result = await handlePayslipDownloadResponse(res, fallbackFilename);
 
@@ -922,6 +951,9 @@ export default function PayrollPage() {
         employeeName: payslipConfig.employeeName,
         year: payslipYear,
         month,
+        companyName: payslipConfig.companyName,
+        employeeCode: payslipConfig.employeeCode,
+        employeeId: payslipConfig.employeeId,
       });
       setPayslipViewerOpen(true);
       setPayslipModalOpen(false);
@@ -1145,9 +1177,11 @@ export default function PayrollPage() {
             </TableHeader>
             <TableBody>
                 {paginatedGroupedPayrollConfigs.map((row) => {
-                  const processed = row.companies.every((company) =>
-                    isConfigProcessed(company.config)
-                  );
+                  const processed =
+                    row.companies.length > 0 &&
+                    row.companies.every((company) =>
+                      isConfigProcessed(company.config)
+                    );
                   const rowActive = row.companies.every((company) => company.isActive);
                   return (
                 <TableRow
@@ -1600,7 +1634,7 @@ export default function PayrollPage() {
                   </thead>
                   <tbody>
                     {getUniquePayrollRecords(payrollRecords).map((rec: any) => (
-                      <tr key={`${rec.employeeId}-${rec.payPeriodStart}-${rec.payPeriodEnd}`} className="border-b hover:bg-gray-50">
+                      <tr key={rec.id || `${rec.employeeId}-${rec.companyId ?? 'none'}-${rec.payPeriodStart}-${rec.payPeriodEnd}`} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2">{rec.employeeName}</td>
                         <td className="px-4 py-2">{rec.payPeriodStart} - {rec.payPeriodEnd}</td>
                         <td className="px-4 py-2">{formatCurrency(rec.grossPay)}</td>
@@ -1627,7 +1661,7 @@ export default function PayrollPage() {
                   </thead>
                   <tbody>
                     {getUniquePayrollRecords(payrollRecords).map((rec: any) => (
-                      <tr key={`${rec.employeeId}-${rec.payPeriodStart}-${rec.payPeriodEnd}`} className="border-b hover:bg-gray-50">
+                      <tr key={rec.id || `${rec.employeeId}-${rec.companyId ?? 'none'}-${rec.payPeriodStart}-${rec.payPeriodEnd}`} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2">{rec.employeeName}</td>
                         <td className="px-4 py-2">{rec.payPeriodStart} - {rec.payPeriodEnd}</td>
                         <td className="px-4 py-2">{formatCurrency(rec.netPay)}</td>
@@ -1655,7 +1689,7 @@ export default function PayrollPage() {
                   </thead>
                   <tbody>
                     {getUniquePayrollRecords(payrollRecords).map((rec: any) => (
-                      <tr key={`${rec.employeeId}-${rec.payPeriodStart}-${rec.payPeriodEnd}`} className="border-b hover:bg-gray-50">
+                      <tr key={rec.id || `${rec.employeeId}-${rec.companyId ?? 'none'}-${rec.payPeriodStart}-${rec.payPeriodEnd}`} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2">{rec.employeeName}</td>
                         <td className="px-4 py-2">{rec.payPeriodStart} - {rec.payPeriodEnd}</td>
                         <td className="px-4 py-2">{formatCurrency(rec.grossPay)}</td>

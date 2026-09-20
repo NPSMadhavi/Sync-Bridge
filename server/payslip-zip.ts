@@ -86,8 +86,20 @@ export async function createPayslipZipArchive(
     archive.on("error", reject);
     archive.pipe(output);
 
+    const usedNames = new Set<string>();
     for (const file of files) {
-      archive.append(file.buffer, { name: file.filename });
+      let uniqueName = file.filename;
+      if (usedNames.has(uniqueName)) {
+        const ext = path.extname(file.filename) || ".pdf";
+        const base = path.basename(file.filename, ext);
+        let counter = 2;
+        while (usedNames.has(`${base}_(${counter})${ext}`)) {
+          counter++;
+        }
+        uniqueName = `${base}_(${counter})${ext}`;
+      }
+      usedNames.add(uniqueName);
+      archive.append(file.buffer, { name: uniqueName });
     }
 
     archive.finalize();

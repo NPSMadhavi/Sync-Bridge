@@ -160,18 +160,50 @@ export async function findPayrollRecordForPeriod(
   const { year, month } = derivePayrollMonthYear(start);
 
   const periodMatch = sql`(
-    (${payrollRecords.payrollYear} = ${year} AND ${payrollRecords.payrollMonth} = ${month})
+    (${payrollRecords.payPeriodStart} = ${start} AND ${payrollRecords.payPeriodEnd} = ${end})
+    OR (${payrollRecords.payrollYear} = ${year} AND ${payrollRecords.payrollMonth} = ${month})
     OR (
       (${payrollRecords.payrollYear} IS NULL OR ${payrollRecords.payrollMonth} IS NULL)
       AND EXTRACT(YEAR FROM ${payrollRecords.payPeriodStart}::date) = ${year}
       AND EXTRACT(MONTH FROM ${payrollRecords.payPeriodStart}::date) = ${month}
+      AND ${payrollRecords.payPeriodStart}::date <= ${end}::date
+      AND ${payrollRecords.payPeriodEnd}::date >= ${start}::date
     )
   )`;
 
-  const companyMatch =
-    companyId != null
-      ? eq(payrollRecords.companyId, companyId)
-      : undefined;
+  if (companyId != null) {
+    const [exactCompRecord] = await db
+      .select()
+      .from(payrollRecords)
+      .where(
+        and(
+          eq(payrollRecords.employeeId, employeeId),
+          periodMatch,
+          eq(payrollRecords.companyId, companyId)
+        )
+      )
+      .orderBy(desc(payrollRecords.updatedAt), desc(payrollRecords.createdAt))
+      .limit(1);
+
+    if (exactCompRecord) {
+      return exactCompRecord;
+    }
+
+    const [legacyRecord] = await db
+      .select()
+      .from(payrollRecords)
+      .where(
+        and(
+          eq(payrollRecords.employeeId, employeeId),
+          periodMatch,
+          isNull(payrollRecords.companyId)
+        )
+      )
+      .orderBy(desc(payrollRecords.updatedAt), desc(payrollRecords.createdAt))
+      .limit(1);
+
+    return legacyRecord ?? null;
+  }
 
   const [record] = await db
     .select()
@@ -179,32 +211,17 @@ export async function findPayrollRecordForPeriod(
     .where(
       and(
         eq(payrollRecords.employeeId, employeeId),
-        periodMatch,
-        companyMatch
+        periodMatch
       )
     )
-    .orderBy(desc(payrollRecords.updatedAt), desc(payrollRecords.createdAt))
-    .limit(1);
-
-  if (record) {
-    return record;
-  }
-
-  const [overlapRecord] = await db
-    .select()
-    .from(payrollRecords)
-    .where(
-      and(
-        eq(payrollRecords.employeeId, employeeId),
-        sql`${payrollRecords.payPeriodStart}::date <= ${end}::date`,
-        sql`${payrollRecords.payPeriodEnd}::date >= ${start}::date`,
-        companyMatch
-      )
+    .orderBy(
+      sql`CASE WHEN ${payrollRecords.companyId} IS NULL THEN 0 ELSE 1 END ASC`,
+      desc(payrollRecords.updatedAt),
+      desc(payrollRecords.createdAt)
     )
-    .orderBy(desc(payrollRecords.updatedAt), desc(payrollRecords.createdAt))
     .limit(1);
 
-  return overlapRecord;
+  return record ?? null;
 }
 
 export function hasPayrollConfigChanged(
@@ -736,35 +753,37 @@ export async function syncPayrollConfigsWithCompanySalaries(
 /** Active payroll configs for current company assignments only. */
 export async function resolvePayrollConfigsForProcessing(
   employeeId: number,
-  tenantId: number
+  tenantId?: number | null
 ): Promise<(typeof employeePayroll.$inferSelect)[]> {
   const currentCompanyIds = await getCurrentEmployeeCompanyIds(employeeId);
 
   if (currentCompanyIds.length > 0) {
+    const conditions = [
+      eq(employeePayroll.employeeId, employeeId),
+      eq(employeePayroll.isActive, true),
+      inArray(employeePayroll.companyId, currentCompanyIds),
+    ];
+    if (tenantId) {
+      conditions.push(eq(employeePayroll.tenantId, tenantId));
+    }
     return db
       .select()
       .from(employeePayroll)
-      .where(
-        and(
-          eq(employeePayroll.employeeId, employeeId),
-          eq(employeePayroll.tenantId, tenantId),
-          eq(employeePayroll.isActive, true),
-          inArray(employeePayroll.companyId, currentCompanyIds)
-        )
-      )
+      .where(and(...conditions))
       .orderBy(employeePayroll.companyId);
   }
 
+  const conditions = [
+    eq(employeePayroll.employeeId, employeeId),
+    eq(employeePayroll.isActive, true),
+  ];
+  if (tenantId) {
+    conditions.push(eq(employeePayroll.tenantId, tenantId));
+  }
   const configs = await db
     .select()
     .from(employeePayroll)
-    .where(
-      and(
-        eq(employeePayroll.employeeId, employeeId),
-        eq(employeePayroll.tenantId, tenantId),
-        eq(employeePayroll.isActive, true)
-      )
-    )
+    .where(and(...conditions))
     .orderBy(desc(employeePayroll.updatedAt));
 
   return configs.length > 0 ? [configs[0]] : [];

@@ -54,18 +54,23 @@ export function getPayslipFileName(
   return `${getEmployeeNamePart(employeeName)}_${employeeId}_${monthName}${year}.pdf`;
 }
 
-/** User-facing download filename: Payslip_EMPLOYEE_NAME_MONTH_YEAR.pdf */
+/** User-facing download filename: Payslip_EMPLOYEE_NAME_IDENTIFIER_COMPANY_MONTH_YEAR.pdf */
 export function getPayslipDownloadFileName(
   employeeName: string,
   month: number,
   year: number,
-  companyName?: string
+  companyName?: string,
+  identifier?: string | number | null
 ): string {
   const safeName =
     employeeName
       .trim()
       .replace(/[^a-zA-Z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "Employee";
+  const safeId =
+    identifier != null && String(identifier).trim() !== ""
+      ? `_${String(identifier).trim().replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`
+      : "";
   const companyPart = companyName
     ? `_${companyName
         .trim()
@@ -73,7 +78,7 @@ export function getPayslipDownloadFileName(
         .replace(/^_+|_+$/g, "")}`
     : "";
   const monthName = formatPayrollMonthLabel(year, month).split(" ")[0];
-  return `Payslip_${safeName}${companyPart}_${monthName}_${year}.pdf`;
+  return `Payslip_${safeName}${safeId}${companyPart}_${monthName}_${year}.pdf`;
 }
 
 function formatAmount(value: string | number | null | undefined): string {
