@@ -281,6 +281,12 @@ function buildEmployeeContextFromRecord(employee: {
   };
 }
 
+function toFiniteNumber(val: unknown): number {
+  if (val === null || val === undefined || val === "") return 0;
+  const num = typeof val === "number" ? val : parseFloat(String(val));
+  return Number.isFinite(num) ? num : 0;
+}
+
 function buildCalculationInputForDraft(
   draft: CompanyPayrollDraft,
   employeeContext: {
@@ -290,7 +296,8 @@ function buildCalculationInputForDraft(
     prStatus?: string;
   }
 ): PayrollCalculationPreviewInput | null {
-  if (!draft.salary || draft.salary <= 0 || !employeeContext.citizenshipStatus) return null;
+  const salary = toFiniteNumber(draft.salary);
+  if (salary <= 0 || !employeeContext.citizenshipStatus) return null;
 
   const { residencyType, prYear } = mapEmployeeResidency({
     residencyType: employeeContext.citizenshipStatus,
@@ -298,7 +305,7 @@ function buildCalculationInputForDraft(
   });
 
   return {
-    grossSalary: draft.salary,
+    grossSalary: salary,
     age: employeeContext.age,
     dateOfBirth: employeeContext.dateOfBirth || null,
     citizenshipStatus: residencyType,
@@ -307,18 +314,18 @@ function buildCalculationInputForDraft(
     contributionMonth: new Date().getMonth() + 1,
     contributionYear: new Date().getFullYear(),
     monthlyAllowances: {
-      transport: Number(draft.allowanceTransport) || 0,
-      meal: Number(draft.allowanceMeal) || 0,
-      phone: Number(draft.allowancePhone) || 0,
-      others: Number(draft.allowanceOthers) || 0,
+      transport: toFiniteNumber(draft.allowanceTransport),
+      meal: toFiniteNumber(draft.allowanceMeal),
+      phone: toFiniteNumber(draft.allowancePhone),
+      others: toFiniteNumber(draft.allowanceOthers),
     },
     monthlyDeductions: {
-      medical: Number(draft.deductionMedical) || 0,
-      advance: Number(draft.deductionAdvance) || 0,
-      others: Number(draft.deductionOthers) || 0,
+      medical: toFiniteNumber(draft.deductionMedical),
+      advance: toFiniteNumber(draft.deductionAdvance),
+      others: toFiniteNumber(draft.deductionOthers),
     },
     overtimeHours: 0,
-    overtimeRate: Number(draft.overtimeRate) || 0,
+    overtimeRate: toFiniteNumber(draft.overtimeRate),
   };
 }
 
@@ -558,7 +565,10 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
 
   const handleCompanyCalculation = useCallback(
     (companyId: number, calc: PayrollCalculationPreviewResult | null) => {
-      setCompanyCalculations((prev) => ({ ...prev, [companyId]: calc }));
+      setCompanyCalculations((prev) => {
+        if (prev[companyId] === calc) return prev;
+        return { ...prev, [companyId]: calc };
+      });
     },
     []
   );

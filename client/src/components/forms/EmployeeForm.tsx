@@ -1059,9 +1059,8 @@ export default function EmployeeForm({ employee, isOpen, onClose, embedded = fal
                 </Button>
               </FormSheetFooter>
             )}
-          </div>
-        </Form>
-      </TooltipProvider>
+          </Form>
+        </TooltipProvider>
       </>
     );
 
