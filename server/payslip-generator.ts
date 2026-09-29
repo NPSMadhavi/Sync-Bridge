@@ -349,16 +349,16 @@ body {
 
 <table class="payslip-table">
 <colgroup>
-  <col style="width:30%">
-  <col style="width:30%">
+  <col style="width:20%">
+  <col style="width:40%">
   <col style="width:40%">
 </colgroup>
 
 <!-- Row 1: PAYSLIP Header -->
 <tr>
   <td class="border-t border-b border-l border-r font-bold text-left" style="font-size:16px;">PAYSLIP</td>
-  <td class="border-t border-b border-l border-r font-bold text-center" style="font-size:16px;">${payrollMonthShort}</td>
-  <td class="border-t border-b border-l border-r font-bold text-center" style="font-size:16px;">${periodRange}</td>
+  <td class="border-t border-b border-l border-r font-bold text-left" style="font-size:16px;">${payrollMonthShort}</td>
+  <td class="border-t border-b border-l border-r font-bold text-left" style="font-size:16px;">${periodRange}</td>
 </tr>
 
 <!-- Row 2: Name & Deduction Title -->
@@ -569,16 +569,16 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
     margin: [0, 0, 0, 45],
   });
 
-  // Main Payslip Table — Column Widths match HTML preview colgroup (30%, 30%, 40%)
+  // Main Payslip Table — Column Widths match HTML preview colgroup (20%, 40%, 40%)
   elements.push({
     table: {
-      widths: ["30%", "30%", "40%"],
+      widths: ["20%", "40%", "40%"],
       body: [
         // Row 1: Table Header (PAYSLIP | Month | Pay Period)
         [
           { text: "PAYSLIP", bold: true, fontSize: 12, alignment: "left", border: [true, true, true, true] },
-          { text: payrollMonthShort, bold: true, fontSize: 12, alignment: "center", border: [true, true, true, true] },
-          { text: periodRange, bold: true, fontSize: 12, alignment: "center", border: [true, true, true, true] },
+          { text: payrollMonthShort, bold: true, fontSize: 12, alignment: "left", border: [true, true, true, true] },
+          { text: periodRange, bold: true, fontSize: 12, alignment: "left", border: [true, true, true, true] },
         ],
         // Row 2: Name + Deduction Title
         [
