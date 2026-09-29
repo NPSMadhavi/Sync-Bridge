@@ -157,21 +157,94 @@ function isLongIcNo(value: string): boolean {
   return (value || "").trim().length > 18;
 }
 
-export function buildPayslipHtml(data: PayslipData): string {
+export interface CanonicalPayslipTemplate {
+  header: {
+    companyName: string;
+    companyAddress: string;
+    payrollMonthShort: string;
+    periodRange: string;
+  };
+  employeeDetails: {
+    name: string;
+    icNo: string;
+    employeeCode: string;
+    department: string;
+    jobTitle: string;
+  };
+  payments: {
+    basicRate: string;
+    workingDays: string;
+    basicPay: string;
+    overtime: string;
+    allowance: string;
+    grossPay: string;
+    employeeCpf: string;
+    netPay: string;
+  };
+  deductions: {
+    employeeAmount: string;
+    employerAmount: string;
+    otherDeductions: string;
+    monthlyGross: string;
+  };
+  footerNote: string;
+}
+
+export function buildCanonicalPayslipTemplate(data: PayslipData): CanonicalPayslipTemplate {
   const payPeriodStart = normalizePayPeriodDate(data.payPeriodStart);
   const payPeriodEnd = normalizePayPeriodDate(data.payPeriodEnd);
   const payrollMonthShort = formatPayslipMonthShort(data.month, data.year);
   const periodRange = `${formatPayslipShortDate(payPeriodStart)} - ${formatPayslipShortDate(payPeriodEnd)}`;
 
-  const companyName = escapeHtml(data.companyName || "");
-  const companyAddress = escapeHtml(data.companyAddress || "");
-  const employeeName = escapeHtml(data.employeeName || "");
-  const employeeNameClass = longTextSizeClass(data.employeeName || "");
-  const icNo = escapeHtml(data.icNo || "");
-  const icNoClass = isLongIcNo(data.icNo || "") ? "ic-value" : "";
-  const employeeCode = escapeHtml(data.employeeCode || "");
-  const department = escapeHtml(data.department || "");
-  const jobTitle = escapeHtml(data.jobTitle || "");
+  return {
+    header: {
+      companyName: data.companyName || "",
+      companyAddress: data.companyAddress || "",
+      payrollMonthShort,
+      periodRange,
+    },
+    employeeDetails: {
+      name: data.employeeName || "",
+      icNo: data.icNo || "",
+      employeeCode: data.employeeCode || "",
+      department: data.department || "",
+      jobTitle: data.jobTitle || "",
+    },
+    payments: {
+      basicRate: formatAmount(data.basicRate),
+      workingDays: formatWorkingDays(data.workingDays),
+      basicPay: formatAmount(data.basicPay),
+      overtime: formatAmount(data.overtime),
+      allowance: formatAmount(data.allowance),
+      grossPay: formatAmount(data.grossPay),
+      employeeCpf: formatAmount(data.employeeCpf),
+      netPay: formatAmount(data.netPay),
+    },
+    deductions: {
+      employeeAmount: formatAmount(data.employeeCpf),
+      employerAmount: formatAmount(data.employerCpf),
+      otherDeductions: formatAmount(data.otherDeductions),
+      monthlyGross: formatAmount(data.grossPay),
+    },
+    footerNote: "***Computer Generated Payslip, No Signature Required***",
+  };
+}
+
+export function buildPayslipHtml(data: PayslipData): string {
+  const tpl = buildCanonicalPayslipTemplate(data);
+
+  const companyName = escapeHtml(tpl.header.companyName);
+  const companyAddress = escapeHtml(tpl.header.companyAddress);
+  const payrollMonthShort = escapeHtml(tpl.header.payrollMonthShort);
+  const periodRange = escapeHtml(tpl.header.periodRange);
+
+  const employeeName = escapeHtml(tpl.employeeDetails.name);
+  const employeeNameClass = longTextSizeClass(tpl.employeeDetails.name);
+  const icNo = escapeHtml(tpl.employeeDetails.icNo);
+  const icNoClass = isLongIcNo(tpl.employeeDetails.icNo) ? "ic-value" : "";
+  const employeeCode = escapeHtml(tpl.employeeDetails.employeeCode);
+  const department = escapeHtml(tpl.employeeDetails.department);
+  const jobTitle = escapeHtml(tpl.employeeDetails.jobTitle);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -179,7 +252,7 @@ export function buildPayslipHtml(data: PayslipData): string {
 <meta charset="UTF-8">
 <style>
 :root {
-  --payslip-border: 3px solid #000;
+  --payslip-border: 2.25pt solid #000;
 }
 
 @page {
@@ -233,284 +306,31 @@ body {
   margin-bottom: 60px;
 }
 
-.payslip {
+.payslip-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  border: var(--payslip-border);
 }
 
-.payslip td {
-  border: var(--payslip-border);
-  vertical-align: top;
+.payslip-table td {
   font-size: 14px;
   color: #000;
-  background: #fff;
-}
-
-.row-payslip-header td {
-  font-weight: 600;
-  font-size: 16px;
-  padding: 8px 10px;
+  padding: 4px 8px;
   vertical-align: middle;
-  height: 36px;
-  border-top: var(--payslip-border);
-  border-bottom: var(--payslip-border);
-  border-left: none;
-  border-right: none;
-}
-
-.row-payslip-header td:first-child {
-  border-left: var(--payslip-border);
-  text-align: left;
-  text-transform: uppercase;
-  padding-left: 10px;
-}
-
-.row-payslip-header td:nth-child(2) {
-  text-align: center;
-}
-
-.row-payslip-header td:last-child {
-  border-right: var(--payslip-border);
-  text-align: center;
-}
-
-.cell-employee {
-  padding: 0;
-  vertical-align: top;
-}
-
-.emp-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.emp-table td {
-  border: none;
-  padding: 3px 10px;
-  font-size: 14px;
-  vertical-align: middle;
-  text-align: left;
-}
-
-.emp-table td.label {
-  width: 130px;
-  border-right: var(--payslip-border);
-  white-space: nowrap;
-  font-weight: normal;
-}
-
-.emp-table td.value {
-  font-weight: normal;
   word-break: break-word;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-  padding-top: 4px;
-  padding-bottom: 4px;
 }
 
-.emp-table td.value.text-medium {
-  font-size: 13px;
-  line-height: 1.3;
-}
+.border-t { border-top: var(--payslip-border); }
+.border-b { border-bottom: var(--payslip-border); }
+.border-l { border-left: var(--payslip-border); }
+.border-r { border-right: var(--payslip-border); }
 
-.emp-table td.value.text-long {
-  font-size: 12px;
-  line-height: 1.28;
-}
+.text-left { text-align: left; }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
 
-.emp-table td.value.text-very-long {
-  font-size: 11px;
-  line-height: 1.22;
-}
-
-.emp-table td.value.ic-value {
-  font-size: 11px;
-  line-height: 1.25;
-  word-break: break-all;
-}
-
-.emp-table .value-semibold {
-  font-weight: 600;
-}
-
-.emp-row-name td.label,
-.emp-row-ic td.label {
-  border-top: none;
-  border-bottom: none;
-}
-
-.emp-row-name td.value {
-  border-bottom: var(--payslip-border);
-}
-
-.cell-deduction-title {
-  padding: 8px 10px;
-  font-size: 14px;
-  font-weight: normal;
-}
-
-.cell-payment {
-  padding: 8px 10px 10px;
-}
-
-.payslip td.cell-summary-gross {
-  padding: 8px 10px 2px;
-  border-bottom: none;
-}
-
-.payslip td.cell-monthly-gross {
-  padding: 2px 10px;
-  font-size: 14px;
-  font-weight: bold;
-  vertical-align: middle;
-  border-bottom: none;
-}
-
-.payslip td.cell-summary-left {
-  padding: 8px 10px 12px;
-  border-top: none;
-}
-
-.payslip td.cell-summary-right-empty {
-  padding: 0;
-  vertical-align: top;
-  border-top: none;
-}
-
-.payment-table,
-.summary-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.payment-table td,
-.summary-table td {
-  border: none;
-  padding: 2px 0;
-  font-size: 14px;
-  vertical-align: top;
-}
-
-.payment-table .label-cell,
-.summary-table .label-cell {
-  text-align: left;
-}
-
-.payment-table .amount-cell,
-.summary-table .amount-cell {
-  text-align: right;
-  width: 90px;
-  white-space: nowrap;
-  padding-right: 2px;
-}
-
-.payment-title td {
-  padding-bottom: 16px;
-}
-
-.payment-spacer td {
-  height: 110px;
-  padding: 0;
-  border: none;
-}
-
-.cell-cpf {
-  padding: 8px 10px;
-  font-size: 14px;
-  line-height: 1.6;
-  vertical-align: top;
-}
-
-.cpf-block {
-  padding-top: 72px;
-}
-
-.cell-other-inline {
-  padding: 2px 10px;
-  font-size: 14px;
-  vertical-align: middle;
-}
-
-.summary-spacer td {
-  height: 18px;
-  padding: 0;
-  border: none;
-}
-
-.summary-net .label-cell,
-.summary-net .amount-cell {
-  font-weight: bold;
-}
-
-.row-signature td {
-  padding: 0 0 6px;
-  height: auto;
-  min-height: 88px;
-  vertical-align: bottom;
-}
-
-.row-signature td:first-child {
-  font-size: 14px;
-  font-weight: normal;
-  text-align: right;
-  padding: 0 10px 10px;
-  vertical-align: bottom;
-}
-
-.signature-line-block {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  min-height: 88px;
-  height: 100%;
-  padding: 0 0 10px;
-  box-sizing: border-box;
-}
-
-.signature-space {
-  flex: 1 1 auto;
-  min-height: 20px;
-}
-
-.signature-line {
-  display: block;
-  width: 100%;
-  height: 3px;
-  margin: 0;
-  padding: 0;
-  background: #000;
-  border: none;
-}
-
-.signature-text {
-  font-size: 15px;
-  font-weight: 600;
-  text-align: left;
-  line-height: 1.2;
-  margin-top: 6px;
-  padding: 0 10px;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  max-width: 100%;
-}
-
-.signature-text.text-medium {
-  font-size: 13px;
-  line-height: 1.18;
-}
-
-.signature-text.text-long {
-  font-size: 11px;
-  line-height: 1.15;
-}
-
-.signature-text.text-very-long {
-  font-size: 9px;
-  line-height: 1.12;
-}
+.font-bold { font-weight: bold; }
+.font-normal { font-weight: normal; }
 
 .footer-note {
   text-align: center;
@@ -527,140 +347,156 @@ body {
 <div class="company-name">${companyName}</div>
 <div class="company-address">${companyAddress}</div>
 
-<table class="payslip">
+<table class="payslip-table">
 <colgroup>
   <col style="width:30%">
   <col style="width:30%">
   <col style="width:40%">
 </colgroup>
-<tr class="row-payslip-header">
-  <td>PAYSLIP</td>
-  <td>${escapeHtml(payrollMonthShort)}</td>
-  <td>${escapeHtml(periodRange)}</td>
-</tr>
 
+<!-- Row 1: PAYSLIP Header -->
 <tr>
-  <td colspan="2" class="cell-employee">
-    <table class="emp-table">
-      <tr class="emp-row-name">
-        <td class="label">Name :</td>
-        <td class="value value-semibold ${employeeNameClass}">${employeeName}</td>
-      </tr>
-      <tr class="emp-row-ic">
-        <td class="label">IC NO :</td>
-        <td class="value value-semibold ${icNoClass}">${icNo}</td>
-      </tr>
-      <tr>
-        <td class="label">Employee Code :</td>
-        <td class="value">${employeeCode}</td>
-      </tr>
-      <tr>
-        <td class="label">Department :</td>
-        <td class="value">${department}</td>
-      </tr>
-      <tr>
-        <td class="label">Job Title :</td>
-        <td class="value">${jobTitle}</td>
-      </tr>
-    </table>
-  </td>
-  <td class="cell-deduction-title">Deduction</td>
+  <td class="border-t border-b border-l border-r font-bold text-left" style="font-size:16px;">PAYSLIP</td>
+  <td class="border-t border-b border-l border-r font-bold text-center" style="font-size:16px;">${payrollMonthShort}</td>
+  <td class="border-t border-b border-l border-r font-bold text-center" style="font-size:16px;">${periodRange}</td>
 </tr>
 
+<!-- Row 2: Name & Deduction Title -->
 <tr>
-  <td colspan="2" rowspan="2" class="cell-payment">
-    <table class="payment-table">
-      <tr class="payment-title">
-        <td colspan="2">Payment :</td>
-      </tr>
-      <tr>
-        <td class="label-cell">Basic Rate</td>
-        <td class="amount-cell">${formatAmount(data.basicRate)}</td>
-      </tr>
-      <tr>
-        <td class="label-cell">Working Days</td>
-        <td class="amount-cell">${formatWorkingDays(data.workingDays)}</td>
-      </tr>
-      <tr>
-        <td class="label-cell">Basic Pay</td>
-        <td class="amount-cell">${formatAmount(data.basicPay)}</td>
-      </tr>
-      <tr class="payment-spacer">
-        <td colspan="2"></td>
-      </tr>
-      <tr>
-        <td class="label-cell">Overtime</td>
-        <td class="amount-cell">${formatAmount(data.overtime)}</td>
-      </tr>
-      <tr>
-        <td class="label-cell">Allowance</td>
-        <td class="amount-cell">${formatAmount(data.allowance)}</td>
-      </tr>
-    </table>
-  </td>
-  <td class="cell-cpf">
-    <div class="cpf-block">
-      Employee Amount = SGD ${formatAmount(data.employeeCpf)}<br>
-      Employer Amount = SGD ${formatAmount(data.employerCpf)}
-    </div>
-  </td>
+  <td class="border-t border-l border-r font-bold text-left">Name :</td>
+  <td class="border-t border-b border-l border-r font-bold text-left ${employeeNameClass}">${employeeName}</td>
+  <td class="border-t border-b border-l border-r text-left">Deduction</td>
 </tr>
 
-<tr class="row-allowance-other">
-  <td class="cell-other-inline">Other : ${formatAmount(data.otherDeductions)}</td>
-</tr>
-
-<tr class="row-gross-monthly">
-  <td colspan="2" class="cell-summary-gross">
-    <table class="summary-table">
-      <tr>
-        <td class="label-cell">Gross pay</td>
-        <td class="amount-cell">${formatAmount(data.grossPay)}</td>
-      </tr>
-    </table>
-  </td>
-  <td class="cell-monthly-gross">Monthly Gross : SGD ${formatAmount(data.grossPay)}</td>
-</tr>
-
+<!-- Row 3: IC NO -->
 <tr>
-  <td colspan="2" class="cell-summary-left">
-    <table class="summary-table">
-      <tr>
-        <td class="label-cell">Employee CPF</td>
-        <td class="amount-cell">${formatAmount(data.employeeCpf)}</td>
-      </tr>
-      <tr class="summary-spacer">
-        <td colspan="2"></td>
-      </tr>
-      <tr class="summary-net">
-        <td class="label-cell">Net Pay</td>
-        <td class="amount-cell">${formatAmount(data.netPay)}</td>
-      </tr>
-    </table>
-  </td>
-  <td class="cell-summary-right-empty"></td>
+  <td class="border-l border-r font-bold text-left">IC NO :</td>
+  <td class="border-l border-r font-bold text-left ${icNoClass}">${icNo}</td>
+  <td class="border-l border-r text-left"></td>
 </tr>
 
-<tr class="row-signature">
-  <td>Employee</td>
-  <td>
-    <div class="signature-line-block">
-      <div class="signature-space"></div>
-      <div class="signature-line"></div>
-      <div class="signature-text ${employeeNameClass}">${employeeName}</div>
-    </div>
-  </td>
-  <td>
-    <div class="signature-line-block">
-      <div class="signature-space"></div>
-      <div class="signature-line"></div>
-      <div class="signature-text ${longTextSizeClass(data.companyName || "", { medium: 30, long: 45, veryLong: 60 })}">${companyName}</div>
-    </div>
-  </td>
+<!-- Row 4: Employee Code -->
+<tr>
+  <td class="border-l border-r font-bold text-left">Employee Code :</td>
+  <td class="border-l border-r text-left">${employeeCode}</td>
+  <td class="border-l border-r text-left"></td>
 </tr>
+
+<!-- Row 5: Department -->
+<tr>
+  <td class="border-l border-r font-bold text-left">Department :</td>
+  <td class="border-l border-r text-left">${department}</td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 6: Job Title (Col 1 & 2 have border-b, Col 3 does NOT) -->
+<tr>
+  <td class="border-b border-l border-r font-bold text-left">Job Title :</td>
+  <td class="border-b border-l border-r text-left">${jobTitle}</td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 7: Payment Header -->
+<tr>
+  <td class="border-t border-l font-bold text-left" style="padding-bottom:2px;">Payment :</td>
+  <td class="border-t border-r text-left"></td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 8: Payment Space Row (NEW EMPTY ROW AFTER PAYMENT:) -->
+<tr style="height: 18px;">
+  <td class="border-l text-left"></td>
+  <td class="border-r text-right"></td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 9: Basic Rate & Employee Amount -->
+<tr>
+  <td class="border-l text-left">Basic Rate</td>
+  <td class="border-r text-right">${tpl.payments.basicRate}</td>
+  <td class="border-l border-r text-left">Employee Amount = SGD ${tpl.deductions.employeeAmount}</td>
+</tr>
+
+<!-- Row 10: Working Days & Employer Amount -->
+<tr>
+  <td class="border-l text-left">Working Days</td>
+  <td class="border-r text-right">${tpl.payments.workingDays}</td>
+  <td class="border-l border-r text-left">Employer Amount = SGD ${tpl.deductions.employerAmount}</td>
+</tr>
+
+<!-- Row 11: Basic Pay -->
+<tr>
+  <td class="border-l text-left">Basic Pay</td>
+  <td class="border-r text-right">${tpl.payments.basicPay}</td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 12: Payment Spacer Row -->
+<tr style="height: 110px;">
+  <td class="border-l text-left"></td>
+  <td class="border-r text-right"></td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 13: Overtime -->
+<tr>
+  <td class="border-l text-left">Overtime</td>
+  <td class="border-r text-right">${tpl.payments.overtime}</td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 14: Allowance & Other -->
+<tr>
+  <td class="border-b border-l text-left">Allowance</td>
+  <td class="border-b border-r text-right">${tpl.payments.allowance}</td>
+  <td class="border-t border-b border-l border-r text-left">Other : ${tpl.deductions.otherDeductions}</td>
+</tr>
+
+<!-- Row 15: Gross Pay & Monthly Gross (No bottom border on Monthly Gross cell) -->
+<tr>
+  <td class="border-l text-left">Gross pay</td>
+  <td class="border-r text-right">${tpl.payments.grossPay}</td>
+  <td class="border-l border-r font-bold text-left">Monthly Gross : SGD ${tpl.deductions.monthlyGross}</td>
+</tr>
+
+<!-- Row 16: Employee CPF -->
+<tr>
+  <td class="border-l text-left">Employee CPF</td>
+  <td class="border-r text-right">${tpl.payments.employeeCpf}</td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 17: Summary Spacer Row -->
+<tr style="height: 18px;">
+  <td class="border-l text-left"></td>
+  <td class="border-r text-right"></td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 18: Net Pay -->
+<tr>
+  <td class="border-b border-l font-bold text-left">Net Pay</td>
+  <td class="border-b border-r font-bold text-right">${tpl.payments.netPay}</td>
+  <td class="border-b border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 19: Signature Space (Reduced height from 70px to 32px) -->
+<tr style="height: 32px;">
+  <td class="border-l border-r text-left"></td>
+  <td class="border-b border-l border-r text-center"></td>
+  <td class="border-b border-l border-r text-center"></td>
+</tr>
+
+<!-- Row 20: Signature Names -->
+<tr>
+  <td class="border-b border-l border-r text-center font-normal" style="padding-top: 6px; padding-bottom: 8px; vertical-align: middle;">Employee</td>
+  <td class="border-b border-l border-r font-bold text-center ${employeeNameClass}" style="padding-top: 6px; padding-bottom: 8px; vertical-align: top;">${employeeName}</td>
+  <td class="border-b border-l border-r font-bold text-center" style="padding-top: 6px; padding-bottom: 8px; vertical-align: top;">${companyName}</td>
+</tr>
+
 </table>
 
-<div class="footer-note">***Computer Generated Payslip, No Signature Required***</div>
+<div class="footer-note">${tpl.footerNote}</div>
 
 </div>
 </body>
@@ -700,198 +536,185 @@ ${pages.join("\n")}
 }
 
 export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = false): any[] {
-  const payPeriodStart = normalizePayPeriodDate(data.payPeriodStart);
-  const payPeriodEnd = normalizePayPeriodDate(data.payPeriodEnd);
-  const payrollMonthShort = formatPayslipMonthShort(data.month, data.year);
-  const periodRange = `${formatPayslipShortDate(payPeriodStart)} - ${formatPayslipShortDate(payPeriodEnd)}`;
+  const tpl = buildCanonicalPayslipTemplate(data);
 
-  const companyName = data.companyName || "";
-  const companyAddress = data.companyAddress || "";
-  const employeeName = data.employeeName || "";
-  const icNo = data.icNo || "";
-  const employeeCode = data.employeeCode || "";
-  const department = data.department || "";
-  const jobTitle = data.jobTitle || "";
+  const companyName = tpl.header.companyName;
+  const companyAddress = tpl.header.companyAddress;
+  const payrollMonthShort = tpl.header.payrollMonthShort;
+  const periodRange = tpl.header.periodRange;
+
+  const employeeName = tpl.employeeDetails.name;
+  const icNo = tpl.employeeDetails.icNo;
+  const employeeCode = tpl.employeeDetails.employeeCode;
+  const department = tpl.employeeDetails.department;
+  const jobTitle = tpl.employeeDetails.jobTitle;
 
   const elements: any[] = [];
 
-  // Header: Company Name & Address
+  // Header: Company Name & Address (matches .company-name and .company-address CSS)
   elements.push({
     text: companyName,
-    fontSize: 18,
+    fontSize: 16.5,
     bold: true,
     color: "#3E67C5",
     alignment: "center",
     pageBreak: pageBreakBefore ? "before" : undefined,
-    margin: [0, 0, 0, 4],
+    margin: [0, 0, 0, 3],
   });
 
   elements.push({
     text: companyAddress,
-    fontSize: 11,
+    fontSize: 11.25,
     alignment: "center",
-    margin: [0, 0, 0, 22],
+    margin: [0, 0, 0, 45],
   });
 
-  // Main Payslip Table
+  // Main Payslip Table — Column Widths match HTML preview colgroup (30%, 30%, 40%)
   elements.push({
     table: {
       widths: ["30%", "30%", "40%"],
       body: [
-        // Row 1: Header
+        // Row 1: Table Header (PAYSLIP | Month | Pay Period)
         [
-          { text: "PAYSLIP", bold: true, fontSize: 13, alignment: "left", margin: [2, 4, 2, 4] },
-          { text: payrollMonthShort, bold: true, fontSize: 13, alignment: "center", margin: [2, 4, 2, 4] },
-          { text: periodRange, bold: true, fontSize: 13, alignment: "center", margin: [2, 4, 2, 4] },
+          { text: "PAYSLIP", bold: true, fontSize: 12, alignment: "left", border: [true, true, true, true] },
+          { text: payrollMonthShort, bold: true, fontSize: 12, alignment: "center", border: [true, true, true, true] },
+          { text: periodRange, bold: true, fontSize: 12, alignment: "center", border: [true, true, true, true] },
         ],
-        // Row 2: Employee info + Deduction Title
+        // Row 2: Name + Deduction Title
         [
-          {
-            colSpan: 2,
-            table: {
-              widths: [105, "*"],
-              body: [
-                [
-                  { text: "Name :", fontSize: 10.5, border: [false, false, true, true] },
-                  { text: employeeName, fontSize: 10.5, bold: true, border: [false, false, false, true] },
-                ],
-                [
-                  { text: "IC NO :", fontSize: 10.5, border: [false, false, true, false] },
-                  { text: icNo, fontSize: 10.5, bold: true, border: [false, false, false, false] },
-                ],
-                [
-                  { text: "Employee Code :", fontSize: 10.5, border: [false, false, true, false] },
-                  { text: employeeCode, fontSize: 10.5, border: [false, false, false, false] },
-                ],
-                [
-                  { text: "Department :", fontSize: 10.5, border: [false, false, true, false] },
-                  { text: department, fontSize: 10.5, border: [false, false, false, false] },
-                ],
-                [
-                  { text: "Job Title :", fontSize: 10.5, border: [false, false, true, false] },
-                  { text: jobTitle, fontSize: 10.5, border: [false, false, false, false] },
-                ],
-              ],
-            },
-            layout: {
-              hLineWidth: () => 1.5,
-              vLineWidth: () => 1.5,
-              hLineColor: () => "#000000",
-              vLineColor: () => "#000000",
-              paddingLeft: () => 4,
-              paddingRight: () => 4,
-              paddingTop: () => 3,
-              paddingBottom: () => 3,
-            },
-          },
-          {},
-          { text: "Deduction", fontSize: 11, margin: [4, 4, 4, 4] },
+          { text: "Name :", bold: true, fontSize: 10.5, border: [true, true, true, false] },
+          { text: employeeName, bold: true, fontSize: 10.5, border: [true, true, true, true] },
+          { text: "Deduction", fontSize: 10.5, border: [true, true, true, true] },
         ],
-        // Row 3: Payments + CPF block
+        // Row 3: IC NO
         [
-          {
-            colSpan: 2,
-            table: {
-              widths: ["*", 70],
-              body: [
-                [{ text: "Payment :", colSpan: 2, bold: true, fontSize: 10.5, margin: [0, 0, 0, 4] }, {}],
-                [{ text: "Basic Rate", fontSize: 10.5 }, { text: formatAmount(data.basicRate), fontSize: 10.5, alignment: "right" }],
-                [{ text: "Working Days", fontSize: 10.5 }, { text: formatWorkingDays(data.workingDays), fontSize: 10.5, alignment: "right" }],
-                [{ text: "Basic Pay", fontSize: 10.5 }, { text: formatAmount(data.basicPay), fontSize: 10.5, alignment: "right" }],
-                [{ text: "", colSpan: 2, margin: [0, 22, 0, 22] }, {}],
-                [{ text: "Overtime", fontSize: 10.5 }, { text: formatAmount(data.overtime), fontSize: 10.5, alignment: "right" }],
-                [{ text: "Allowance", fontSize: 10.5 }, { text: formatAmount(data.allowance), fontSize: 10.5, alignment: "right" }],
-              ],
-            },
-            layout: "noBorders",
-          },
-          {},
-          {
-            stack: [
-              { text: "", margin: [0, 48, 0, 0] },
-              { text: `Employee Amount = SGD ${formatAmount(data.employeeCpf)}`, fontSize: 10.5, lineHeight: 1.5 },
-              { text: `Employer Amount = SGD ${formatAmount(data.employerCpf)}`, fontSize: 10.5, lineHeight: 1.5 },
-            ],
-            margin: [4, 4, 4, 4],
-          },
+          { text: "IC NO :", bold: true, fontSize: 10.5, border: [true, false, true, false] },
+          { text: icNo, bold: true, fontSize: 10.5, border: [true, false, true, false] },
+          { text: "", border: [true, false, true, false] },
         ],
-        // Row 4: Other deductions
+        // Row 4: Employee Code
         [
-          { text: "", colSpan: 2 },
-          {},
-          { text: `Other : ${formatAmount(data.otherDeductions)}`, fontSize: 10.5, margin: [4, 2, 4, 2] },
+          { text: "Employee Code :", bold: true, fontSize: 10.5, border: [true, false, true, false] },
+          { text: employeeCode, fontSize: 10.5, border: [true, false, true, false] },
+          { text: "", border: [true, false, true, false] },
         ],
-        // Row 5: Gross Monthly Row
+        // Row 5: Department
         [
-          {
-            colSpan: 2,
-            table: {
-              widths: ["*", 70],
-              body: [
-                [{ text: "Gross pay", fontSize: 10.5 }, { text: formatAmount(data.grossPay), fontSize: 10.5, alignment: "right" }],
-              ],
-            },
-            layout: "noBorders",
-          },
-          {},
-          { text: `Monthly Gross : SGD ${formatAmount(data.grossPay)}`, bold: true, fontSize: 10.5, margin: [4, 2, 4, 2] },
+          { text: "Department :", bold: true, fontSize: 10.5, border: [true, false, true, false] },
+          { text: department, fontSize: 10.5, border: [true, false, true, false] },
+          { text: "", border: [true, false, true, false] },
         ],
-        // Row 6: Summary Row (CPF, Net Pay)
+        // Row 6: Job Title (Col 3 bottom border false to remove unwanted line under Job Title in Deduction column)
         [
-          {
-            colSpan: 2,
-            table: {
-              widths: ["*", 70],
-              body: [
-                [{ text: "Employee CPF", fontSize: 10.5 }, { text: formatAmount(data.employeeCpf), fontSize: 10.5, alignment: "right" }],
-                [{ text: "", colSpan: 2, margin: [0, 8, 0, 8] }, {}],
-                [{ text: "Net Pay", bold: true, fontSize: 11 }, { text: formatAmount(data.netPay), bold: true, fontSize: 11, alignment: "right" }],
-              ],
-            },
-            layout: "noBorders",
-          },
-          {},
-          { text: "" },
+          { text: "Job Title :", bold: true, fontSize: 10.5, border: [true, false, true, true] },
+          { text: jobTitle, fontSize: 10.5, border: [true, false, true, true] },
+          { text: "", border: [true, false, true, false] },
         ],
-        // Row 7: Signature Row
+        // Row 7: Payment Header
         [
-          { text: "Employee", fontSize: 10.5, alignment: "right", margin: [0, 40, 6, 2] },
-          {
-            stack: [
-              { text: "", margin: [0, 32, 0, 0] },
-              { canvas: [{ type: "line", x1: 0, y1: 0, x2: 145, y2: 0, lineWidth: 1.5 }] },
-              { text: employeeName, bold: true, fontSize: 10.5, margin: [0, 4, 0, 2] },
-            ],
-          },
-          {
-            stack: [
-              { text: "", margin: [0, 32, 0, 0] },
-              { canvas: [{ type: "line", x1: 0, y1: 0, x2: 195, y2: 0, lineWidth: 1.5 }] },
-              { text: companyName, bold: true, fontSize: 10.5, margin: [0, 4, 0, 2] },
-            ],
-          },
+          { text: "Payment :", bold: true, fontSize: 10.5, border: [true, true, false, false], margin: [0, 0, 0, 4] },
+          { text: "", border: [false, true, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 8: Payment Space Row (NEW EMPTY ROW AFTER PAYMENT:)
+        [
+          { text: "", margin: [0, 4, 0, 4], border: [true, false, false, false] },
+          { text: "", margin: [0, 4, 0, 4], border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 9: Basic Rate (aligns horizontally with Employee Share / Employee Amount)
+        [
+          { text: "Basic Rate", fontSize: 10.5, border: [true, false, false, false] },
+          { text: formatAmount(data.basicRate), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
+          { text: `Employee Amount = SGD ${formatAmount(data.employeeCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
+        ],
+        // Row 10: Working Days (aligns horizontally with Employer Share / Employer Amount)
+        [
+          { text: "Working Days", fontSize: 10.5, border: [true, false, false, false] },
+          { text: formatWorkingDays(data.workingDays), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
+          { text: `Employer Amount = SGD ${formatAmount(data.employerCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
+        ],
+        // Row 11: Basic Pay
+        [
+          { text: "Basic Pay", fontSize: 10.5, border: [true, false, false, false] },
+          { text: formatAmount(data.basicPay), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 12: Payment Spacer Row (creates clean vertical spacing between Basic Pay and Overtime)
+        [
+          { text: "", margin: [0, 35, 0, 35], border: [true, false, false, false] },
+          { text: "", margin: [0, 35, 0, 35], border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 13: Overtime
+        [
+          { text: "Overtime", fontSize: 10.5, border: [true, false, false, false] },
+          { text: formatAmount(data.overtime), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 14: Allowance & Other (Allowance and Other occupy the exact same horizontal row)
+        [
+          { text: "Allowance", fontSize: 10.5, border: [true, false, false, true] },
+          { text: formatAmount(data.allowance), fontSize: 10.5, alignment: "right", border: [false, false, true, true] },
+          { text: `Other : ${formatAmount(data.otherDeductions)}`, fontSize: 10.5, border: [true, true, true, true] },
+        ],
+        // Row 15: Gross Pay / Monthly Gross (no bottom border on Col 3 to eliminate half-line below Monthly Gross)
+        [
+          { text: "Gross pay", fontSize: 10.5, border: [true, false, false, false] },
+          { text: formatAmount(data.grossPay), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
+          { text: `Monthly Gross : SGD ${formatAmount(data.grossPay)}`, bold: true, fontSize: 10.5, border: [true, false, true, false] },
+        ],
+        // Row 16: Employee CPF (no top border to seamlessly join Gross pay row)
+        [
+          { text: "Employee CPF", fontSize: 10.5, border: [true, false, false, false] },
+          { text: formatAmount(data.employeeCpf), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 17: Summary Spacer Row
+        [
+          { text: "", margin: [0, 8, 0, 8], border: [true, false, false, false] },
+          { text: "", margin: [0, 8, 0, 8], border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 18: Net Pay
+        [
+          { text: "Net Pay", bold: true, fontSize: 11, border: [true, false, false, true] },
+          { text: formatAmount(data.netPay), bold: true, fontSize: 11, alignment: "right", border: [false, false, true, true] },
+          { text: "", border: [true, false, true, true] },
+        ],
+        // Row 19: Signature Space (Reduced height from [0, 24, 0, 24] to [0, 10, 0, 10])
+        [
+          { text: "", margin: [0, 10, 0, 10], border: [true, false, true, false] },
+          { text: "", margin: [0, 10, 0, 10], border: [true, false, true, true] },
+          { text: "", margin: [0, 10, 0, 10], border: [true, false, true, true] },
+        ],
+        // Row 20: Signature Labels & Names (Employee label centered, Employee name and Company name centered below signature lines)
+        [
+          { text: "Employee", fontSize: 11, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
+          { text: employeeName, bold: true, fontSize: 10.5, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
+          { text: companyName, bold: true, fontSize: 10.5, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
         ],
       ],
     },
     layout: {
-      hLineWidth: () => 1.5,
-      vLineWidth: () => 1.5,
+      hLineWidth: () => 2.25,
+      vLineWidth: () => 2.25,
       hLineColor: () => "#000000",
       vLineColor: () => "#000000",
       paddingLeft: () => 6,
       paddingRight: () => 6,
-      paddingTop: () => 4,
-      paddingBottom: () => 4,
+      paddingTop: () => 3,
+      paddingBottom: () => 3,
     },
   });
 
-  // Footer Note
+  // Footer Note (matches HTML .footer-note CSS)
   elements.push({
     text: "***Computer Generated Payslip, No Signature Required***",
     bold: true,
     fontSize: 10.5,
     alignment: "center",
-    margin: [0, 16, 0, 0],
+    margin: [0, 18, 0, 0],
   });
 
   return elements;

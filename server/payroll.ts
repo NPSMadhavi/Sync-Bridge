@@ -1182,7 +1182,7 @@ function buildPayslipFromProcessedRecord(
       payPeriodStart,
       payPeriodEnd,
       basicRate: snapshotBasicRate,
-      workingDays: record.noOfWorkingDays ?? null,
+      workingDays: record.noOfWorkingDays ?? config.noOfWorkingDays ?? null,
       basicPay: basicSalary,
       overtime: parseFloat(String(record.overtimePay || 0)),
       allowance: sumJsonValues(record.allowances),
