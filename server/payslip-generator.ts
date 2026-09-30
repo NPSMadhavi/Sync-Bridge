@@ -572,6 +572,7 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
     text: companyAddress,
     fontSize: 11.25,
     alignment: "center",
+    noWrap: true,
     margin: [0, 0, 0, 45],
   });
 
