@@ -357,8 +357,8 @@ body {
 <!-- Row 1: PAYSLIP Header -->
 <tr>
   <td class="border-t border-b border-l border-r font-bold text-left" style="font-size:16px;">PAYSLIP</td>
-  <td class="border-t border-b border-l border-r font-bold text-left" style="font-size:16px;">${payrollMonthShort}</td>
-  <td class="border-t border-b border-l border-r font-bold text-left" style="font-size:16px;">${periodRange}</td>
+  <td class="border-t border-b border-l font-bold text-left" style="font-size:16px;">${payrollMonthShort}</td>
+  <td class="border-t border-b border-r font-bold text-left" style="font-size:16px;">${periodRange}</td>
 </tr>
 
 <!-- Row 2: Name & Deduction Title -->
@@ -368,10 +368,10 @@ body {
   <td class="border-t border-b border-l border-r text-left">Deduction</td>
 </tr>
 
-<!-- Row 3: IC NO -->
+<!-- Row 3: IC NO (horizontal border at bottom of Col 2 only) -->
 <tr>
   <td class="border-l border-r font-bold text-left">IC NO :</td>
-  <td class="border-l border-r font-bold text-left ${icNoClass}">${icNo}</td>
+  <td class="border-b border-l border-r font-bold text-left ${icNoClass}">${icNo}</td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
@@ -389,108 +389,114 @@ body {
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 6: Job Title (Col 1 & 2 have border-b, Col 3 does NOT) -->
+<!-- Row 6: Job Title -->
 <tr>
   <td class="border-b border-l border-r font-bold text-left">Job Title :</td>
   <td class="border-b border-l border-r text-left">${jobTitle}</td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 7: Payment Header -->
-<tr>
-  <td class="border-t border-l font-bold text-left" style="padding-bottom:2px;">Payment :</td>
-  <td class="border-t border-r text-left"></td>
-  <td class="border-l border-r text-left"></td>
-</tr>
-
-<!-- Row 8: Payment Space Row (NEW EMPTY ROW AFTER PAYMENT:) -->
+<!-- Row 6.5: Empty Space Row BEFORE Payment : -->
 <tr style="height: 18px;">
   <td class="border-l text-left"></td>
-  <td class="border-r text-right"></td>
+  <td class="border-r text-left"></td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 9: Basic Rate & Employee Amount -->
+<!-- Row 7: Payment Header (no line above Payment :) -->
+<tr>
+  <td class="border-l font-bold text-left" style="padding-bottom:2px;">Payment :</td>
+  <td class="border-r text-left"></td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 7.5: Empty Space Row AFTER Payment : -->
+<tr style="height: 18px;">
+  <td class="border-l text-left"></td>
+  <td class="border-r text-left"></td>
+  <td class="border-l border-r text-left"></td>
+</tr>
+
+<!-- Row 8: Basic Rate & Employee Share -->
 <tr>
   <td class="border-l text-left">Basic Rate</td>
   <td class="border-r text-right">${tpl.payments.basicRate}</td>
-  <td class="border-l border-r text-left">Employee Amount = SGD ${tpl.deductions.employeeAmount}</td>
+  <td class="border-l border-r text-left">Employee Share = SGD ${tpl.deductions.employeeAmount}</td>
 </tr>
 
-<!-- Row 10: Working Days & Employer Amount -->
+<!-- Row 9: Working Days & Employer Share -->
 <tr>
   <td class="border-l text-left">Working Days</td>
   <td class="border-r text-right">${tpl.payments.workingDays}</td>
-  <td class="border-l border-r text-left">Employer Amount = SGD ${tpl.deductions.employerAmount}</td>
+  <td class="border-l border-r text-left">Employer Share = SGD ${tpl.deductions.employerAmount}</td>
 </tr>
 
-<!-- Row 11: Basic Pay -->
+<!-- Row 10: Basic Pay -->
 <tr>
   <td class="border-l text-left">Basic Pay</td>
   <td class="border-r text-right">${tpl.payments.basicPay}</td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 12: Payment Spacer Row -->
+<!-- Row 11: Payment Spacer Row (EMPTY ROW AFTER BASIC PAY) -->
 <tr style="height: 110px;">
   <td class="border-l text-left"></td>
   <td class="border-r text-right"></td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 13: Overtime -->
+<!-- Row 12: Overtime -->
 <tr>
   <td class="border-l text-left">Overtime</td>
   <td class="border-r text-right">${tpl.payments.overtime}</td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 14: Allowance & Other -->
+<!-- Row 13: Allowance & Other -->
 <tr>
   <td class="border-b border-l text-left">Allowance</td>
   <td class="border-b border-r text-right">${tpl.payments.allowance}</td>
   <td class="border-t border-b border-l border-r text-left">Other : ${tpl.deductions.otherDeductions}</td>
 </tr>
 
-<!-- Row 15: Gross Pay & Monthly Gross (No bottom border on Monthly Gross cell) -->
+<!-- Row 14: Gross Pay & Monthly Gross -->
 <tr>
   <td class="border-l text-left">Gross pay</td>
   <td class="border-r text-right">${tpl.payments.grossPay}</td>
   <td class="border-l border-r font-bold text-left">Monthly Gross : SGD ${tpl.deductions.monthlyGross}</td>
 </tr>
 
-<!-- Row 16: Employee CPF -->
+<!-- Row 15: Employee CPF -->
 <tr>
   <td class="border-l text-left">Employee CPF</td>
   <td class="border-r text-right">${tpl.payments.employeeCpf}</td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 17: Summary Spacer Row -->
+<!-- Row 16: Summary Spacer Row -->
 <tr style="height: 18px;">
   <td class="border-l text-left"></td>
   <td class="border-r text-right"></td>
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 18: Net Pay -->
+<!-- Row 17: Net Pay -->
 <tr>
   <td class="border-b border-l font-bold text-left">Net Pay</td>
   <td class="border-b border-r font-bold text-right">${tpl.payments.netPay}</td>
   <td class="border-b border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 19: Signature Space (Reduced height from 70px to 32px) -->
-<tr style="height: 32px;">
-  <td class="border-l border-r text-left"></td>
+<!-- Row 18: Signature Space (Upper box for Col 2 & Col 3, Rowspan 2 for Col 1) -->
+<tr style="height: 65px;">
+  <td rowspan="2" class="border-b border-l border-r text-center font-normal" style="vertical-align: middle;">Employee</td>
   <td class="border-b border-l border-r text-center"></td>
   <td class="border-b border-l border-r text-center"></td>
 </tr>
 
-<!-- Row 20: Signature Names -->
+<!-- Row 19: Signature Names (Col 2 & Col 3 lower boxes) -->
 <tr>
-  <td class="border-b border-l border-r text-center font-normal" style="padding-top: 6px; padding-bottom: 8px; vertical-align: middle;">Employee</td>
-  <td class="border-b border-l border-r font-bold text-center ${employeeNameClass}" style="padding-top: 6px; padding-bottom: 8px; vertical-align: top;">${employeeName}</td>
+  <td class="border-b border-l border-r font-bold text-left ${employeeNameClass}" style="padding-top: 6px; padding-bottom: 8px; vertical-align: top;">${employeeName}</td>
   <td class="border-b border-l border-r font-bold text-center" style="padding-top: 6px; padding-bottom: 8px; vertical-align: top;">${companyName}</td>
 </tr>
 
@@ -574,11 +580,11 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
     table: {
       widths: ["20%", "40%", "40%"],
       body: [
-        // Row 1: Table Header (PAYSLIP | Month | Pay Period)
+        // Row 1: Table Header (PAYSLIP | Month | Pay Period) — Removed vertical border before date range
         [
           { text: "PAYSLIP", bold: true, fontSize: 12, alignment: "left", border: [true, true, true, true] },
-          { text: payrollMonthShort, bold: true, fontSize: 12, alignment: "left", border: [true, true, true, true] },
-          { text: periodRange, bold: true, fontSize: 12, alignment: "left", border: [true, true, true, true] },
+          { text: payrollMonthShort, bold: true, fontSize: 12, alignment: "left", border: [true, true, false, true] },
+          { text: periodRange, bold: true, fontSize: 12, alignment: "left", border: [false, true, true, true] },
         ],
         // Row 2: Name + Deduction Title
         [
@@ -586,10 +592,10 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
           { text: employeeName, bold: true, fontSize: 10.5, border: [true, true, true, true] },
           { text: "Deduction", fontSize: 10.5, border: [true, true, true, true] },
         ],
-        // Row 3: IC NO
+        // Row 3: IC NO (horizontal border at bottom of Col 2 only)
         [
           { text: "IC NO :", bold: true, fontSize: 10.5, border: [true, false, true, false] },
-          { text: icNo, bold: true, fontSize: 10.5, border: [true, false, true, false] },
+          { text: icNo, bold: true, fontSize: 10.5, border: [true, false, true, true] },
           { text: "", border: [true, false, true, false] },
         ],
         // Row 4: Employee Code
@@ -604,94 +610,100 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
           { text: department, fontSize: 10.5, border: [true, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 6: Job Title (Col 3 bottom border false to remove unwanted line under Job Title in Deduction column)
+        // Row 6: Job Title (matches HTML border-b under Job Title)
         [
           { text: "Job Title :", bold: true, fontSize: 10.5, border: [true, false, true, true] },
           { text: jobTitle, fontSize: 10.5, border: [true, false, true, true] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 7: Payment Header
-        [
-          { text: "Payment :", bold: true, fontSize: 10.5, border: [true, true, false, false], margin: [0, 0, 0, 4] },
-          { text: "", border: [false, true, true, false] },
-          { text: "", border: [true, false, true, false] },
-        ],
-        // Row 8: Payment Space Row (NEW EMPTY ROW AFTER PAYMENT:)
+        // Row 6.5: Empty Space Row BEFORE Payment :
         [
           { text: "", margin: [0, 4, 0, 4], border: [true, false, false, false] },
           { text: "", margin: [0, 4, 0, 4], border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 9: Basic Rate (aligns horizontally with Employee Share / Employee Amount)
+        // Row 7: Payment Header (no line above Payment :)
+        [
+          { text: "Payment :", bold: true, fontSize: 10.5, border: [true, false, false, false], margin: [0, 0, 0, 4] },
+          { text: "", border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 7.5: Empty Space Row AFTER Payment :
+        [
+          { text: "", margin: [0, 4, 0, 4], border: [true, false, false, false] },
+          { text: "", margin: [0, 4, 0, 4], border: [false, false, true, false] },
+          { text: "", border: [true, false, true, false] },
+        ],
+        // Row 8: Basic Rate & Employee Share
         [
           { text: "Basic Rate", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatAmount(data.basicRate), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
-          { text: `Employee Amount = SGD ${formatAmount(data.employeeCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
+          { text: `Employee Share = SGD ${formatAmount(data.employeeCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
         ],
-        // Row 10: Working Days (aligns horizontally with Employer Share / Employer Amount)
+        // Row 9: Working Days & Employer Share
         [
           { text: "Working Days", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatWorkingDays(data.workingDays), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
-          { text: `Employer Amount = SGD ${formatAmount(data.employerCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
+          { text: `Employer Share = SGD ${formatAmount(data.employerCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
         ],
-        // Row 11: Basic Pay
+        // Row 10: Basic Pay
         [
           { text: "Basic Pay", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatAmount(data.basicPay), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 12: Payment Spacer Row (creates clean vertical spacing between Basic Pay and Overtime)
+        // Row 11: Payment Spacer Row (EMPTY ROW AFTER BASIC PAY)
         [
           { text: "", margin: [0, 35, 0, 35], border: [true, false, false, false] },
           { text: "", margin: [0, 35, 0, 35], border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 13: Overtime
+        // Row 12: Overtime
         [
           { text: "Overtime", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatAmount(data.overtime), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 14: Allowance & Other (Allowance and Other occupy the exact same horizontal row)
+        // Row 13: Allowance & Other
         [
           { text: "Allowance", fontSize: 10.5, border: [true, false, false, true] },
           { text: formatAmount(data.allowance), fontSize: 10.5, alignment: "right", border: [false, false, true, true] },
           { text: `Other : ${formatAmount(data.otherDeductions)}`, fontSize: 10.5, border: [true, true, true, true] },
         ],
-        // Row 15: Gross Pay / Monthly Gross (no bottom border on Col 3 to eliminate half-line below Monthly Gross)
+        // Row 14: Gross Pay / Monthly Gross
         [
           { text: "Gross pay", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatAmount(data.grossPay), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
           { text: `Monthly Gross : SGD ${formatAmount(data.grossPay)}`, bold: true, fontSize: 10.5, border: [true, false, true, false] },
         ],
-        // Row 16: Employee CPF (no top border to seamlessly join Gross pay row)
+        // Row 15: Employee CPF
         [
           { text: "Employee CPF", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatAmount(data.employeeCpf), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 17: Summary Spacer Row
+        // Row 16: Summary Spacer Row
         [
           { text: "", margin: [0, 8, 0, 8], border: [true, false, false, false] },
           { text: "", margin: [0, 8, 0, 8], border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 18: Net Pay
+        // Row 17: Net Pay
         [
           { text: "Net Pay", bold: true, fontSize: 11, border: [true, false, false, true] },
           { text: formatAmount(data.netPay), bold: true, fontSize: 11, alignment: "right", border: [false, false, true, true] },
           { text: "", border: [true, false, true, true] },
         ],
-        // Row 19: Signature Space (Reduced height from [0, 24, 0, 24] to [0, 10, 0, 10])
+        // Row 18: Signature Space (Upper box for Col 2 & Col 3, rowSpan: 2 for Col 1)
         [
-          { text: "", margin: [0, 10, 0, 10], border: [true, false, true, false] },
-          { text: "", margin: [0, 10, 0, 10], border: [true, false, true, true] },
-          { text: "", margin: [0, 10, 0, 10], border: [true, false, true, true] },
+          { text: "Employee", rowSpan: 2, fontSize: 11, alignment: "center", margin: [0, 25, 0, 25], border: [true, false, true, true] },
+          { text: "", margin: [0, 25, 0, 25], border: [true, false, true, true] },
+          { text: "", margin: [0, 25, 0, 25], border: [true, false, true, true] },
         ],
-        // Row 20: Signature Labels & Names (Employee label centered, Employee name and Company name centered below signature lines)
+        // Row 19: Signature Names (Col 2 & Col 3 lower boxes)
         [
-          { text: "Employee", fontSize: 11, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
-          { text: employeeName, bold: true, fontSize: 10.5, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
+          {},
+          { text: employeeName, bold: true, fontSize: 10.5, alignment: "left", margin: [0, 4, 0, 4], border: [true, false, true, true] },
           { text: companyName, bold: true, fontSize: 10.5, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
         ],
       ],
