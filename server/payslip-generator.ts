@@ -488,16 +488,16 @@ body {
 </tr>
 
 <!-- Row 18: Signature Space (Upper box for Col 2 & Col 3, Rowspan 2 for Col 1) -->
-<tr style="height: 65px;">
-  <td rowspan="2" class="border-b border-l border-r text-center font-normal" style="vertical-align: middle;">Employee</td>
+<tr style="height: 60px;">
+  <td rowspan="2" class="border-b border-l border-r text-center font-normal" style="padding-top: 54px; padding-bottom: 6px; vertical-align: bottom;">Employee</td>
   <td class="border-b border-l border-r text-center"></td>
   <td class="border-b border-l border-r text-center"></td>
 </tr>
 
 <!-- Row 19: Signature Names (Col 2 & Col 3 lower boxes) -->
 <tr>
-  <td class="border-b border-l border-r font-bold text-left ${employeeNameClass}" style="padding-top: 6px; padding-bottom: 8px; vertical-align: top;">${employeeName}</td>
-  <td class="border-b border-l border-r font-bold text-center" style="padding-top: 6px; padding-bottom: 8px; vertical-align: top;">${companyName}</td>
+  <td class="border-b border-l border-r font-bold text-left ${employeeNameClass}" style="padding-top: 6px; padding-bottom: 6px; vertical-align: middle;">${employeeName}</td>
+  <td class="border-b border-l border-r font-bold text-center" style="padding-top: 6px; padding-bottom: 6px; vertical-align: middle;">${companyName}</td>
 </tr>
 
 </table>
@@ -696,15 +696,15 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
         ],
         // Row 18: Signature Space (Upper box for Col 2 & Col 3, rowSpan: 2 for Col 1)
         [
-          { text: "Employee", rowSpan: 2, fontSize: 11, alignment: "center", margin: [0, 25, 0, 25], border: [true, false, true, true] },
-          { text: "", margin: [0, 25, 0, 25], border: [true, false, true, true] },
-          { text: "", margin: [0, 25, 0, 25], border: [true, false, true, true] },
+          { text: "", border: [true, false, true, false] },
+          { text: "", margin: [0, 25, 0, 25], border: [true, true, true, false] },
+          { text: "", margin: [0, 25, 0, 25], border: [true, true, true, false] },
         ],
         // Row 19: Signature Names (Col 2 & Col 3 lower boxes)
         [
-          {},
-          { text: employeeName, bold: true, fontSize: 10.5, alignment: "left", margin: [0, 4, 0, 4], border: [true, false, true, true] },
-          { text: companyName, bold: true, fontSize: 10.5, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
+          { text: "Employee", fontSize: 11, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
+          { text: employeeName, bold: true, fontSize: 10.5, alignment: "left", margin: [0, 4, 0, 4], border: [true, true, true, true] },
+          { text: companyName, bold: true, fontSize: 10.5, alignment: "center", margin: [0, 4, 0, 4], border: [true, true, true, true] },
         ],
       ],
     },
