@@ -54,6 +54,13 @@ const payrollConfigFormSchema = z.object({
 
 type PayrollConfigFormData = z.infer<typeof payrollConfigFormSchema>;
 
+function getDefaultSalaryPayDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}-05`;
+}
+
 type CompanyPayrollDraft = {
   companyId: number;
   companyName: string;
@@ -61,6 +68,7 @@ type CompanyPayrollDraft = {
   annualSalary: number;
   payrollPeriod: string;
   noOfWorkingDays: string;
+  salaryPayDate: string;
   allowanceTransport?: number;
   allowanceMeal?: number;
   allowancePhone?: number;
@@ -82,6 +90,7 @@ const EMPTY_DRAFT: CompanyPayrollDraft = {
   annualSalary: 0,
   payrollPeriod: "monthly",
   noOfWorkingDays: "",
+  salaryPayDate: getDefaultSalaryPayDate(),
   effectiveFrom: new Date().toISOString().split("T")[0],
   effectiveTo: "",
   isActive: true,
@@ -116,6 +125,7 @@ function emptyDraftFromSalary(entry: {
     annualSalary: Number.isFinite(annual) ? annual : 0,
     payrollPeriod: "monthly",
     noOfWorkingDays: "",
+    salaryPayDate: getDefaultSalaryPayDate(),
     effectiveFrom: new Date().toISOString().split("T")[0],
     effectiveTo: "",
     isActive: true,
@@ -143,6 +153,9 @@ function draftFromExistingConfig(
     payrollPeriod: config?.payrollPeriod || "monthly",
     noOfWorkingDays:
       config?.noOfWorkingDays != null ? String(config.noOfWorkingDays) : "",
+    salaryPayDate: config?.salaryPayDate
+      ? String(config.salaryPayDate).split("T")[0]
+      : draft.salaryPayDate,
     allowanceTransport: toOptionalFormNumber(allowances.transport),
     allowanceMeal: toOptionalFormNumber(allowances.meal),
     allowancePhone: toOptionalFormNumber(allowances.phone),
@@ -164,12 +177,14 @@ function CompanyCpfPreview({
   companyId,
   companyName,
   salary,
+  salaryPayDate,
   calculationInputBase,
   onCalculation,
 }: {
   companyId: number;
   companyName: string;
   salary: number;
+  salaryPayDate?: string;
   calculationInputBase: Omit<PayrollCalculationPreviewInput, "grossSalary"> | null;
   onCalculation: (companyId: number, calc: PayrollCalculationPreviewResult | null) => void;
 }) {
@@ -188,6 +203,7 @@ function CompanyCpfPreview({
     <PayrollCalculationPreviewPanel
       title={`CPF Preview — ${companyName}`}
       calculation={calculation}
+      salaryPayDate={salaryPayDate}
       isLoading={isLoading}
       isRefreshing={isRefreshing}
       error={error}
@@ -593,6 +609,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
       companyId: draft.companyId,
       baseSalary: draft.salary,
       payrollPeriod: draft.payrollPeriod || "monthly",
+      salaryPayDate: draft.salaryPayDate || getDefaultSalaryPayDate(),
       overtimeRate: draft.overtimeRate,
       allowances: {
         transport: Number(draft.allowanceTransport) || 0,
@@ -826,6 +843,14 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                           }
                         />
                       </div>
+                      <div className="space-y-2">
+                        <Label>Salary Pay Date</Label>
+                        <StringDatePicker
+                          value={displayDraft.salaryPayDate || getDefaultSalaryPayDate()}
+                          disabled={fieldsDisabled}
+                          onChange={(v) => updateSelectedDraft({ salaryPayDate: v })}
+                        />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -836,6 +861,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                     companyId={selectedDraft.companyId}
                     companyName={selectedDraft.companyName}
                     salary={selectedDraft.salary}
+                    salaryPayDate={selectedDraft.salaryPayDate || getDefaultSalaryPayDate()}
                     calculationInputBase={calculationInputBase}
                     onCalculation={handleCompanyCalculation}
                   />
@@ -843,6 +869,7 @@ export default function PayrollConfigForm({ onSuccess, onCancel, editData }: Pay
                   <PayrollCalculationPreviewPanel
                     title="CPF Preview"
                     calculation={null}
+                    salaryPayDate={getDefaultSalaryPayDate()}
                     emptyMessage="Select employee and company to preview CPF calculations."
                   />
                 )}

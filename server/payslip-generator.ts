@@ -117,19 +117,56 @@ export interface PayslipData {
   netPay: number;
   employerCpf: number;
   otherDeductions: number;
+  salaryPayDate?: string | null;
 }
 
 function formatPayslipMonthShort(month: number, year: number): string {
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const safeMonth = month >= 1 && month <= 12 ? month : 1;
-  return `${months[safeMonth - 1]}-${String(year).slice(-2)}`;
+  return `${months[safeMonth - 1]}-${String(year)}`;
 }
 
 function formatPayslipShortDate(isoDate: string): string {
   const normalized = normalizePayPeriodDate(isoDate);
   const [yearStr, monthStr, dayStr] = normalized.split("-");
   if (!yearStr || !monthStr || !dayStr) return normalized;
-  return `${dayStr}.${monthStr}.${yearStr.slice(-2)}`;
+  return `${dayStr}.${monthStr}.${yearStr}`;
+}
+
+function formatSalaryPayDateShort(salaryPayDate?: string | null, year?: number, month?: number): string {
+  const payPeriodYear = year ?? new Date().getFullYear();
+  const payPeriodMonth = month ?? new Date().getMonth() + 1;
+
+  // Salary for a pay period is paid in the month AFTER the pay period month
+  let paymentMonth = payPeriodMonth + 1;
+  let paymentYear = payPeriodYear;
+  if (paymentMonth > 12) {
+    paymentMonth = 1;
+    paymentYear += 1;
+  }
+
+  const monthStr = String(paymentMonth).padStart(2, "0");
+  const yearStr = String(paymentYear); // 4-digit YYYY (e.g. 2026)
+
+  let dayStr = "05";
+  if (salaryPayDate && String(salaryPayDate).trim() !== "") {
+    const raw = String(salaryPayDate).trim();
+    const normalized = raw.includes("T") ? raw.split("T")[0] : raw;
+    const parts = normalized.split("-");
+    if (parts.length === 3 && parts[2]) {
+      const d = parseInt(parts[2], 10);
+      if (d >= 1 && d <= 31) {
+        dayStr = String(d).padStart(2, "0");
+      }
+    } else if (parts.length === 1) {
+      const d = parseInt(parts[0], 10);
+      if (d >= 1 && d <= 31) {
+        dayStr = String(d).padStart(2, "0");
+      }
+    }
+  }
+
+  return `${dayStr}.${monthStr}.${yearStr}`;
 }
 
 function formatWorkingDays(value: number | null | undefined): string {
@@ -171,6 +208,7 @@ export interface CanonicalPayslipTemplate {
     department: string;
     jobTitle: string;
   };
+  salaryPayDateShort: string;
   payments: {
     basicRate: string;
     workingDays: string;
@@ -195,6 +233,7 @@ export function buildCanonicalPayslipTemplate(data: PayslipData): CanonicalPaysl
   const payPeriodEnd = normalizePayPeriodDate(data.payPeriodEnd);
   const payrollMonthShort = formatPayslipMonthShort(data.month, data.year);
   const periodRange = `${formatPayslipShortDate(payPeriodStart)} - ${formatPayslipShortDate(payPeriodEnd)}`;
+  const salaryPayDateShort = formatSalaryPayDateShort(data.salaryPayDate, data.year, data.month);
 
   return {
     header: {
@@ -210,6 +249,7 @@ export function buildCanonicalPayslipTemplate(data: PayslipData): CanonicalPaysl
       department: data.department || "",
       jobTitle: data.jobTitle || "",
     },
+    salaryPayDateShort,
     payments: {
       basicRate: formatAmount(data.basicRate),
       workingDays: formatWorkingDays(data.workingDays),
@@ -361,11 +401,11 @@ body {
   <td class="border-t border-b border-r font-bold text-left" style="font-size:16px;">${periodRange}</td>
 </tr>
 
-<!-- Row 2: Name & Deduction Title -->
+<!-- Row 2: Name & Salary Pay Date -->
 <tr>
   <td class="border-t border-l border-r font-bold text-left">Name :</td>
   <td class="border-t border-b border-l border-r font-bold text-left ${employeeNameClass}">${employeeName}</td>
-  <td class="border-t border-b border-l border-r text-left">Deduction</td>
+  <td class="border-t border-b border-l border-r text-left">Salary Pay Date : ${tpl.salaryPayDateShort}</td>
 </tr>
 
 <!-- Row 3: IC NO (horizontal border at bottom of Col 2 only) -->
@@ -403,11 +443,11 @@ body {
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 7: Payment Header (no line above Payment :) -->
+<!-- Row 7: Payment Header & CPF Deduction -->
 <tr>
   <td class="border-l font-bold text-left" style="padding-bottom:2px;">Payment :</td>
   <td class="border-r text-left"></td>
-  <td class="border-l border-r text-left"></td>
+  <td class="border-l border-r font-bold text-left">CPF Deduction :</td>
 </tr>
 
 <!-- Row 7.5: Empty Space Row AFTER Payment : -->
@@ -417,18 +457,18 @@ body {
   <td class="border-l border-r text-left"></td>
 </tr>
 
-<!-- Row 8: Basic Rate & Employee Share -->
+<!-- Row 8: Basic Rate & Employee CPF -->
 <tr>
   <td class="border-l text-left">Basic Rate</td>
   <td class="border-r text-right">${tpl.payments.basicRate}</td>
-  <td class="border-l border-r text-left">Employee Share = SGD ${tpl.deductions.employeeAmount}</td>
+  <td class="border-l border-r text-left">Employee CPF = SGD ${tpl.deductions.employeeAmount}</td>
 </tr>
 
-<!-- Row 9: Working Days & Employer Share -->
+<!-- Row 9: Working Days & Employer CPF -->
 <tr>
   <td class="border-l text-left">Working Days</td>
   <td class="border-r text-right">${tpl.payments.workingDays}</td>
-  <td class="border-l border-r text-left">Employer Share = SGD ${tpl.deductions.employerAmount}</td>
+  <td class="border-l border-r text-left">Employer CPF = SGD ${tpl.deductions.employerAmount}</td>
 </tr>
 
 <!-- Row 10: Basic Pay -->
@@ -489,7 +529,7 @@ body {
 
 <!-- Row 18: Signature Space (Upper box for Col 2 & Col 3, Rowspan 2 for Col 1) -->
 <tr style="height: 60px;">
-  <td rowspan="2" class="border-b border-l border-r text-center font-normal" style="padding-top: 54px; padding-bottom: 6px; vertical-align: bottom;">Employee</td>
+  <td rowspan="2" class="border-b border-l border-r text-left font-normal" style="padding-top: 54px; padding-bottom: 6px; vertical-align: bottom;">Employee</td>
   <td class="border-b border-l border-r text-center"></td>
   <td class="border-b border-l border-r text-center"></td>
 </tr>
@@ -587,11 +627,11 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
           { text: payrollMonthShort, bold: true, fontSize: 12, alignment: "left", border: [true, true, false, true] },
           { text: periodRange, bold: true, fontSize: 12, alignment: "left", border: [false, true, true, true] },
         ],
-        // Row 2: Name + Deduction Title
+        // Row 2: Name + Salary Pay Date
         [
           { text: "Name :", bold: true, fontSize: 10.5, border: [true, true, true, false] },
           { text: employeeName, bold: true, fontSize: 10.5, border: [true, true, true, true] },
-          { text: "Deduction", fontSize: 10.5, border: [true, true, true, true] },
+          { text: `Salary Pay Date : ${tpl.salaryPayDateShort}`, fontSize: 10.5, border: [true, true, true, true] },
         ],
         // Row 3: IC NO (horizontal border at bottom of Col 2 only)
         [
@@ -623,11 +663,11 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
           { text: "", margin: [0, 4, 0, 4], border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 7: Payment Header (no line above Payment :)
+        // Row 7: Payment Header & CPF Deduction Header
         [
           { text: "Payment :", bold: true, fontSize: 10.5, border: [true, false, false, false], margin: [0, 0, 0, 4] },
           { text: "", border: [false, false, true, false] },
-          { text: "", border: [true, false, true, false] },
+          { text: "CPF Deduction :", bold: true, fontSize: 10.5, border: [true, false, true, false] },
         ],
         // Row 7.5: Empty Space Row AFTER Payment :
         [
@@ -635,17 +675,17 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
           { text: "", margin: [0, 4, 0, 4], border: [false, false, true, false] },
           { text: "", border: [true, false, true, false] },
         ],
-        // Row 8: Basic Rate & Employee Share
+        // Row 8: Basic Rate & Employee CPF
         [
           { text: "Basic Rate", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatAmount(data.basicRate), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
-          { text: `Employee Share = SGD ${formatAmount(data.employeeCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
+          { text: `Employee CPF = SGD ${formatAmount(data.employeeCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
         ],
-        // Row 9: Working Days & Employer Share
+        // Row 9: Working Days & Employer CPF
         [
           { text: "Working Days", fontSize: 10.5, border: [true, false, false, false] },
           { text: formatWorkingDays(data.workingDays), fontSize: 10.5, alignment: "right", border: [false, false, true, false] },
-          { text: `Employer Share = SGD ${formatAmount(data.employerCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
+          { text: `Employer CPF = SGD ${formatAmount(data.employerCpf)}`, fontSize: 10.5, border: [true, false, true, false] },
         ],
         // Row 10: Basic Pay
         [
@@ -703,7 +743,7 @@ export function buildPayslipPdfMakeContent(data: PayslipData, pageBreakBefore = 
         ],
         // Row 19: Signature Names (Col 2 & Col 3 lower boxes)
         [
-          { text: "Employee", fontSize: 11, alignment: "center", margin: [0, 4, 0, 4], border: [true, false, true, true] },
+          { text: "Employee", fontSize: 11, alignment: "left", margin: [0, 4, 0, 4], border: [true, false, true, true] },
           { text: employeeName, bold: true, fontSize: 10.5, alignment: "left", margin: [0, 4, 0, 4], border: [true, true, true, true] },
           { text: companyName, bold: true, fontSize: 10.5, alignment: "center", margin: [0, 4, 0, 4], border: [true, true, true, true] },
         ],

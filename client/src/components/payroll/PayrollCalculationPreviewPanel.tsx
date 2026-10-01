@@ -9,8 +9,25 @@ function formatCurrency(amount: number) {
   }).format(amount || 0);
 }
 
+function formatSalaryPayDate(value?: string | null): string {
+  if (!value) return "";
+  const raw = value.includes("T") ? value.split("T")[0] : value;
+  const parts = raw.split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
+  }
+  const dateObj = new Date(value);
+  if (isNaN(dateObj.getTime())) return value;
+  const dd = String(dateObj.getDate()).padStart(2, "0");
+  const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const yyyy = dateObj.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 interface PayrollCalculationPreviewPanelProps {
   calculation: PayrollCalculationPreviewResult | null;
+  salaryPayDate?: string;
   isLoading?: boolean;
   isRefreshing?: boolean;
   error?: string | null;
@@ -21,6 +38,7 @@ interface PayrollCalculationPreviewPanelProps {
 
 export default function PayrollCalculationPreviewPanel({
   calculation,
+  salaryPayDate,
   isLoading = false,
   isRefreshing = false,
   error = null,
@@ -29,6 +47,7 @@ export default function PayrollCalculationPreviewPanel({
   title = "CPF Preview",
 }: PayrollCalculationPreviewPanelProps) {
   const showInitialLoader = isLoading && !calculation;
+  const formattedPayDate = formatSalaryPayDate(salaryPayDate);
 
   return (
     <Card className={className}>
@@ -51,7 +70,13 @@ export default function PayrollCalculationPreviewPanel({
           <div className="py-6 text-sm text-muted-foreground font-medium">{error}</div>
         ) : calculation ? (
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
+            {formattedPayDate && (
+              <div className="flex justify-between border-b pb-2 mb-2">
+                <span className="text-muted-foreground font-medium">Salary Pay Date</span>
+                <span className="font-medium text-foreground">{formattedPayDate}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-b pb-2 mb-2">
               <span className="text-muted-foreground">Monthly Salary</span>
               <span className="font-medium">
                 {formatCurrency(calculation.breakdown?.baseSalary ?? calculation.grossPay)}
@@ -109,9 +134,17 @@ export default function PayrollCalculationPreviewPanel({
             </div>
           </div>
         ) : (
-          <div className="text-center text-muted-foreground py-8">
-            <Calculator className="h-12 w-12 mx-auto opacity-30 mb-2" />
-            <p className="text-sm">{emptyMessage}</p>
+          <div className="space-y-4">
+            {formattedPayDate && (
+              <div className="flex justify-between border-b pb-2 text-sm">
+                <span className="text-muted-foreground font-medium">Salary Pay Date</span>
+                <span className="font-medium text-foreground">{formattedPayDate}</span>
+              </div>
+            )}
+            <div className="text-center text-muted-foreground py-6">
+              <Calculator className="h-12 w-12 mx-auto opacity-30 mb-2" />
+              <p className="text-sm">{emptyMessage}</p>
+            </div>
           </div>
         )}
       </CardContent>

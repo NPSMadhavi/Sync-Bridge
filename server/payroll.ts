@@ -118,6 +118,7 @@ export async function getEmployeePayrollConfigs(req: Request, res: Response) {
         baseSalary: employeePayroll.baseSalary,
         payrollPeriod: employeePayroll.payrollPeriod,
         noOfWorkingDays: employeePayroll.noOfWorkingDays,
+        salaryPayDate: employeePayroll.salaryPayDate,
         hourlyRate: employeePayroll.hourlyRate,
         overtimeRate: employeePayroll.overtimeRate,
         allowances: employeePayroll.allowances,
@@ -250,6 +251,10 @@ function normalizePayrollConfigBody(reqBody: Record<string, unknown>, userId: nu
     effectiveTo:
       reqBody.effectiveTo && String(reqBody.effectiveTo).trim() !== ''
         ? reqBody.effectiveTo
+        : null,
+    salaryPayDate:
+      reqBody.salaryPayDate && String(reqBody.salaryPayDate).trim() !== ''
+        ? String(reqBody.salaryPayDate).split('T')[0]
         : null,
   };
 
@@ -525,6 +530,12 @@ export async function updateEmployeePayrollConfig(req: Request, res: Response) {
       updateData.noOfWorkingDays =
         req.body.noOfWorkingDays != null && req.body.noOfWorkingDays !== ''
           ? Math.trunc(Number(req.body.noOfWorkingDays))
+          : null;
+    }
+    if (req.body.salaryPayDate !== undefined) {
+      updateData.salaryPayDate =
+        req.body.salaryPayDate && String(req.body.salaryPayDate).trim() !== ''
+          ? String(req.body.salaryPayDate).split('T')[0]
           : null;
     }
     if (req.body.hourlyRate !== undefined) updateData.hourlyRate = req.body.hourlyRate != null ? String(num(req.body.hourlyRate) ?? 0) : null;
@@ -1225,6 +1236,7 @@ function buildPayslipFromProcessedRecord(
     netPay: parseFloat(String(record.netPay)),
     employerCpf: parseFloat(String(config.employerCpfAmount ?? 0)),
     otherDeductions: sumJsonValues(record.deductions),
+    salaryPayDate: config.salaryPayDate ?? record.salaryPayDate ?? null,
   };
 }
 
@@ -1311,6 +1323,7 @@ async function buildPayslipEntryFromStoredRecord(
   const configForPayslip = {
     noOfWorkingDays: companyRecord.noOfWorkingDays ?? null,
     employerCpfAmount: companyRecord.employerCpfAmount ?? null,
+    salaryPayDate: config.salaryPayDate ?? null,
   };
 
   let resolvedCompany: { companyName: string | null; address: string | null } | null = fallbackCompany;

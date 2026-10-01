@@ -1545,6 +1545,10 @@ export default function PayrollPage() {
                   label="No of Working Days"
                   value={selectedConfig.noOfWorkingDays != null ? String(selectedConfig.noOfWorkingDays) : "—"}
                 />
+                <EntityViewField
+                  label="Salary Pay Date"
+                  value={formatViewValue(selectedConfig.salaryPayDate || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-05`)}
+                />
                 <EntityViewField label="Internal ID" value={String(selectedConfig.id)} />
               </EntityViewFieldGrid>
             </EntityViewSection>

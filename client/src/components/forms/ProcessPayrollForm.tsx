@@ -58,6 +58,49 @@ interface ProcessPayrollFormProps {
 
 type ProcessedDialogMode = "overwrite" | "no-changes" | null;
 
+function formatSalaryPayDate(value?: string | null, fallbackPeriodStart?: string): string {
+  let dayStr = "05";
+  if (value && String(value).trim() !== "") {
+    const raw = String(value).trim().split("T")[0];
+    const parts = raw.split("-");
+    if (parts.length === 3 && parts[2]) {
+      const d = parseInt(parts[2], 10);
+      if (d >= 1 && d <= 31) dayStr = String(d).padStart(2, "0");
+    } else if (parts.length === 1) {
+      const d = parseInt(parts[0], 10);
+      if (d >= 1 && d <= 31) dayStr = String(d).padStart(2, "0");
+    }
+  }
+
+  let payPeriodYear = new Date().getFullYear();
+  let payPeriodMonth = new Date().getMonth() + 1;
+
+  if (fallbackPeriodStart) {
+    const parts = fallbackPeriodStart.split("T")[0].split("-");
+    if (parts.length === 3) {
+      payPeriodYear = parseInt(parts[0], 10) || payPeriodYear;
+      payPeriodMonth = parseInt(parts[1], 10) || payPeriodMonth;
+    } else {
+      const d = new Date(fallbackPeriodStart);
+      if (!isNaN(d.getTime())) {
+        payPeriodYear = d.getFullYear();
+        payPeriodMonth = d.getMonth() + 1;
+      }
+    }
+  }
+
+  let paymentMonth = payPeriodMonth + 1;
+  let paymentYear = payPeriodYear;
+  if (paymentMonth > 12) {
+    paymentMonth = 1;
+    paymentYear += 1;
+  }
+
+  const mm = String(paymentMonth).padStart(2, "0");
+  const yyyy = String(paymentYear);
+  return `${dayStr}/${mm}/${yyyy}`;
+}
+
 function buildUniquePayrollEmployeeOptions(payrollConfigs: any[], employees: any[]) {
   const activeEmployeeIds = new Set<number>();
   for (const config of payrollConfigs) {
@@ -645,12 +688,18 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
 
           <Card>
             <CardHeader>
-              <CardTitle>Singapore Payroll Calculation</CardTitle>
+              <CardTitle>Payroll Calculation</CardTitle>
             </CardHeader>
             <CardContent>
               {payrollCalculation ? (
                 <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
+                      <div className="flex justify-between border-b pb-2 mb-2">
+                        <span className="text-muted-foreground font-medium">Salary Pay Date</span>
+                        <span className="font-medium text-foreground">
+                          {formatSalaryPayDate(selectedEmployee?.payrollConfig?.salaryPayDate, watchedPayPeriodStart)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between border-b pb-2 mb-2">
                         <span>Monthly Salary</span>
                         <span className="font-medium">{formatCurrency(payrollCalculation.breakdown?.baseSalary || 0)}</span>
                       </div>
@@ -666,16 +715,6 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
                         <span>Gross Salary</span>
                         <span>{formatCurrency(payrollCalculation.grossPay || 0)}</span>
                       </div>
-                      {/* Tax reference (not displayed / not deducted):
-                      <div className="flex justify-between">
-                        <span>Tax ({payrollCalculation.taxRatePercent?.toFixed(2) ?? 0}%)</span>
-                        <span className="text-red-600">-{formatCurrency(payrollCalculation.monthlyTaxDeduction || 0)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tax Amount</span>
-                        <span className="text-red-600">-{formatCurrency(payrollCalculation.monthlyTax || 0)}</span>
-                      </div>
-                      */}
                       <div className="flex justify-between">
                         <span>CPF Rate (Employee)</span>
                         <span>{payrollCalculation.employeeCpfRate ?? 0}%</span>
@@ -698,8 +737,18 @@ export default function ProcessPayrollForm({ onSuccess, onCancel, isOpen = true 
                       </div>
                 </div>
               ) : (
-                <div className="text-center text-muted-foreground py-6 text-sm">
-                  Calculate payroll to see Singapore CPF breakdown.
+                <div className="space-y-4">
+                  {watchedEmployeeId && (
+                    <div className="flex justify-between border-b pb-2 text-sm">
+                      <span className="text-muted-foreground font-medium">Salary Pay Date</span>
+                      <span className="font-medium text-foreground">
+                        {formatSalaryPayDate(selectedEmployee?.payrollConfig?.salaryPayDate, watchedPayPeriodStart)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="text-center text-muted-foreground py-6 text-sm">
+                    Calculate payroll to see CPF breakdown.
+                  </div>
                 </div>
               )}
             </CardContent>

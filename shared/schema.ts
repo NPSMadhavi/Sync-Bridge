@@ -1,4 +1,4 @@
-import { pgTable, text, integer, serial, timestamp, boolean, pgEnum, uuid, foreignKey, unique, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, serial, timestamp, boolean, pgEnum, uuid, foreignKey, unique, jsonb, decimal, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import type { UserPermissionsMap } from "./permissions";
 import { z } from "zod";
@@ -513,8 +513,6 @@ export const invoiceDesigns = pgTable("invoice_designs", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-import { decimal, date, jsonb } from "drizzle-orm/pg-core";
-
 // Employee Payroll Configuration table
 export const employeePayroll = pgTable("employee_payroll", {
   id: serial("id").primaryKey(),
@@ -524,6 +522,7 @@ export const employeePayroll = pgTable("employee_payroll", {
   baseSalary: decimal("base_salary", { precision: 10, scale: 2 }).notNull(),
   payrollPeriod: payrollPeriodEnum("payroll_period").notNull().default('monthly'),
   noOfWorkingDays: integer("no_of_working_days"),
+  salaryPayDate: date("salary_pay_date"),
   hourlyRate: decimal("hourly_rate", { precision: 8, scale: 2 }),
   overtimeRate: decimal("overtime_rate", { precision: 8, scale: 2 }),
   allowances: jsonb("allowances").$type<Record<string, number>>().default({}),
@@ -1229,6 +1228,7 @@ export const insertEmployeePayrollSchema = createInsertSchema(employeePayroll, {
     },
     z.union([z.number().int().min(1), z.undefined()])
   ),
+  salaryPayDate: z.string().optional().nullable(),
   companyId: z.preprocess(
     (val) => (val === '' || val === null || val === undefined ? undefined : Number(val)),
     z.number().int().optional()

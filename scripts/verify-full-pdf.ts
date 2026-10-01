@@ -1,4 +1,4 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from '../server/db';
@@ -133,14 +133,29 @@ async function runVerification() {
   assert(payslip.grossPay > 0, `Gross pay is greater than 0 (got ${payslip.grossPay})`);
   assert(payslip.netPay > 0, `Net pay is greater than 0 (got ${payslip.netPay})`);
 
-  // --- TEST 2: HTML Payslip Preview ---
-  console.log('\n--- TEST 2: HTML Payslip Preview Generation ---');
+  // --- TEST 2: HTML Payslip Preview & Salary Pay Date Calculation ---
+  console.log('\n--- TEST 2: HTML Payslip Preview & Salary Pay Date Calculation ---');
   const html = buildPayslipHtml(payslip);
   assert(typeof html === 'string' && html.length > 100, 'HTML generated and has content');
   assert(html.includes('M MALLIGA'), 'HTML contains employee name M MALLIGA');
   assert(html.includes(payslip.employeeCode), `HTML contains employee code ${payslip.employeeCode}`);
   assert(html.includes(payslip.companyName), `HTML contains company name ${payslip.companyName}`);
   assert(html.includes(payslip.jobTitle), `HTML contains job title ${payslip.jobTitle}`);
+
+  // Test Salary Pay Date for July 2026 (month 7 -> August 05.08.2026)
+  assert(html.includes('Salary Pay Date : 05.08.2026'), 'July 2026 pay period produces Salary Pay Date : 05.08.2026');
+
+  // Test Salary Pay Date for September 2026 (month 9 -> October 05.10.2026)
+  const septHtml = buildPayslipHtml({ ...payslip, month: 9, year: 2026, payPeriodStart: '2026-09-01', payPeriodEnd: '2026-09-30' });
+  assert(septHtml.includes('Salary Pay Date : 05.10.2026'), 'September 2026 pay period produces Salary Pay Date : 05.10.2026');
+
+  // Test Salary Pay Date for August 2026 (month 8 -> September 05.09.2026)
+  const augHtml = buildPayslipHtml({ ...payslip, month: 8, year: 2026, payPeriodStart: '2026-08-01', payPeriodEnd: '2026-08-31' });
+  assert(augHtml.includes('Salary Pay Date : 05.09.2026'), 'August 2026 pay period produces Salary Pay Date : 05.09.2026');
+
+  // Test Salary Pay Date for December 2026 (month 12 -> January 05.01.2027)
+  const decHtml = buildPayslipHtml({ ...payslip, month: 12, year: 2026, payPeriodStart: '2026-12-01', payPeriodEnd: '2026-12-31' });
+  assert(decHtml.includes('Salary Pay Date : 05.01.2027'), 'December 2026 pay period produces Salary Pay Date : 05.01.2027');
 
   // --- TEST 3: Pure Node PDF Generation (Single Payslip) ---
   console.log('\n--- TEST 3: Generate Single Payslip PDF with pdfmake ---');
