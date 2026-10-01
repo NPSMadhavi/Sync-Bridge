@@ -57,6 +57,7 @@ export async function ensurePayrollSchema(pool: QueryPool) {
     `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS employer_cpf_rate DECIMAL(5,2) DEFAULT 0.00`,
     `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS employer_cpf_amount DECIMAL(12,2)`,
     `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS no_of_working_days INTEGER`,
+    `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS salary_pay_date DATE`,
     `ALTER TABLE employee_payroll ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id)`,
     `ALTER TABLE payroll_configurations ADD COLUMN IF NOT EXISTS no_of_working_days INTEGER`,
     `ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS payroll_month INTEGER`,
